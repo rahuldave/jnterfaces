@@ -50,8 +50,10 @@ Do not use `cx` for these commands:
 3. Make the command write only the declared outputs.
 4. Put `cx` lines in linewise recipes, not in shebang or `[script]` recipes.
    `cx lint` reports an error for a `cx` line in a script recipe.
-5. Add `.cx/state.json`, `.cx/graph.json` and `.cx/tmp/` to `.gitignore`. Keep
-   `.cx/config.toml` in version control.
+5. Add `.cx/state.json` and `.cx/tmp/` to `.gitignore`. cx writes them as
+   local state. `cx graph` prints to the terminal and writes no file.
+6. If the project later adds `.cx/config.toml`, keep it in version control. The
+   current cx does not read it.
 
 ## How to run cx lint
 

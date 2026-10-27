@@ -91,6 +91,12 @@ class SkillTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('jagt protocol demo passed', result.stdout)
 
+    def test_cx_skill_matches_what_cx_writes(self):
+        text = (SKILLS / 'cx/SKILL.md').read_text()
+        self.assertIn('`.cx/state.json` and `.cx/tmp/`', text)
+        self.assertNotIn('graph.json', text)
+        self.assertIn('If the project later adds `.cx/config.toml`', text)
+
     def test_house_style_template_follows_the_house_style(self):
         template = SKILLS / 'just/assets/templates/house-style.just'
         text = template.read_text()
