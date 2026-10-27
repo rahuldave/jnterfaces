@@ -1,0 +1,30 @@
+name: Verify skill package
+
+on:
+  pull_request:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - uses: extractions/setup-just@v3
+      - name: Check syntax
+        run: just lint
+      - name: Build jagt for the protocol demo test
+        run: cargo install --locked --git https://github.com/rahuldave/jagt jagt
+      - name: Run the tests
+        run: just test
+      - name: Validate package manifest with skill-package-maker
+        run: just package-lint

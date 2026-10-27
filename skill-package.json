@@ -1,0 +1,34 @@
+{
+  "schema": "https://rahuldave.github.io/agent_skill_package_maker/schema/skill-package.v1.json",
+  "version": 1,
+  "repository": {
+    "owner": "rahuldave",
+    "name": "jnterfaces",
+    "url": "https://github.com/rahuldave/jnterfaces"
+  },
+  "skills": [
+    {"name": "just", "path": ".agents/skills/just", "installer": "scripts/install.sh"},
+    {"name": "jagt-protocol", "path": ".agents/skills/jagt-protocol", "installer": "scripts/install.sh"},
+    {"name": "cx", "path": ".agents/skills/cx", "installer": "scripts/install.sh"}
+  ],
+  "installers": [
+    {
+      "path": "scripts/install.sh",
+      "description": "Copy the just, jagt-protocol and cx skills into a target repository and record the source revision in .agents/jnterfaces-install.json.",
+      "checks_prerequisites": true
+    }
+  ],
+  "executables": {
+    "required": [
+      {"name": "just", "check": "just --version"}
+    ],
+    "optional": [
+      {"name": "jagt", "check": "jagt --version", "description": "Renders and checks agentic Just packets for the jagt-protocol skill. The draft commands need a jagt build with jagt draft lint."},
+      {"name": "cx", "check": "cx --help", "description": "Runs incremental file stages for the cx skill."}
+    ]
+  },
+  "npx": {
+    "supported": true,
+    "install": "npx skills add rahuldave/jnterfaces -a codex --skill '*' -y"
+  }
+}
