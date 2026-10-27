@@ -1,0 +1,3 @@
+interface:
+  display_name: "Jagt Protocol"
+  short_description: "Render and check agentic Just packets with jagt"
