@@ -36,11 +36,14 @@ class SkillTest(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in SKILLS.iterdir()), sorted(NAMES))
         for name in NAMES:
             text = (SKILLS / name / 'SKILL.md').read_text()
-            front = re.match(r'^---\nname: (.+)\ndescription: (.+)\n---\n', text)
+            front = re.match(r'^---\nname: (.+)\ndescription: (.+)\nlicense: (.+)\n---\n', text)
             self.assertIsNotNone(front, name)
             self.assertEqual(front.group(1), name)
             self.assertIn('Use when', front.group(2))
+            # Installed copies carry the licence here, because no installer copies LICENSE.
+            self.assertRegex(front.group(3), r'^MIT, copyright \(c\) 2026 Rahul Dave\. .*rahuldave/jnterfaces$')
             self.assertTrue((SKILLS / name / 'agents/openai.yaml').is_file())
+        self.assertTrue((REPO / 'LICENSE').read_text().startswith('MIT License\n\nCopyright (c) 2026 Rahul Dave\n'))
 
     def test_every_installed_path_and_relative_link_exists(self):
         for path, text in shipped_text():
@@ -91,11 +94,30 @@ class SkillTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('jagt protocol demo passed', result.stdout)
 
-    def test_cx_skill_matches_what_cx_writes(self):
-        text = (SKILLS / 'cx/SKILL.md').read_text()
-        self.assertIn('`.cx/state.json` and `.cx/tmp/`', text)
-        self.assertNotIn('graph.json', text)
-        self.assertIn('If the project later adds `.cx/config.toml`', text)
+    def test_cx_skill_and_contract_match_what_cx_writes(self):
+        for page in ('cx/SKILL.md', 'just/references/command_contract.md'):
+            text = (SKILLS / page).read_text()
+            self.assertIn('`.cx/state.json` and `.cx/tmp/`', text, page)
+            self.assertNotIn('graph.json', text, page)
+            self.assertIn('If the project later adds `.cx/config.toml`', text, page)
+            for sentence in re.split(r'(?<=[.!?])\s+', text):
+                if '.cx/state.json' in sentence or '.cx/tmp' in sentence:
+                    self.assertNotIn('version control', sentence, page)
+
+    def test_shipped_markdown_passes_the_writing_checker(self):
+        checker = Path(os.environ.get('NOSSAIFD_CHECK', REPO.parent / 'nossaifd/check.py'))
+        if not checker.is_file():
+            self.skipTest('no nossaifd check.py; set NOSSAIFD_CHECK')
+        pages = [REPO / 'README.md', REPO / 'AGENTS.md', *sorted(SKILLS.glob('*/SKILL.md')),
+                 *sorted(SKILLS.glob('*/references/*.md'))]
+        self.assertEqual(sorted(pages[2:]), sorted(SKILLS.rglob('*.md')), 'just prose must check every shipped page')
+        with tempfile.TemporaryDirectory() as temp:
+            for page in pages:
+                body = re.sub(r'\A---\n.*?\n---\n', '', page.read_text(), flags=re.S)
+                copy = Path(temp) / page.name
+                copy.write_text(body)
+                result = subprocess.run(['python3', checker, copy], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, f'{page}: {result.stdout}{result.stderr}')
 
     def test_house_style_template_follows_the_house_style(self):
         template = SKILLS / 'just/assets/templates/house-style.just'

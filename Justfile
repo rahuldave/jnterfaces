@@ -32,7 +32,7 @@ prose checker:
     #!/usr/bin/env bash
     set -uo pipefail
     work="$(mktemp -d)"; trap 'rm -rf -- "$work"' EXIT; status=0
-    for page in README.md AGENTS.md .agents/skills/*/SKILL.md; do
+    for page in README.md AGENTS.md .agents/skills/*/SKILL.md .agents/skills/*/references/*.md; do
         copy="$work/$(echo "$page" | tr / _)"
         awk 'NR==1 && /^---$/ {f=1; next} f && /^---$/ {f=0; next} !f' "$page" > "$copy" || status=1
         python3 "$1" "$copy" || status=1

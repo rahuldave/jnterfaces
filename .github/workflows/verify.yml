@@ -24,6 +24,11 @@ jobs:
         run: just lint
       - name: Build jagt for the protocol demo test
         run: cargo install --locked --git https://github.com/rahuldave/jagt jagt
+      - name: Get the nossaifd writing checker
+        run: |
+          git clone --quiet https://github.com/rahuldave/nossaifd "$RUNNER_TEMP/nossaifd"
+          git -C "$RUNNER_TEMP/nossaifd" checkout --quiet ca13f76d5c930e2cf4fddddbd6686a207f5d9f4e
+          echo "NOSSAIFD_CHECK=$RUNNER_TEMP/nossaifd/check.py" >> "$GITHUB_ENV"
       - name: Run the tests
         run: just test
       - name: Validate package manifest with skill-package-maker

@@ -84,3 +84,7 @@ the `jagt` on your PATH is older, set `JAGT_BIN` to a newer binary.
 The skill `jagt-protocol` came from the jagt repository, and the `just` and `cx`
 references came from agent_gest_git_skills. This repository is now the source
 of all three. The jagt repository keeps an installed copy for its own tests.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
