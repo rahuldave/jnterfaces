@@ -55,6 +55,8 @@ Do not use `cx` for these commands:
    local state. `cx graph` prints to the terminal and writes no file.
 6. If the project later adds `.cx/config.toml`, keep it in version control. The
    current cx does not read it.
+7. Write each recipe that uses `cx` in `AGENTS.md`, for example
+   `Build pipeline: just pipeline` and `cx lint: cx lint`.
 
 ## How to run cx lint
 

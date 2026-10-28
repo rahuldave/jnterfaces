@@ -168,6 +168,44 @@ class InstallTest(unittest.TestCase):
         result = self.install('--skill', 'nope', check=False)
         self.assertIn('Unknown skill', result.stderr)
 
+    def test_exact_removes_the_skills_left_out(self):
+        self.install()
+        result = self.install('--skill', 'just', '--exact', check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.target / '.agents/skills/cx').exists())
+        self.assertFalse((self.target / '.agents/skills/jagt-protocol').exists())
+        record = self.record()
+        self.assertEqual(record['skills'], ['just'])
+        self.assertTrue(all(name.startswith('.agents/skills/just/') for name in record['managed_files']))
+        # Turning a skill on again installs it.
+        self.install('--skill', 'just', '--skill', 'cx', '--exact')
+        self.assertTrue((self.target / '.agents/skills/cx/SKILL.md').is_file())
+        self.assertEqual(self.record()['skills'], ['cx', 'just'])
+
+    def test_exact_keeps_a_whole_skill_that_has_an_edited_file(self):
+        self.install()
+        before = self.record()['managed_files']
+        edited = self.target / '.agents/skills/cx/SKILL.md'
+        edited.write_text(edited.read_text() + 'my note\n')
+        result = self.install('--skill', 'just', '--exact', check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('the cx skill stays installed', result.stderr)
+        self.assertTrue((self.target / '.agents/skills/cx/references/incremental_pipelines.md').is_file())
+        self.assertFalse((self.target / '.agents/skills/jagt-protocol').exists())
+        record = self.record()
+        self.assertEqual(record['skills'], ['cx', 'just'])
+        cx = {k: v for k, v in before.items() if k.startswith('.agents/skills/cx/')}
+        self.assertEqual({k: v for k, v in record['managed_files'].items() if k.startswith('.agents/skills/cx/')}, cx)
+        # After the user undoes the edit, the skill can be turned on again, or removed.
+        edited.write_text(edited.read_text().replace('my note\n', ''))
+        self.assertEqual(self.install('--skill', 'just', '--exact', check=False).returncode, 0)
+        self.assertFalse((self.target / '.agents/skills/cx').exists())
+
+    def test_exact_needs_a_skill(self):
+        result = self.install('--exact', check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('--exact needs at least one --skill', result.stderr)
+
     def test_refuses_the_source_as_target(self):
         result = run('bash', self.source / 'scripts/install.sh', self.source, check=False)
         self.assertNotEqual(result.returncode, 0)

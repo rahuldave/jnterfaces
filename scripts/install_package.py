@@ -219,8 +219,14 @@ def main():
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--source-commit')
     parser.add_argument('--skill', action='append', default=[], help='install only this skill; repeatable')
+    parser.add_argument('--exact', action='store_true',
+                        help='with --skill: the selected skills are the whole install; remove the other skills of this package')
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
+    if args.exact and not args.skill:
+        fail('--exact needs at least one --skill')
+    # Partial: --skill without --exact leaves the other skills of this package as they are.
+    partial = bool(args.skill) and not args.exact
     if args.target.is_symlink() or args.source.is_symlink():
         fail('Source and target repository roots must not be symlinks')
     target = args.target.resolve()
@@ -239,6 +245,7 @@ def main():
     old_skills = old.get('skills', [])
     old_skills = [name for name in old_skills if isinstance(name, str)] if isinstance(old_skills, list) else []
     known = other_records(target, provenance)
+    keep = []
     planned, aliases = {}, {}
     for skill, folder in paths.items():
         files = tree.files(folder)
@@ -262,20 +269,35 @@ def main():
                     fail(f'Existing file differs from source and from every recorded install: {destination}')
             planned[relative] = (data, mode)
     # A file of an earlier install that this source no longer ships is removed when nobody changed it.
-    # Only skills of this package, now or in its earlier record, are in scope; with --skill, only the selected ones.
+    # Only skills of this package, now or in its earlier record, are in scope; in a partial install, only the selected ones.
     owned = all_skills | set(old_skills)
     scope = {path.as_posix() + '/' for path in paths.values()}
     renamed = {alias.as_posix() for alias in aliases.values()}
-    prune, keep = [], []
+    # With --exact, a skill that is turned off but has an edited file stays whole, so no skill is left half removed.
+    selected_folders = {path.parts[2] for path in paths.values()}
+    held = set()
+    if args.exact:
+        for name, recorded in old_hashes.items():
+            relative = Path(name)
+            if len(relative.parts) < 4 or relative.parts[:2] != ('.agents', 'skills') or '..' in relative.parts:
+                continue
+            folder = relative.parts[2]
+            if folder in owned and folder not in selected_folders and name not in known:
+                destination = target / relative
+                if destination.is_file() and not destination.is_symlink() and digest(destination.read_bytes()) != recorded:
+                    held.add(folder)
+                    keep.append((name, f'edited after install, so the {folder} skill stays installed; '
+                                       f'undo the edit or remove .agents/skills/{folder} yourself'))
+    prune = []
     for name, recorded in old_hashes.items():
         relative = Path(name)
         if relative.is_absolute() or '..' in relative.parts or relative.parts[:2] != ('.agents', 'skills'):
             fail(f'Recorded managed file is outside .agents/skills: {name}')
-        if len(relative.parts) < 4 or relative.parts[2] not in owned:
+        if len(relative.parts) < 4 or relative.parts[2] not in owned or relative.parts[2] in held:
             continue
         if relative in planned or name in renamed:
             continue
-        if args.skill and not any(name.startswith(prefix) for prefix in scope):
+        if partial and not any(name.startswith(prefix) for prefix in scope):
             continue
         reject_symlinks(target, relative)
         destination = target / relative
@@ -288,7 +310,8 @@ def main():
         else:
             keep.append((name, 'edited after install'))
     managed = {name: value for name, value in old_hashes.items()
-               if args.skill and not any(name.startswith(prefix) for prefix in scope)}
+               if (partial and not any(name.startswith(prefix) for prefix in scope))
+               or (len(Path(name).parts) > 3 and Path(name).parts[2] in held)}
     managed.update({relative.as_posix(): digest(data) for relative, (data, _) in planned.items()})
     metadata = {
         'schema_version': 1,
@@ -297,7 +320,7 @@ def main():
         'source_revision': revision,
         'source_worktree_dirty': dirty if not args.source_commit else False,
         'source_requested_commit': args.source_commit,
-        'skills': sorted(set(old_skills) | set(paths)) if args.skill else sorted(paths),
+        'skills': sorted(set(old_skills) | set(paths)) if partial else sorted(set(paths) | (set(old_skills) & held)),
         'managed_files': dict(sorted(managed.items())),
     }
     for name, reason in keep:

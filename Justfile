@@ -7,11 +7,13 @@ set positional-arguments
 default:
     @just --list --unsorted
 
-# Check the shell scripts, the Python and the JSON for syntax
+# Check the shell scripts, the Python and the JSON for syntax, and check that each link to an optional skill has a fallback
 lint:
     for script in scripts/*.sh .agents/skills/*/scripts/*.sh; do bash -n "$script"; done
-    python3 -m py_compile scripts/install_package.py tests/*.py
+    python3 -m py_compile scripts/*.py tests/*.py
     python3 -m json.tool skill-package.json > /dev/null
+    python3 -m json.tool stack.json > /dev/null
+    find .agents/skills -type f \( -name '*.md' -o -name '*.sh' -o -name '*.just' -o -name '*.yaml' -o -name '*.txt' \) -exec python3 scripts/check_skill_links.py --package . {} +
 
 # Run the tests. Extra arguments go to unittest: just test tests.test_skills. Set JAGT_BIN to run the jagt demo with a jagt that has draft lint
 test *args:
@@ -44,6 +46,10 @@ check:
     just lint
     just test
 
-# Install the skills into a target repository. Extra arguments go to the installer: just install ../app --dry-run
+# Install the skills of this package into a target repository. Extra arguments go to the installer: just install ../app --dry-run
 install target *args:
     scripts/install.sh "$@"
+
+# Install jnterfaces and the packages you choose into a target, and save the choices: just install-stack ../app --with cx
+install-stack target *args:
+    scripts/install_stack.sh "$@"

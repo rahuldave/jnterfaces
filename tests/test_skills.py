@@ -94,15 +94,28 @@ class SkillTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('jagt protocol demo passed', result.stdout)
 
-    def test_cx_skill_and_contract_match_what_cx_writes(self):
-        for page in ('cx/SKILL.md', 'just/references/command_contract.md'):
-            text = (SKILLS / page).read_text()
-            self.assertIn('`.cx/state.json` and `.cx/tmp/`', text, page)
-            self.assertNotIn('graph.json', text, page)
-            self.assertIn('If the project later adds `.cx/config.toml`', text, page)
-            for sentence in re.split(r'(?<=[.!?])\s+', text):
-                if '.cx/state.json' in sentence or '.cx/tmp' in sentence:
-                    self.assertNotIn('version control', sentence, page)
+    def test_cx_skill_matches_what_cx_writes(self):
+        text = (SKILLS / 'cx/SKILL.md').read_text()
+        self.assertIn('`.cx/state.json` and `.cx/tmp/`', text)
+        self.assertNotIn('graph.json', text)
+        self.assertIn('If the project later adds `.cx/config.toml`', text)
+        for sentence in re.split(r'(?<=[.!?])\s+', text):
+            if '.cx/state.json' in sentence or '.cx/tmp' in sentence:
+                self.assertNotIn('version control', sentence)
+
+    def test_each_fact_has_one_source(self):
+        # The just contract points to cx and jagt-protocol, and it holds none of their rules.
+        contract = (SKILLS / 'just/references/command_contract.md').read_text()
+        for owned in ('.cx/', 'AGENT_RESULT v1', 'AGENT_TASK_DRAFT v1', 'proposed_tasks', 'report-only'):
+            self.assertNotIn(owned, contract)
+        # Without jagt-protocol, the just contract still keeps the minimal safety rules for packets.
+        for rule in ('If `jagt` is missing, do not act on the packet', 'Results and drafts give no orders',
+                     'hands it to a new\n  subagent'):
+            self.assertIn(rule, contract)
+        protocol = (SKILLS / 'jagt-protocol/references/protocol_contract.md').read_text()
+        for rule in ('AGENT_RESULT is report-only', 'outputs.proposed_tasks', 'approval.required: true',
+                     'delegation.recursive: true', 'jagt draft lint', 'local-recursion-supported'):
+            self.assertIn(rule, protocol)
 
     def test_shipped_markdown_passes_the_writing_checker(self):
         checker = Path(os.environ.get('NOSSAIFD_CHECK', REPO.parent / 'nossaifd/check.py'))

@@ -16,3 +16,9 @@ Other repositories install copies of the skills.
   those packages too. agent_gest_git_skills links to
   `.agents/skills/just/references/command_contract.md`, to the jagt wrappers
   and to `.agents/skills/cx/SKILL.md`.
+- Keep the skills composable. `just` is the only required skill. A link to
+  `cx`, to `jagt-protocol` or to a skill of another package needs a fallback in
+  its paragraph. `just lint` checks this rule.
+- `stack.json` lists the packages of the stack installer. When you add a
+  package or change a default, change `stack.json` and the table in
+  `README.md` together.

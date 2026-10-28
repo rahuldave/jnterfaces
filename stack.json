@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "packages": [
+    {
+      "name": "jnterfaces",
+      "repository": "https://github.com/rahuldave/jnterfaces",
+      "about": "the Justfile skill and its optional cx and jagt-protocol skills",
+      "required_skills": [
+        "just"
+      ],
+      "optional_skills": [
+        {
+          "choice": "cx",
+          "default": false,
+          "about": "run file stages of a recipe only when they are out of date"
+        },
+        {
+          "choice": "jagt-protocol",
+          "default": false,
+          "about": "the packets of agentic Just recipes"
+        }
+      ]
+    },
+    {
+      "name": "agent_gest_git_skills",
+      "choice": "gest",
+      "repository": "https://github.com/rahuldave/agent_gest_git_skills",
+      "about": "the Gest g* workflow skills",
+      "default": true,
+      "needs": [
+        "jnterfaces"
+      ],
+      "record": ".agents/gest-git-install.json"
+    },
+    {
+      "name": "nossaifd",
+      "choice": "nossaifd",
+      "repository": "https://github.com/rahuldave/nossaifd",
+      "about": "the plain English writing guide and its checker",
+      "default": true
+    },
+    {
+      "name": "sklanes",
+      "choice": "sklanes",
+      "repository": "https://github.com/rahuldave/sklanes",
+      "about": "report requests for human attention to a Lanes inbox",
+      "default": false
+    }
+  ]
+}
