@@ -7,20 +7,18 @@
     "url": "https://github.com/rahuldave/jnterfaces"
   },
   "skills": [
-    {"name": "just", "path": ".agents/skills/just", "installer": "scripts/install.sh"},
-    {"name": "jagt-protocol", "path": ".agents/skills/jagt-protocol", "installer": "scripts/install.sh"},
-    {"name": "cx", "path": ".agents/skills/cx", "installer": "scripts/install.sh"}
+    {"name": "just", "path": ".agents/skills/just"},
+    {"name": "jagt-protocol", "path": ".agents/skills/jagt-protocol"},
+    {"name": "cx", "path": ".agents/skills/cx"}
   ],
-  "installers": [
-    {
-      "path": "scripts/install.sh",
-      "description": "Copy the just, jagt-protocol and cx skills into a target repository and record the source revision in .agents/jnterfaces-install.json.",
-      "checks_prerequisites": true
-    }
-  ],
+  "install_extras": {
+    "files": [".agents/install.just"]
+  },
   "executables": {
     "required": [
-      {"name": "just", "check": "just --version"}
+      {"name": "just", "check": "just --version"},
+      {"name": "uv", "check": "uv --version", "description": "Runs the installer, and the tools of the profiles."},
+      {"name": "git", "check": "git --version", "description": "Clones the packages and records their revisions."}
     ],
     "optional": [
       {"name": "jagt", "check": "jagt --version", "description": "Renders and checks agentic Just packets for the jagt-protocol skill. The draft commands need a jagt build with jagt draft lint."},

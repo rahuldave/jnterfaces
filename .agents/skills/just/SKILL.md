@@ -77,6 +77,27 @@ If a recipe has expensive stages that read files and write files, read the cx
 skill, `.agents/skills/cx/SKILL.md`. If the cx skill is not installed, write
 each stage as an ordinary line of the recipe.
 
+## Install tools and skills
+
+Besides Git, a project assumes two programs only, `just` and `uv`. Every other tool comes
+through a recipe. `just install` is that recipe. It is in
+`.agents/install.just`, and the Justfile imports it with the line
+`import? '.agents/install.just'`.
+
+- **`just install lint`** adds a tool. A tool is a set of packages for the
+  project, and the profile of the project names them. For Python, the recipe
+  runs `uv add --group lint ruff pre-commit`.
+- **`just install tasker`** adds a role. A role is a skill package, such as
+  the Gest skills.
+- **`just install`** alone installs again what `.agents/stack.json` saves.
+- **`just uninstall NAME`** takes a tool or a role out.
+
+When a recipe needs a tool that the project does not have, run
+`just install <tool>`. Do not install the tool on the machine, and do not run
+`pip`, `npm` or `brew` yourself. If no profile has the tool, add the recipe
+with a `uv run`, `uvx` or `npm` command that gets the tool. For TypeScript, uv
+runs npm and node from the `nodejs-wheel` package.
+
 ## Templates
 
 `assets/templates/` holds starting points for a Justfile. Read a template, then
@@ -84,7 +105,8 @@ adapt it to the project.
 
 - **`house-style.just`**: the house style, for a Python project with uv.
 - **Language profiles** use the contract names. They are `python-uv.just`,
-  `typescript-npm.just`, `go.just` and `rust-cargo.just`.
+  `typescript-npm.just`, `go.just` and `rust-cargo.just`. The installer writes
+  the template of a profile when a project has no Justfile.
 - **`npm-local-cache.just`**: an npm cache inside the project.
 - **`browser-agent.just`**: recipes for checks in a browser.
 - **`agent-contract.just`**: recipes that print context for agents.

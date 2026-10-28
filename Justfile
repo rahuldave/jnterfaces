@@ -7,17 +7,21 @@ set positional-arguments
 default:
     @just --list --unsorted
 
-# Check the shell scripts, the Python and the JSON for syntax, and check that each link to an optional skill has a fallback
+# Python comes from uv, so the machine needs just and uv only
+python := "uv run --no-project --quiet python"
+
+# Check the shell scripts, the Python, the JSON and the Justfile templates for syntax, and check that each link to an optional skill has a fallback
 lint:
-    for script in scripts/*.sh .agents/skills/*/scripts/*.sh; do bash -n "$script"; done
-    python3 -m py_compile scripts/*.py tests/*.py
-    python3 -m json.tool skill-package.json > /dev/null
-    python3 -m json.tool stack.json > /dev/null
-    find .agents/skills -type f \( -name '*.md' -o -name '*.sh' -o -name '*.just' -o -name '*.yaml' -o -name '*.txt' \) -exec python3 scripts/check_skill_links.py --package . {} +
+    for script in .agents/skills/*/scripts/*.sh; do bash -n "$script"; done
+    {{python}} -m py_compile scripts/*.py tests/*.py
+    {{python}} -m json.tool skill-package.json > /dev/null
+    {{python}} -m json.tool stack.json > /dev/null
+    for template in .agents/skills/just/assets/templates/*.just .agents/install.just; do just --justfile "$template" --summary > /dev/null; done
+    find .agents/skills -type f \( -name '*.md' -o -name '*.sh' -o -name '*.just' -o -name '*.yaml' -o -name '*.txt' \) -exec {{python}} scripts/check_skill_links.py --package . {} +
 
 # Run the tests. Extra arguments go to unittest: just test tests.test_skills. Set JAGT_BIN to run the jagt demo with a jagt that has draft lint
 test *args:
-    python3 -m unittest discover -s tests -q "$@"
+    {{python}} -m unittest discover -s tests -q "$@"
 
 # Check skill-package.json with skill-package-maker at the commit that CI uses
 package-lint:
@@ -37,7 +41,7 @@ prose checker:
     for page in README.md AGENTS.md .agents/skills/*/SKILL.md .agents/skills/*/references/*.md; do
         copy="$work/$(echo "$page" | tr / _)"
         awk 'NR==1 && /^---$/ {f=1; next} f && /^---$/ {f=0; next} !f' "$page" > "$copy" || status=1
-        python3 "$1" "$copy" || status=1
+        uv run --no-project --quiet python "$1" "$copy" || status=1
     done
     exit "$status"
 
@@ -46,10 +50,8 @@ check:
     just lint
     just test
 
-# Install the skills of this package into a target repository. Extra arguments go to the installer: just install ../app --dry-run
-install target *args:
-    scripts/install.sh "$@"
-
-# Install jnterfaces and the packages you choose into a target, and save the choices: just install-stack ../app --with cx
-install-stack target *args:
-    scripts/install_stack.sh "$@"
+# Run the installer on another project, with roles, tools or options: just install-into ../app --defaults lint
+install-into target *args:
+    #!/usr/bin/env sh
+    target="$1"; shift
+    exec uv run --quiet --script scripts/install_stack.py --target "$target" "$@"

@@ -11,7 +11,7 @@ Other repositories install copies of the skills.
 - Keep the skills free of paths from one machine. An installed copy has no
   `docs/` folder, so a skill names only files inside `.agents/skills/`.
 - A merge publishes the source only. Installed copies change only when someone
-  runs the installer again in each repository.
+  runs `just install` again in each repository.
 - If a change renames or removes a file that other packages link to, update
   those packages too. agent_gest_git_skills links to
   `.agents/skills/just/references/command_contract.md`, to the jagt wrappers
@@ -19,6 +19,9 @@ Other repositories install copies of the skills.
 - Keep the skills composable. `just` is the only required skill. A link to
   `cx`, to `jagt-protocol` or to a skill of another package needs a fallback in
   its paragraph. `just lint` checks this rule.
-- `stack.json` lists the packages of the stack installer. When you add a
-  package or change a default, change `stack.json` and the table in
-  `README.md` together.
+- `stack.json` lists the packages, their roles, the old names and the
+  profiles. When you add a package, a role or a profile, or change a default,
+  change `stack.json` and the tables in `README.md` together.
+- Only this repository has an installer. A project may assume `just` and `uv`
+  only. Run Python with `uv run`, not `python3`, and get every other tool
+  through `uv` or `uvx`.

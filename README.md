@@ -13,66 +13,108 @@ the incremental file stages of `cx`. An agent skill is a folder with a
 
 ## Install into a repository
 
-jnterfaces is the base of every project. Its stack installer installs the
-`just` skill, and it asks which other skills and packages to add:
+jnterfaces is the base of every project. Besides Git, a project needs two
+programs only, `just` and `uv`. One command installs everything else:
 
 ```bash
-scripts/install_stack.sh ../my-project
+just install
 ```
 
-The stack installer asks about each choice in the table. Press Enter to keep
-the default:
+`just install` comes from the file `.agents/install.just`, which jnterfaces
+installs in the project. The Justfile of the project imports that file. To
+start a new project, clone jnterfaces once and run its installer:
 
-| Choice | What it installs | Default |
-|---|---|---|
-| `cx` | the cx skill of jnterfaces | no |
-| `jagt-protocol` | the jagt-protocol skill of jnterfaces | no |
-| `gest` | the Gest `g*` skills of agent_gest_git_skills | yes |
-| `nossaifd` | the writing guide and its checker, from nossaifd | yes |
-| `sklanes` | the `lanes` skill, which reports requests for human attention | no |
+```bash
+git clone https://github.com/rahuldave/jnterfaces ~/.local/share/skill-packages/jnterfaces
+uv run ~/.local/share/skill-packages/jnterfaces/scripts/install_stack.py --profile python
+```
 
-The installer saves your choices in `.agents/stack.json` in the target. A later
-run without options installs the same choices again, with no questions. So
-`scripts/install_stack.sh ../my-project` also updates a project.
+On a terminal, the installer asks which roles to install, and it saves the
+answers in `.agents/stack.json`. Without a terminal, a named profile takes the
+default roles, and named roles alone turn on only those roles. A later `just install` installs the same set again, with
+no questions. So `just install` also updates a project.
 
-Use options to choose without questions, for example from an agent or CI:
+### Roles
 
-- **`--with cx,sklanes`** and **`--without gest`** turn choices on and off.
-- **`--defaults`** takes the defaults, and **`--all`** takes every choice.
-- **`--ask`** asks again, even when the target has saved choices.
-- **`--clone NAME=DIR`** uses a clone in another folder. By default, each
-  package is a folder next to this clone, for example `../nossaifd`.
+A role names a job, and a package does that job. So the package behind a role
+can change and the name stays. The installer asks about each role. Press
+Enter to keep the default:
+
+| Role | What it installs | Package | Default |
+|---|---|---|---|
+| `cx` | the cx skill | jnterfaces | no |
+| `jagt-protocol` | the jagt-protocol skill | jnterfaces | no |
+| `tasker` | the Gest `g*` skills, which track work | agent_gest_git_skills | yes |
+| `prose` | the writing guide and its checker | nossaifd | yes |
+| `reporter` | the `lanes` skill, which reports requests for human attention | sklanes | no |
+
+The old names `gest`, `nossaifd` and `sklanes` still work.
+
+### Tools and profiles
+
+A tool is a set of packages for the project itself, such as `lint`. A profile,
+such as `python`, sets the default roles, the tools and the Justfile. The
+installer finds the profile from the files of the project, such as
+`pyproject.toml`, or you name it with `--profile`.
+
+| Profile | Tools | Default tools | The command that adds a tool |
+|---|---|---|---|
+| `python` | `lint`, `test`, `typecheck` | `lint`, `test` | `uv add --group ...` |
+| `typescript` | `lint`, `test`, `typecheck` | `lint`, `typecheck` | npm, which uvx runs from `nodejs-wheel` |
+
+A tool can also copy config files, such as `ruff.toml`. The installer copies
+a file only when the project does not have it. After that, the file is yours.
+If the project has no Justfile, the installer writes the template of the
+profile. Otherwise it names the line to add to your Justfile.
+
+If the project has no `pyproject.toml` or `package.json`, the installer makes one with
+`uv init --bare` or `npm init --yes`. For Python, it also sets
+`default-groups = "all"` in `pyproject.toml`, so that `uv run` has the tools.
+If a tool fails, a later `just install` tries it again.
+
+### Names and options
+
+- **`just install lint tasker`** turns on a tool and a role.
+- **`just uninstall reporter lint`** turns them off. It removes the files of
+  the role and the packages of the tool. It keeps each file that you edited.
+- **`--profile python,typescript`** sets the profiles.
+- **`--defaults`** takes the defaults, and **`--all`** takes every role.
+- **`--ask`** asks again, even when the project has saved choices.
+- **`--update`** runs `git pull --ff-only` in each clone first.
+- **`--clone NAME=DIR`** uses one clone in another folder.
 - **`--clean`** installs the last commit of each clone, without uncommitted
-  changes. **`--dry-run`** checks every package and writes nothing.
+  changes. **`--dry-run`** checks everything and writes nothing in the
+  project.
 
-The installer runs the own installer of each package, so each package records
-its own source revision in the target. First it does a dry run of every
-package. If one dry run fails, it writes nothing.
+### Where the packages are
 
-If you turn off a skill of jnterfaces, the installer removes it, but it keeps
-each file that you edited. If you turn off a package, the installer leaves the
-package installed and says so. Remove its skills yourself.
+Each package is a Git clone in one folder. The default folder is
+`~/.local/share/skill-packages`. Set `SKILL_PACKAGES_DIR` to use another
+folder, for example the folder of your own clones. If a clone is missing, the
+installer clones it from GitHub. `JNTERFACES_DIR` names one jnterfaces clone.
 
-The list of packages and their defaults is in `stack.json`.
+Only jnterfaces has an installer. The other packages list their skills, and
+their other files, in `skill-package.json`. The installer copies them from the
+clone, and it writes one record for each package, such as
+`.agents/nossaifd-install.json`. A record holds the source revision and a hash
+of each file.
 
-### Install only the skills of jnterfaces
+The installer never overwrites or removes a file that you edited. First it
+checks every package. If one check fails, it writes nothing.
 
-To install the skills of this package and no other package, run its own
-installer:
+`skill-package.json` names the other files of a package in `install_extras`:
 
-```bash
-scripts/install.sh ../my-project --skill just --skill cx --exact
-```
+- **`files`** are files or folders outside `.agents/skills`, such as hook
+  scripts. The installer manages them like the files of a skill.
+- **`merge_hooks`** are JSON settings files. The installer adds their `hooks`
+  entries to the file of the same name in the project, and it takes them out
+  again on removal.
+- **`seed`** maps a file of the project to a starter file. The installer
+  writes it only when the project does not have it.
 
-The installer copies the skills to `.agents/skills/` in the target. It records
-the source revision and a hash of each file in
-`.agents/jnterfaces-install.json`. It never overwrites or removes a file that
-you edited after an install. It copies tracked files and untracked files that
-Git does not ignore.
+The list of packages, roles, aliases and profiles is in `stack.json`.
 
-Each `--skill` adds one skill. With `--exact`, the installer also removes the
-skills that you left out. Without `--skill`, it installs all three skills. To
-install one commit, add `--source-commit <revision>`.
+### npx
 
 You can also install the skills with npx:
 
@@ -80,11 +122,11 @@ You can also install the skills with npx:
 npx skills add rahuldave/jnterfaces -a codex --skill just -y
 ```
 
-The npx route records no source revision in `.agents/`.
+The npx route installs no tools and records no source revision in `.agents/`.
 
 The skills use these executables:
 
-- **`just`** runs the recipes.
+- **`just`** runs the recipes, and **`uv`** runs the installer and the tools.
 - **`jagt`** renders and checks packets, from https://github.com/rahuldave/jagt.
   The draft commands need a build that has `jagt draft lint`.
 - **`cx`** runs incremental stages, from https://github.com/rahuldave/cx.
@@ -108,7 +150,7 @@ Each package works alone, and each skill works without the optional skills:
 |---|---|
 | `just lint` | Checks the syntax of the scripts, the Python and the JSON, and the links between skills. |
 | `just test` | Runs the tests of the installers, the link checker and the skills. |
-| `just install-stack <target>` | Runs the stack installer. |
+| `just install-into <target> [names]` | Runs the installer on another project. |
 | `just check` | Runs `just lint` and `just test`. Every commit must pass it. |
 | `just package-lint` | Checks `skill-package.json` with skill-package-maker. |
 | `just prose <check.py>` | Checks the Markdown with the nossaifd writing checker. |
@@ -118,8 +160,7 @@ the `jagt` on your PATH is older, set `JAGT_BIN` to a newer binary.
 
 The skill `jagt-protocol` came from the jagt repository, and the `just` and `cx`
 references came from agent_gest_git_skills. This repository is now the source
-of all three. The stack installer came from agent_gest_git_skills too. Its
-`scripts/install_stack.sh` now passes its arguments to the one here.
+of all three, and of the one installer.
 
 ## License
 
