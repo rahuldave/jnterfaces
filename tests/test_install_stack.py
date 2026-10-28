@@ -18,25 +18,100 @@ import install_stack  # noqa: E402
 RECORDS = {'jnterfaces': '.agents/jnterfaces-install.json', 'agent_gest_git_skills': '.agents/gest-git-install.json',
            'nossaifd': '.agents/nossaifd-install.json', 'sklanes': '.agents/sklanes-install.json'}
 SKILLS = {'agent_gest_git_skills': 'gtw', 'nossaifd': 'nossaifd', 'sklanes': 'lanes'}
-# A uv and a uvx that log each call, so that the tests of the tools run offline. Like the real ones, they fail to add a
-# package to a project that has no pyproject.toml or package.json, and their init makes that file.
-FAKE_UV = """#!/bin/sh
-printf "%s %s\\n" "$(basename "$0")" "$*" >> "$TOOL_LOG"
-[ -n "$FAIL_TOOL" ] && [ "$FAIL_TOOL" = "$3" ] && exit 1
-case "$1" in
-  init) printf '[project]\\nname = "app"\\n' > pyproject.toml ;;
-  add|remove) [ -f pyproject.toml ] || { echo "No pyproject.toml found" >&2; exit 2; } ;;
-esac
-exit 0
-"""
-FAKE_UVX = """#!/bin/sh
-printf "%s %s\\n" "$(basename "$0")" "$*" >> "$TOOL_LOG"
-case "$4" in
-  init) echo '{}' > package.json ;;
-  install|uninstall) [ -f package.json ] || { echo "no package.json" >&2; exit 2; } ;;
-esac
-exit 0
-"""
+# A uv and a uvx that log each call, so that the tests of the tools run offline. Like the real ones, they write the
+# project file: uv init makes pyproject.toml, uv add and uv remove edit a dependency group, and uv remove refuses a
+# package that the group does not list. npm init makes package.json, and npm install and npm uninstall edit it.
+FAKE_TOOL = r'''
+import json, os, re, signal, sys, time, tomllib
+from pathlib import Path
+
+tool, args = Path(sys.argv[0]).name, sys.argv[1:]
+with open(os.environ['TOOL_LOG'], 'a') as log:
+    log.write(tool + ' ' + ' '.join(args) + '\n')
+
+
+def name_of(spec):
+    if spec.startswith('@'):
+        return '@' + spec[1:].split('@')[0]
+    return re.split(r'[@<>=!~ ;\[]', spec)[0]
+
+
+def py_name(spec):
+    return re.sub(r'[-_.]+', '-', name_of(spec)).lower()
+
+
+def value(item):
+    if isinstance(item, bool):
+        return 'true' if item else 'false'
+    if isinstance(item, (int, float)):
+        return str(item)
+    if isinstance(item, str):
+        return json.dumps(item)
+    return '[' + ', '.join(value(part) for part in item) + ']'
+
+
+def dump(data, prefix='', lines=None):
+    lines = [] if lines is None else lines
+    scalars = {k: v for k, v in data.items() if not isinstance(v, dict)}
+    tables = {k: v for k, v in data.items() if isinstance(v, dict)}
+    if prefix and (scalars or not tables):
+        lines.append(f'[{prefix}]')
+    lines += [f'{k} = {value(v)}' for k, v in scalars.items()]
+    for k, v in tables.items():
+        dump(v, f'{prefix}.{k}' if prefix else k, lines)
+    return '\n'.join(lines) + '\n'
+
+
+def interrupt_after(word):
+    if os.environ.get('INT_TOOL') == word:
+        os.kill(os.getppid(), signal.SIGINT)
+        time.sleep(2)
+        sys.exit(130)
+
+
+if tool == 'uv':
+    if os.environ.get('FAIL_TOOL') and args[2:3] == [os.environ['FAIL_TOOL']]:
+        sys.exit(1)
+    if args[0] == 'init':
+        Path('pyproject.toml').write_text('[project]\nname = "app"\n')
+    elif args[0] in ('add', 'remove'):
+        if not Path('pyproject.toml').is_file():
+            sys.exit('No pyproject.toml found')
+        data = tomllib.loads(Path('pyproject.toml').read_text())
+        group, specs = args[2], args[3:]
+        if os.environ.get('INT_BEFORE') == group:
+            os.kill(os.getppid(), signal.SIGINT)
+            time.sleep(2)
+            sys.exit(130)
+        entries = data.setdefault('dependency-groups', {}).setdefault(group, [])
+        if args[0] == 'add':
+            entries += [spec for spec in specs if py_name(spec) not in {py_name(e) for e in entries}]
+        else:
+            missing = [spec for spec in specs if py_name(spec) not in {py_name(e) for e in entries}]
+            if missing:
+                sys.exit(f'error: The dependency `{missing[0]}` could not be found in `dependency-groups.{group}`')
+            data['dependency-groups'][group] = [e for e in entries if py_name(e) not in {py_name(s) for s in specs}]
+        Path('pyproject.toml').write_text(dump(data))
+        interrupt_after(group)
+elif tool == 'uvx':
+    command, rest = args[3], args[4:]
+    if command == 'init':
+        Path('package.json').write_text('{}')
+    elif command in ('install', 'uninstall'):
+        if not Path('package.json').is_file():
+            sys.exit('no package.json')
+        data = json.loads(Path('package.json').read_text())
+        if command == 'install':
+            for spec in [s for s in rest if not s.startswith('-')]:
+                data.setdefault('devDependencies', {})[name_of(spec)] = '*'
+        else:
+            for kind in ('dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'):
+                for spec in rest:
+                    data.get(kind, {}).pop(name_of(spec), None)
+            if isinstance(data.get('bundleDependencies'), list):
+                data['bundleDependencies'] = [n for n in data['bundleDependencies'] if n not in map(name_of, rest)]
+        Path('package.json').write_text(json.dumps(data))
+'''
 
 
 def git(path, *args):
@@ -66,8 +141,8 @@ class StackTests(unittest.TestCase):
         git(self.target, 'init', '-q')
         self.bin = self.base / 'bin'
         self.bin.mkdir()
-        for tool, text in (('uv', FAKE_UV), ('uvx', FAKE_UVX)):
-            (self.bin / tool).write_text(text)
+        for tool in ('uv', 'uvx'):
+            (self.bin / tool).write_text(f'#!{sys.executable}\n' + FAKE_TOOL)
             (self.bin / tool).chmod(0o755)
         self.log = self.base / 'tools.log'
 
@@ -95,6 +170,10 @@ class StackTests(unittest.TestCase):
 
     def saved(self):
         return json.loads((self.target / '.agents/stack.json').read_text())
+
+    def tool_names(self, field):
+        """The tool names of a saved list of profile:tool pairs, without the profiles, each once."""
+        return list(dict.fromkeys(pair.partition(':')[2] for pair in self.saved().get(field, [])))
 
     def tools_run(self):
         return self.log.read_text().splitlines() if self.log.exists() else []
@@ -194,7 +273,7 @@ class StackTests(unittest.TestCase):
         justfile = (self.target / 'Justfile').read_text()
         self.assertIn("import? '.agents/install.just'", justfile)
         self.assertEqual(self.saved()['profiles'], ['python'])
-        self.assertEqual(self.saved()['tools'], ['lint', 'test'])
+        self.assertEqual(self.tool_names('tools'), ['lint', 'test'])
         self.assertTrue(self.saved()['choices']['tasker'])
         # A later run adds no tool again, and leaves the Justfile and the config files alone.
         (self.target / 'ruff.toml').write_text('line-length = 80\n')
@@ -212,7 +291,7 @@ class StackTests(unittest.TestCase):
         run = self.stack('--without', 'typecheck,lint')
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(self.tools_run(), ['uv remove --group lint ty ruff pre-commit'])
-        self.assertEqual(self.saved()['tools'], ['test'])
+        self.assertEqual(self.tool_names('tools'), ['test'])
         self.log.unlink()
         self.assertEqual(self.stack('lint').returncode, 0)
         self.assertEqual(self.tools_run(), ['uv add --group lint ruff pre-commit'])
@@ -242,13 +321,13 @@ class StackTests(unittest.TestCase):
         self.assertIn('run just install again, which tries the tool again', run.stderr)
         self.assertTrue(self.has('gtw'))
         self.assertTrue((self.target / 'Justfile').is_file())
-        self.assertEqual(self.saved()['tools'], [])
-        self.assertEqual(self.saved()['pending_tools'], ['lint', 'test'])
+        self.assertEqual(self.tool_names('tools'), [])
+        self.assertEqual(self.tool_names('pending_tools'), ['lint', 'test'])
         self.log.unlink()
         run = self.stack()
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(self.tools_run(), ['uv add --group lint ruff pre-commit', 'uv add --group test pytest pytest-cov'])
-        self.assertEqual(self.saved()['tools'], ['lint', 'test'])
+        self.assertEqual(self.tool_names('tools'), ['lint', 'test'])
         self.assertNotIn('pending_tools', self.saved())
 
     def test_a_new_project_gets_its_project_file_justfile_and_tools(self):
@@ -256,7 +335,7 @@ class StackTests(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(self.tools_run()[0], 'uv init --bare --no-workspace')
         self.assertTrue((self.target / 'Justfile').is_file())
-        self.assertEqual(self.saved()['tools'], ['lint', 'test'])
+        self.assertEqual(self.tool_names('tools'), ['lint', 'test'])
 
     def test_a_dangling_justfile_symlink_is_never_written_through(self):
         outside = self.base / 'outside'
@@ -274,7 +353,8 @@ class StackTests(unittest.TestCase):
         self.assertIn('default-groups = "all"\npackage = false', text)
         (self.target / 'pyproject.toml').write_text('[tool.uv]\ndefault-groups = ["dev"]\n')
         self.assertEqual(self.stack('lint').returncode, 0)
-        self.assertEqual((self.target / 'pyproject.toml').read_text(), '[tool.uv]\ndefault-groups = ["dev"]\n')
+        data = install_stack.tomllib.loads((self.target / 'pyproject.toml').read_text())
+        self.assertEqual(data['tool']['uv']['default-groups'], ['dev'])
 
     def test_default_groups_are_set_only_where_the_toml_stays_the_same(self):
         for text in ('[tool.uv]  # mine\npackage = false\n', '[ tool.uv ]\npackage = false\n',
@@ -306,7 +386,7 @@ class StackTests(unittest.TestCase):
         self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
         run = self.stack('--without', 'lint', env={'FAIL_TOOL': 'lint'})
         self.assertNotEqual(run.returncode, 0)
-        self.assertIn('lint', self.saved()['tools'])
+        self.assertIn('lint', self.tool_names('tools'))
         self.log.unlink()
         self.assertEqual(self.stack('--without', 'lint').returncode, 0)
         self.assertEqual(self.tools_run(), ['uv remove --group lint ruff pre-commit'])
@@ -328,23 +408,27 @@ class StackTests(unittest.TestCase):
         self.assertEqual(self.stack('--profile', 'python,pb', '--defaults', '--registry', registry).returncode, 0)
         run = self.stack('--without', 'lint', '--registry', registry)
         self.assertNotEqual(run.returncode, 0)
-        self.assertIn('lint', self.saved()['tools'])
+        self.assertIn('lint', self.tool_names('tools'))
 
     def test_a_turned_off_tool_with_no_remove_step_leaves_the_record_even_when_another_step_fails(self):
         self.assertEqual(self.stack('--profile', 'typescript', '--defaults').returncode, 0)
-        self.assertEqual(self.saved()['tools'], ['lint', 'typecheck'])
+        self.assertEqual(self.tool_names('tools'), ['lint', 'typecheck'])
         self.assertEqual(self.stack('test').returncode, 0)
+        # Take biome out of package.json, so that the lint add has a command to run, and that command fails.
+        data = json.loads((self.target / 'package.json').read_text())
+        data['devDependencies'].pop('@biomejs/biome')
+        (self.target / 'package.json').write_text(json.dumps(data))
         def failing_add(r):
             r['profiles']['typescript']['add'] = ['false']
         run = self.stack('--without', 'test', 'lint', '--registry', self.registry_with(failing_add))
         self.assertNotEqual(run.returncode, 0)
-        self.assertNotIn('test', self.saved()['tools'])
+        self.assertNotIn('test', self.tool_names('tools'))
 
     def test_a_file_error_after_a_removal_still_saves_the_record(self):
         # The python profile removes test, then a file of the typescript profile fails on a symlinked folder.
         (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
         self.assertEqual(self.stack('--profile', 'python,typescript', '--defaults', 'test').returncode, 0)
-        self.assertIn('test', self.saved()['tools'])
+        self.assertIn('test', self.tool_names('tools'))
         def nested(r):
             r['profiles']['typescript']['tools']['typecheck']['files'] = {'sub/tsconfig.json': 'profiles/typescript/tsconfig.json'}
         (self.target / 'sub').symlink_to(self.base)
@@ -354,8 +438,290 @@ class StackTests(unittest.TestCase):
         self.assertIn('uv remove --group test pytest pytest-cov', self.tools_run())
         self.assertIn('sub is a symlink', run.stderr)
         self.assertNotIn('Traceback', run.stderr)
-        self.assertNotIn('test', self.saved()['tools'])
+        self.assertNotIn('test', self.tool_names('tools'))
         self.assertFalse((self.base / 'tsconfig.json').exists())
+
+    def test_without_keeps_a_package_that_the_project_had_before_the_tool(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n\n[dependency-groups]\ntest = ["PyTest>=8"]\n')
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        self.assertIn('uv add --group test pytest-cov', self.tools_run())
+        self.assertEqual(self.saved()['owned_packages']['python:test'], ['pytest-cov'])
+        self.log.unlink()
+        self.assertEqual(self.stack('--without', 'test').returncode, 0)
+        self.assertEqual(self.tools_run(), ['uv remove --group test pytest-cov'])
+        self.assertNotIn('python:test', self.saved().get('owned_packages', {}))
+
+    def test_a_tool_whose_packages_the_project_has_runs_no_command(self):
+        (self.target / 'package.json').write_text(json.dumps({'devDependencies': {'@biomejs/biome': '^2'}}))
+        run = self.stack('--profile', 'typescript', '--defaults', '--without', 'typecheck', 'lint')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('already has the packages of lint', run.stderr)
+        self.assertNotIn('npm install --save-dev @biomejs/biome@2', ' '.join(self.tools_run()))
+        self.assertNotIn('owned_packages', self.saved())
+
+    def test_without_keeps_a_package_that_a_kept_tool_needs_whoever_added_it(self):
+        self.assertEqual(self.stack('--profile', 'typescript', '--defaults').returncode, 0)
+        (self.target / 'package.json').write_text(json.dumps({'devDependencies': {
+            '@biomejs/biome': '^2', 'typescript': '^7', '@types/node': '^24'}}))
+        self.assertEqual(self.stack('test').returncode, 0)
+        self.assertEqual(self.saved()['owned_packages']['typescript'], ['@biomejs/biome', '@types/node', 'typescript'])
+        self.log.unlink()
+        self.assertEqual(self.stack('--without', 'typecheck').returncode, 0)
+        self.assertEqual(self.tools_run(), [])
+
+    def test_a_profile_added_later_records_what_it_added(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
+        (self.target / 'package.json').write_text(json.dumps({'devDependencies': {'@biomejs/biome': '^2'}}))
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        self.assertEqual(self.stack('--profile', 'python,typescript', '--defaults').returncode, 0)
+        self.assertNotIn('@biomejs/biome', self.saved()['owned_packages']['typescript'])
+        self.log.unlink()
+        self.assertEqual(self.stack('--without', 'lint').returncode, 0)
+        self.assertNotIn('biome', ' '.join(self.tools_run()))
+
+    def test_a_tool_with_no_recorded_packages_removes_nothing_and_names_them(self):
+        # A record from before owned_packages says nothing about what its tools added.
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        record = self.saved()
+        record.pop('owned_packages')
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        # The real uv would have written the packages into pyproject.toml; the fake one does not.
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n\n[dependency-groups]\nlint = ["ruff", "pre-commit"]\n')
+        self.log.unlink()
+        run = self.stack('--without', 'lint')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.tools_run(), [])
+        self.assertIn('Left ruff, pre-commit in the project for python', run.stderr)
+        self.assertNotIn('lint', self.tool_names('tools'))
+
+    def test_a_profile_turned_on_later_records_the_tools_the_project_has(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n\n[dependency-groups]\nlint = ["ty"]\n')
+        self.assertEqual(self.stack('--profile', 'typescript', '--defaults').returncode, 0)
+        self.assertEqual(self.stack('python').returncode, 0)
+        self.assertNotIn('ty', self.saved().get('owned_packages', {}).get('python:lint', []))
+        self.log.unlink()
+        self.assertEqual(self.stack('--without', 'typecheck').returncode, 0)
+        self.assertNotIn('uv remove', ' '.join(self.tools_run()))
+        lint = install_stack.tomllib.loads((self.target / 'pyproject.toml').read_text())['dependency-groups']['lint']
+        self.assertIn('ty', lint)
+
+    def test_a_tool_that_failed_in_one_profile_stays_pending_and_is_retried(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n\n[dependency-groups]\nlint = ["ruff"]\n')
+        (self.target / 'package.json').write_text('{}')
+        run = self.stack('--profile', 'typescript,python', '--defaults', env={'FAIL_TOOL': 'lint'})
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('lint', self.tool_names('pending_tools'))
+        self.assertNotIn('python:lint', self.saved().get('owned_packages', {}))
+        self.log.unlink()
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('uv add --group lint pre-commit', self.tools_run())
+        self.assertEqual(self.saved()['owned_packages']['python:lint'], ['pre-commit'])
+        self.log.unlink()
+        self.assertEqual(self.stack('--without', 'lint').returncode, 0)
+        self.assertIn('uv remove --group lint pre-commit', self.tools_run())
+        self.assertNotIn('ruff', ' '.join(t for t in self.tools_run() if t.startswith('uv ')))
+
+    def test_a_shared_package_stays_owned_until_the_last_tool_that_lists_it_goes(self):
+        # typecheck adds typescript and @types/node. test lists the same two, so adding it later adds nothing.
+        self.assertEqual(self.stack('--profile', 'typescript', '--defaults').returncode, 0)
+        (self.target / 'package.json').write_text(json.dumps({'devDependencies': {
+            '@biomejs/biome': '^2', 'typescript': '^7', '@types/node': '^24'}}))
+        self.assertEqual(self.stack('test').returncode, 0)
+        self.log.unlink()
+        self.assertEqual(self.stack('--without', 'typecheck').returncode, 0)
+        self.assertEqual(self.tools_run(), [])
+        run = self.stack('--without', 'test')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.tools_run(), ['uvx --from nodejs-wheel==24.* npm uninstall typescript @types/node'])
+        self.assertNotIn('Left', run.stderr)
+
+    def test_an_interrupted_install_keeps_what_it_added(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
+        run = self.stack('--profile', 'python', '--defaults', env={'INT_TOOL': 'test'})
+        self.assertNotEqual(run.returncode, 0)
+        self.assertEqual(self.saved()['owned_packages']['python:lint'], ['pre-commit', 'ruff'])
+        # The test add wrote pyproject.toml before the interrupt, and its claim kept the packages.
+        self.assertEqual(self.saved()['owned_packages']['python:test'], ['pytest', 'pytest-cov'])
+        self.assertEqual(self.tool_names('tools'), ['lint'])
+        self.assertEqual(self.tool_names('pending_tools'), ['test'])
+
+    def test_left_names_only_packages_that_the_project_has_and_a_dry_run_says_would(self):
+        # The project had biome before typescript was turned on, so just install did not add it.
+        (self.target / 'package.json').write_text(json.dumps({'devDependencies': {'@biomejs/biome': '^2'}}))
+        self.assertEqual(self.stack('--profile', 'typescript', '--defaults').returncode, 0)
+        run = self.stack('--without', 'lint', '--dry-run')
+        self.assertIn('Would leave @biomejs/biome in the project for typescript', run.stderr)
+        self.assertNotIn('npm uninstall', run.stdout)
+        # Once the user has removed it by hand, nothing is named.
+        (self.target / 'package.json').write_text('{}')
+        run = self.stack('--without', 'lint', '--dry-run')
+        self.assertNotIn('biome', run.stderr)
+
+    def test_a_record_with_added_packages_moves_them_to_their_places(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        record = self.saved()
+        record.pop('owned_packages')
+        record['added_packages'] = {'python:lint': ['ruff', 'pre-commit'], 'python:typecheck': [], 'nope:lint': ['x']}
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        self.log.unlink()
+        self.assertEqual(self.stack('--without', 'lint').returncode, 0)
+        self.assertEqual(self.tools_run(), ['uv remove --group lint ruff pre-commit'])
+        self.assertNotIn('added_packages', self.saved())
+
+    def test_a_new_profile_turns_on_only_its_own_tools(self):
+        # As in fafamid: python saved with its tools turned off, because pyproject.toml pins them by hand.
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        self.assertEqual(self.stack('--without', 'lint,test').returncode, 0)
+        self.assertEqual(self.saved()['tools'], [])
+        self.log.unlink()
+        run = self.stack('typescript', '--dry-run')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('uv add', run.stdout)
+        self.assertIn('npm install --save-dev @biomejs/biome@2', run.stdout)
+        self.assertEqual(self.stack('typescript').returncode, 0)
+        self.assertEqual(self.saved()['tools'], ['typescript:lint', 'typescript:typecheck'])
+        self.assertFalse(any(line.startswith('uv ') for line in self.tools_run()))
+
+    def test_a_record_with_bare_tool_names_means_each_saved_profile(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        record = self.saved()
+        record['tools'] = ['lint']
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        self.assertEqual(self.stack('--defaults').returncode, 0)
+        self.assertEqual(self.saved()['tools'], ['python:lint'])
+
+    def set_group(self, group, names):
+        data = install_stack.tomllib.loads((self.target / 'pyproject.toml').read_text())
+        data['dependency-groups'][group] = names
+        text = '[project]\nname = "a"\n\n[dependency-groups]\n' + ''.join(
+            f'{key} = {json.dumps(value)}\n' for key, value in data['dependency-groups'].items())
+        (self.target / 'pyproject.toml').write_text(text)
+
+    def test_a_package_removed_by_hand_is_not_removed_again_and_one_added_back_is_the_users(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        self.set_group('test', ['pytest'])
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertEqual(self.saved()['owned_packages']['python:test'], ['pytest'])
+        self.set_group('test', ['pytest', 'pytest-cov'])
+        self.log.unlink()
+        run = self.stack('--without', 'test')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.tools_run(), ['uv remove --group test pytest'])
+        self.assertIn('Left pytest-cov in the project for python', run.stderr)
+
+    def test_a_failed_add_drops_its_claim_at_once(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
+        run = self.stack('--profile', 'python', '--defaults', env={'FAIL_TOOL': 'test'})
+        self.assertNotEqual(run.returncode, 0)
+        self.assertNotIn('python:test', self.saved()['owned_packages'])
+        self.assertEqual(self.tool_names('pending_tools'), ['test'])
+
+    def test_an_unreadable_project_file_fails_the_add_and_claims_nothing(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n\n[dependency-groups]\nlint = ["ruff"]\nbroken = [\n')
+        run = self.stack('--profile', 'python', '--defaults')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('cannot read pyproject.toml', run.stderr)
+        self.assertNotIn('owned_packages', self.saved())
+        self.assertIn('lint', self.tool_names('pending_tools'))
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n\n[dependency-groups]\nlint = ["ruff"]\n')
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertEqual(self.saved()['owned_packages']['python:lint'], ['pre-commit'])
+        self.log.unlink()
+        self.assertEqual(self.stack('--without', 'lint').returncode, 0)
+        self.assertEqual(self.tools_run(), ['uv remove --group lint pre-commit'])
+
+    def test_an_unreadable_project_file_keeps_the_tool_for_a_later_removal(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        good = (self.target / 'pyproject.toml').read_text()
+        (self.target / 'pyproject.toml').write_text(good + 'broken = [\n')
+        run = self.stack('--without', 'lint')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('lint', self.tool_names('tools'))
+        (self.target / 'pyproject.toml').write_text(good)
+        self.log.unlink()
+        self.assertEqual(self.stack('--without', 'lint').returncode, 0)
+        self.assertEqual(self.tools_run(), ['uv remove --group lint ruff pre-commit'])
+
+    def test_an_interrupt_before_the_write_keeps_no_claim(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
+        run = self.stack('--profile', 'python', '--defaults', env={'INT_BEFORE': 'test'})
+        self.assertNotEqual(run.returncode, 0)
+        self.assertNotIn('python:test', self.saved()['owned_packages'])
+        self.set_group('test', ['pytest'])
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertEqual(self.saved()['owned_packages']['python:test'], ['pytest-cov'])
+        self.log.unlink()
+        self.assertEqual(self.stack('--without', 'test').returncode, 0)
+        self.assertEqual(self.tools_run(), ['uv remove --group test pytest-cov'])
+
+    def test_an_npm_package_moved_to_dependencies_is_the_users(self):
+        self.assertEqual(self.stack('--profile', 'typescript', '--defaults').returncode, 0)
+        data = json.loads((self.target / 'package.json').read_text())
+        data['dependencies'] = {'typescript': data['devDependencies'].pop('typescript')}
+        (self.target / 'package.json').write_text(json.dumps(data))
+        self.log.unlink()
+        run = self.stack('--without', 'typecheck')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.tools_run(), ['uvx --from nodejs-wheel==24.* npm uninstall @types/node'])
+        self.assertIn('Left typescript in the project for typescript', run.stderr)
+
+    def test_npm_leaves_a_package_that_the_user_also_lists_elsewhere(self):
+        self.assertEqual(self.stack('--profile', 'typescript', '--defaults').returncode, 0)
+        data = json.loads((self.target / 'package.json').read_text())
+        data['peerDependencies'] = {'typescript': '>=5'}
+        (self.target / 'package.json').write_text(json.dumps(data))
+        self.log.unlink()
+        run = self.stack('--without', 'typecheck')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.tools_run(), ['uvx --from nodejs-wheel==24.* npm uninstall @types/node'])
+        self.assertEqual(json.loads((self.target / 'package.json').read_text())['peerDependencies'], {'typescript': '>=5'})
+
+    def test_npm_leaves_a_package_that_the_user_bundles(self):
+        self.assertEqual(self.stack('--profile', 'typescript', '--defaults').returncode, 0)
+        data = json.loads((self.target / 'package.json').read_text())
+        data['bundleDependencies'] = ['typescript']
+        (self.target / 'package.json').write_text(json.dumps(data))
+        self.log.unlink()
+        self.assertEqual(self.stack('--without', 'typecheck').returncode, 0)
+        self.assertEqual(self.tools_run(), ['uvx --from nodejs-wheel==24.* npm uninstall @types/node'])
+        self.assertEqual(json.loads((self.target / 'package.json').read_text())['bundleDependencies'], ['typescript'])
+
+    def test_a_dry_run_that_would_fail_exits_1(self):
+        (self.target / 'pyproject.toml').write_text('broken = [\n')
+        run = self.stack('--profile', 'python', '--defaults', '--dry-run')
+        self.assertEqual(run.returncode, 1)
+        self.assertIn('Would fail: cannot read pyproject.toml', run.stdout)
+        self.assertIn('the real run would fail', run.stdout)
+        self.assertNotIn('would be installed', run.stdout)
+
+    def test_a_removal_that_failed_is_finished_by_the_next_run_or_cancelled_by_naming_the_tool(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        good = (self.target / 'pyproject.toml').read_text()
+        (self.target / 'pyproject.toml').write_text(good + 'broken = [\n')
+        self.assertNotEqual(self.stack('--without', 'lint').returncode, 0)
+        self.assertEqual(self.saved()['removing_tools'], ['python:lint'])
+        (self.target / 'pyproject.toml').write_text(good)
+        self.log.unlink()
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertEqual(self.tools_run(), ['uv remove --group lint ruff pre-commit'])
+        self.assertNotIn('lint', self.tool_names('tools'))
+        self.assertNotIn('removing_tools', self.saved())
+        # Naming the tool again cancels an unfinished removal.
+        self.assertEqual(self.stack('lint').returncode, 0)
+        (self.target / 'pyproject.toml').write_text((self.target / 'pyproject.toml').read_text() + 'broken = [\n')
+        self.assertNotEqual(self.stack('--without', 'lint').returncode, 0)
+        (self.target / 'pyproject.toml').write_text((self.target / 'pyproject.toml').read_text().replace('broken = [\n', ''))
+        self.assertEqual(self.stack('lint').returncode, 0)
+        self.assertIn('lint', self.tool_names('tools'))
+        self.assertNotIn('removing_tools', self.saved())
 
     def test_default_groups_never_crash_on_dates_or_odd_tables(self):
         for text in ('[tool.x]\nreleased = 2024-01-01\n', 'tool = 1\n', '[tool]\nuv = 3\n'):
@@ -534,7 +900,8 @@ class StackTests(unittest.TestCase):
                        lambda r: r['profiles']['python']['init'].update(command=[]),
                        lambda r: r['profiles']['python']['tools']['lint'].update(group=3),
                        lambda r: r['profiles']['python']['tools']['lint'].update(skip_if={'ruff.toml': 'x'}),
-                       lambda r: r['profiles']['python'].update(uv_default_groups={'a': 1})):
+                       lambda r: r['profiles']['python'].update(uv_default_groups={'a': 1}),
+                       lambda r: r['profiles']['python'].pop('manifest')):
             broken = json.loads(json.dumps(registry))
             change(broken)
             path = self.base / 'broken.json'

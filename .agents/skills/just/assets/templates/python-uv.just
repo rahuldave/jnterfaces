@@ -32,11 +32,26 @@ typecheck *args:
 
 # Run the tests. Extra arguments go to pytest: just test tests/unit. A project with no tests yet passes
 test *args:
-    uv run pytest "$@" || test $? -eq 5
+    #!/usr/bin/env sh
+    # pytest exits 5 when no test runs. That passes only when the project has no tests at all, not when a filter misses.
+    uv run pytest "$@" && exit 0 || code=$?
+    if [ "$code" -eq 5 ]; then
+        # Exit 5 again from the whole collection means no tests at all; a broken test file exits 2 there.
+        uv run pytest --collect-only -q > /dev/null 2>&1 || all=$?
+        if [ "${all:-0}" -eq 5 ]; then echo "just test: no tests yet"; exit 0; fi
+    fi
+    exit "$code"
 
-# Run the tests, and show which lines they ran
+# Run the tests, and show which lines they ran. A project with no tests yet passes
 cov *args:
-    uv run pytest --cov --cov-report=term-missing "$@"
+    #!/usr/bin/env sh
+    uv run pytest --cov --cov-report=term-missing "$@" && exit 0 || code=$?
+    if [ "$code" -eq 5 ]; then
+        # Exit 5 again from the whole collection means no tests at all; a broken test file exits 2 there.
+        uv run pytest --collect-only -q > /dev/null 2>&1 || all=$?
+        if [ "${all:-0}" -eq 5 ]; then echo "just cov: no tests yet"; exit 0; fi
+    fi
+    exit "$code"
 
 # Find whitespace errors in the changes
 diff-check:

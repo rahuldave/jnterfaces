@@ -76,6 +76,55 @@ def source_revision(source, requested):
         fail(f'Cannot resolve source Git revision: {exc.stderr.strip()}')
 
 
+def old_revision(source, old):
+    """The source revision that an old record names, when this clone has that commit, else None."""
+    revision = old.get('source_revision') if isinstance(old, dict) else None
+    if not isinstance(revision, str) or not revision:
+        return None
+    run = subprocess.run(['git', '-C', str(source), 'cat-file', '-e', f'{revision}^{{commit}}'], capture_output=True)
+    return revision if run.returncode == 0 else None
+
+
+def shipped_at(source, revision, relative):
+    """True when the source had this path at the revision. With no revision, False.
+
+    This is how an old record, which lists no skills, tells a skill of the package from a skill of the user. Only
+    the exact old revision decides. A guess from the history or from the clone now could take a skill of the user,
+    so a skill that the revision does not show stays in place.
+    """
+    if not revision:
+        return False
+    run = subprocess.run(['git', '-C', str(source), 'ls-tree', '--name-only', revision, '--', relative.as_posix()],
+                         capture_output=True, text=True)
+    return run.returncode == 0 and bool(run.stdout.strip())
+
+
+def json_at(source, revision, relative):
+    """The JSON object of a source file at a revision, or {} when the file was not there."""
+    run = subprocess.run(['git', '-C', str(source), 'cat-file', 'blob', f'{revision}:{relative.as_posix()}'],
+                         capture_output=True)
+    if run.returncode:
+        return {}
+    try:
+        value = json.loads(run.stdout)
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def merged_then(source, revision):
+    """The hook settings files that the manifest of the old revision merged, as paths. Bad entries are left out."""
+    extras = json_at(source, revision, Path('skill-package.json')).get('install_extras', {}) if revision else {}
+    files = extras.get('merge_hooks', []) if isinstance(extras, dict) else []
+    found = set()
+    for item in files if isinstance(files, list) else []:
+        try:
+            found.add(clean_relative(item, 'A merge_hooks file of the old revision'))
+        except ValueError:
+            continue
+    return found
+
+
 def reject_symlinks(root, relative):
     """Reject a link in any part of a managed path, including a dangling link."""
     current = root
@@ -225,9 +274,11 @@ def merge_config(existing, incoming, path, owned=None):
     hooks = result.setdefault('hooks', {})
     ours = {'hooks': {}}
     for event, groups in incoming['hooks'].items():
+        new_event = event not in hooks
         current = hooks.setdefault(event, [])
         if not isinstance(current, list) or not isinstance(groups, list):
             fail(f'Invalid hook groups for {event} in {path}')
+        shipped_selectors = [selector(group) for group in groups if isinstance(group, dict)]
         for group in groups:
             if not isinstance(group, dict) or not isinstance(group.get('hooks'), list):
                 fail(f'Invalid hook group for {event} in {path}')
@@ -238,7 +289,8 @@ def merge_config(existing, incoming, path, owned=None):
                 if selector(candidate) == selector(group):
                     match = candidate
                     break
-            if match is None:
+            new_group = match is None
+            if new_group:
                 match = dict(selector(group), hooks=[])
                 current.append(match)
             before = hook_list(owned or {}, event, group)
@@ -247,7 +299,14 @@ def merge_config(existing, incoming, path, owned=None):
                 if not isinstance(hook, dict) or not isinstance(hook.get('command'), str):
                     fail(f'Invalid hook command for {event} in {path}')
                 same = [item for item in match['hooks'] if isinstance(item, dict) and item.get('command') == hook['command']]
-                if not same:
+                elsewhere = [other for other in current if other is not match and isinstance(other, dict)
+                             and selector(other) not in shipped_selectors
+                             and any(isinstance(item, dict) and item.get('command') == hook['command']
+                                     for item in other.get('hooks', []))]
+                if not same and elsewhere:
+                    print(f'The hook {hook["command"]!r} is in another group of {event} in {path}, so the installer '
+                          f'leaves it there and adds no second copy.', file=sys.stderr)
+                elif not same:
                     match['hooks'].append(hook)
                     mine.append(hook)
                 elif hook in same:
@@ -259,6 +318,13 @@ def merge_config(existing, incoming, path, owned=None):
                     fail(f'Conflicting hook command {hook["command"]!r} in {path}; resolve it by hand')
             if mine:
                 ours['hooks'].setdefault(event, []).append(dict(selector(group), hooks=mine))
+            # A group or an event that this merge made, and then left empty, goes. One of the user's stays.
+            if new_group and not match['hooks']:
+                current.remove(match)
+        if new_event and not current:
+            del hooks[event]
+    if not hooks and 'hooks' not in existing:
+        del result['hooks']
     return result, ours
 
 
@@ -401,13 +467,15 @@ def read_record(target, provenance):
     return old, old_hashes, old_skills, old_extras, old_hooks, created
 
 
-def hook_settings(tree, target, hooks, old_hooks, created, removing=False, legacy=False, legacy_files=()):
+def hook_settings(tree, target, hooks, old_hooks, created, removing=False, legacy=False, legacy_files=(),
+                  revision=None):
     """Plan the hook settings: {path: (new bytes or None to delete, the hooks that the package owns, created)}.
 
     A settings file that the package created goes again when it ends up empty. Any other file stays.
     """
+    then = merged_then(tree.source, revision) if legacy and revision else set()
     planned = {}
-    for relative in sorted(set(hooks) | {Path(name) for name in old_hooks}, key=str):
+    for relative in sorted(set(hooks) | {Path(name) for name in old_hooks} | then, key=str):
         reject_symlinks(target, relative)
         incoming = {}
         if relative in hooks and not removing:
@@ -417,9 +485,12 @@ def hook_settings(tree, target, hooks, old_hooks, created, removing=False, legac
         existed = (target / relative).exists()
         existing = read_json(target / relative)
         old = old_hooks.get(relative.as_posix())
-        if old is None and legacy and relative in hooks:
-            # A record from before merged_hooks was recorded. What it merged is each hook of the file now whose
-            # command the source ships, in a group with the same keys, even if the source has changed it since.
+        if old is None and legacy and revision and (relative in hooks or relative in then):
+            # A record from before merged_hooks was recorded. It merged the settings of its own source revision.
+            old = json_at(tree.source, revision, relative)
+        elif old is None and legacy and relative in hooks:
+            # The clone has no commit of the old revision, so take each hook of the file now whose command the
+            # source ships, in a group with the same keys, even if the source has changed it since.
             source = json.loads(tree.read(relative))
             old = shipped_commands(existing, source, relative)
             unclaimed(existing, old, legacy_files, relative)
@@ -429,7 +500,8 @@ def hook_settings(tree, target, hooks, old_hooks, created, removing=False, legac
         made = relative.as_posix() in created or (not existed and bool(incoming))
         if merged == existing:
             data = (target / relative).read_bytes() if existed else None
-        elif not merged and existed and made:
+        elif not merged and existed and (made or (legacy and removing)):
+            # An old record does not say who made the file. Once it holds nothing, it goes.
             data = None
         else:
             data = (json.dumps(merged, indent=2, ensure_ascii=False) + '\n').encode()
@@ -510,8 +582,15 @@ def remove(args, target, tree, package, provenance, hooks):
         print(f'{package} is not installed in {target}; nothing to remove')
         return
     known = other_records(target, provenance)
+    revision_then = old_revision(tree.source, old)
     planned = hook_settings(tree, target, hooks, old_hooks, created, removing=True,
-                            legacy=bool(old) and 'merged_hooks' not in old, legacy_files=list(old_hashes))
+                            legacy=bool(old) and 'merged_hooks' not in old, legacy_files=list(old_hashes),
+                            revision=revision_then)
+    # An old record has no list of skills. A recorded skill folder that the source never shipped is the user's.
+    foreign = set()
+    if old and 'skills' not in old:
+        foreign = {folder for folder in {Path(name).parts[2] for name in old_hashes if scope_of(name, []) == 'skill'}
+                   if not shipped_at(tree.source, revision_then, Path('.agents/skills') / folder)}
     left = commands_left(planned)
     gone, kept = [], {}
     for name, recorded in old_hashes.items():
@@ -524,6 +603,9 @@ def remove(args, target, tree, package, provenance, hooks):
             continue
         if name in known:
             print(f'Kept {name}: another package records it.', file=sys.stderr)
+        elif scope_of(name, []) == 'skill' and relative.parts[2] in foreign:
+            print(f'Left {name}: the package never shipped that skill, so it is not the package\'s to remove.',
+                  file=sys.stderr)
         elif any(name in command for command in left):
             kept[name] = recorded
             print(f'Kept {name}: a hook that stays in the settings runs it.', file=sys.stderr)
@@ -625,12 +707,20 @@ def main():
         reject_symlinks(target, relative)
         if not (target / relative).exists():
             seeds[relative] = tree.read(origin)
-    settings = hook_settings(tree, target, hooks, old_hooks, created, legacy=bool(old) and 'merged_hooks' not in old,
-                             legacy_files=list(old_hashes))
+    legacy = bool(old) and 'merged_hooks' not in old
+    revision_then = old_revision(tree.source, old) if legacy else None
+    settings = hook_settings(tree, target, hooks, old_hooks, created, legacy=legacy, legacy_files=list(old_hashes),
+                             revision=revision_then)
     # A file of an earlier install that this source no longer ships is removed when nobody changed it.
     # In scope: skills of this package, now or in its earlier record (in a partial install, only the selected ones),
     # and the extras, which every install ships.
     owned = all_skills | set(old_skills)
+    if old and 'skills' not in old:
+        # An old record has no list of skills. A recorded skill folder is this package's when the old revision has
+        # it. Any other folder stays, so a skill of the user is never taken.
+        for folder in {Path(name).parts[2] for name in old_hashes if scope_of(name, []) == 'skill'} - owned:
+            if shipped_at(source, revision_then, Path('.agents/skills') / folder):
+                owned.add(folder)
     scope = {path.as_posix() + '/' for path in paths.values()}
     renamed = {alias.as_posix() for alias in aliases.values()}
     # With --exact, a skill that is turned off but has an edited file stays whole, so no skill is left half removed.

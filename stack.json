@@ -59,6 +59,7 @@
         "pyproject.toml",
         "uv.lock"
       ],
+      "manifest": "pyproject.toml",
       "justfile": ".agents/skills/just/assets/templates/python-uv.just",
       "init": {
         "file": "pyproject.toml",
@@ -129,6 +130,7 @@
         "package.json",
         "tsconfig.json"
       ],
+      "manifest": "package.json",
       "justfile": ".agents/skills/just/assets/templates/typescript-npm.just",
       "init": {
         "file": "package.json",
