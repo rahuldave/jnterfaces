@@ -76,7 +76,11 @@ If a tool fails, a later `just install` tries it again.
 
 - **`just install lint tasker`** turns on a tool and a role.
 - **`just uninstall reporter lint`** turns them off. It removes the files of
-  the role and the packages of the tool. It keeps each file that you edited.
+  the role and the packages that `just install` added for the tool. It keeps
+  each file that you edited, and each package that the project had before.
+  You may remove a package by hand and add it back with no install between.
+  Then it still counts as added. To keep it, take it out of
+  `owned_packages` in `.agents/stack.json`.
 - **`--profile python,typescript`** sets the profiles.
 - **`--defaults`** takes the defaults, and **`--all`** takes every role.
 - **`--ask`** asks again, even when the project has saved choices.
@@ -101,6 +105,10 @@ of each file.
 
 The installer never overwrites or removes a file that you edited. First it
 checks every package. If one check fails, it writes nothing.
+
+A record from an older installer lists no skills and no hooks. The installer
+then reads the files of the old source revision in the clone. So it removes
+the old copies of skills and hooks that it shipped, and it keeps your edits.
 
 `skill-package.json` names the other files of a package in `install_extras`:
 

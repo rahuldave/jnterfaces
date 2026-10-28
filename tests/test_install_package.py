@@ -574,6 +574,129 @@ class ExtrasTest(unittest.TestCase):
         self.assertIn("The hook 'sh .claude/hooks/start.sh --old' in .claude/settings.json runs a file of the old "
                       "install", result.stderr)
 
+    def old_install(self, settings, managed=None):
+        """A target as the old installer of agent_gest_git_skills left it: a record with no skills and no hooks."""
+        (self.target / '.claude').mkdir(exist_ok=True)
+        (self.target / '.claude/settings.json').write_text(json.dumps(settings))
+        (self.target / '.agents').mkdir(exist_ok=True)
+        (self.target / '.agents/hooky-install.json').write_text(json.dumps(
+            {'source_revision': git(self.source, 'rev-parse', 'HEAD'), 'managed_files': managed or {}}))
+
+    def test_an_old_record_uses_the_hooks_of_its_own_revision(self):
+        v1 = {'type': 'command', 'command': 'start.sh'}
+        mine = {'type': 'command', 'command': 'mine.sh'}
+        self.old_install({'hooks': {'SessionStart': [{'matcher': 'startup', 'hooks': [v1, mine]}]}})
+        v2 = {'type': 'command', 'command': 'start.sh --v2'}
+        (self.source / '.claude/settings.json').write_text(json.dumps(
+            {'hooks': {'SessionStart': [{'matcher': 'startup', 'hooks': [v2]}]}}))
+        self.commit()
+        result = self.install()
+        self.assertNotIn('Traceback', result.stderr)
+        self.assertEqual(self.settings()['hooks']['SessionStart'][0]['hooks'], [mine, v2])
+        self.install('--remove')
+        self.assertEqual(self.settings()['hooks']['SessionStart'][0]['hooks'], [mine])
+
+    def test_an_old_record_keeps_a_hook_that_the_user_edited(self):
+        edited = {'type': 'command', 'command': 'start.sh', 'timeout': 5}
+        self.old_install({'hooks': {'SessionStart': [{'matcher': 'startup', 'hooks': [edited]}]}})
+        result = self.install()
+        self.assertIn('Kept your edited hook', result.stderr)
+        self.assertEqual(self.settings()['hooks']['SessionStart'][0]['hooks'], [edited])
+
+    def test_an_old_record_removes_a_settings_file_that_ends_up_empty(self):
+        self.old_install(HOOKS)
+        self.install('--remove')
+        self.assertFalse((self.target / '.claude/settings.json').exists())
+
+    def test_an_old_record_removes_a_skill_copy_that_the_source_once_shipped(self):
+        moved = self.source / '.agents/skills/lanes/SKILL.md'
+        moved.parent.mkdir(parents=True)
+        moved.write_text('lanes\n')
+        manifest = json.loads((self.source / 'skill-package.json').read_text())
+        manifest['skills'].append({'name': 'lanes', 'path': '.agents/skills/lanes'})
+        (self.source / 'skill-package.json').write_text(json.dumps(manifest))
+        self.commit()
+        copy = self.target / '.agents/skills/lanes/SKILL.md'
+        copy.parent.mkdir(parents=True)
+        copy.write_text('lanes\n')
+        mine = self.target / '.agents/skills/mine/SKILL.md'
+        mine.parent.mkdir(parents=True)
+        mine.write_text('my skill\n')
+        self.old_install({}, {'.agents/skills/lanes/SKILL.md': sha(copy), '.agents/skills/mine/SKILL.md': sha(mine)})
+        manifest['skills'].pop()
+        (self.source / 'skill-package.json').write_text(json.dumps(manifest))
+        git(self.source, 'rm', '-q', '-r', '.agents/skills/lanes')
+        self.commit()
+        self.install()
+        self.assertFalse(copy.exists())
+        self.assertEqual(mine.read_text(), 'my skill\n')
+
+    def test_a_hook_that_the_user_moved_to_another_group_is_not_added_twice(self):
+        self.install()
+        settings = self.settings()
+        settings['hooks']['SessionStart'][0]['matcher'] = 'startup|resume'
+        (self.target / '.claude/settings.json').write_text(json.dumps(settings))
+        result = self.install()
+        self.assertIn('is in another group of SessionStart', result.stderr)
+        self.assertEqual(self.settings(), settings)
+        self.install('--remove')
+        self.assertEqual(self.settings(), settings)
+
+    def test_removing_an_old_record_leaves_a_skill_that_the_source_never_shipped(self):
+        mine = self.target / '.agents/skills/mine/SKILL.md'
+        mine.parent.mkdir(parents=True)
+        mine.write_text('my skill\n')
+        self.old_install(HOOKS, {'.agents/skills/mine/SKILL.md': sha(mine)})
+        result = self.install('--remove')
+        self.assertIn('the package never shipped that skill', result.stderr)
+        self.assertEqual(mine.read_text(), 'my skill\n')
+        self.assertFalse((self.target / '.agents/hooky-install.json').exists())
+
+    def test_an_old_record_takes_out_the_hooks_of_a_file_that_the_source_no_longer_merges(self):
+        self.old_install(HOOKS)
+        manifest = json.loads((self.source / 'skill-package.json').read_text())
+        manifest['install_extras']['merge_hooks'] = []
+        (self.source / 'skill-package.json').write_text(json.dumps(manifest))
+        self.commit()
+        self.install()
+        self.assertEqual(self.settings(), {})
+
+    def test_an_old_record_claims_only_skills_of_its_exact_revision(self):
+        # The source once committed a skill named mine, then deleted it before the old revision. The clone also has
+        # an uncommitted folder of that name. Neither shows that the old install shipped the user's mine.
+        theirs = self.source / '.agents/skills/mine/SKILL.md'
+        theirs.parent.mkdir(parents=True)
+        theirs.write_text('once\n')
+        self.commit()
+        git(self.source, 'rm', '-q', '-r', '.agents/skills/mine')
+        self.commit()
+        theirs.parent.mkdir(parents=True)
+        theirs.write_text('scratch\n')
+        mine = self.target / '.agents/skills/mine/SKILL.md'
+        mine.parent.mkdir(parents=True)
+        mine.write_text('my skill\n')
+        self.old_install(HOOKS, {'.agents/skills/mine/SKILL.md': sha(mine)})
+        record = json.loads((self.target / '.agents/hooky-install.json').read_text())
+        record['source_worktree_dirty'] = True
+        (self.target / '.agents/hooky-install.json').write_text(json.dumps(record))
+        self.install()
+        self.assertEqual(mine.read_text(), 'my skill\n')
+        result = self.install('--remove')
+        self.assertEqual(mine.read_text(), 'my skill\n')
+        self.assertNotIn('Left', result.stderr)
+
+    def test_an_old_record_without_its_commit_in_the_clone_claims_no_skill(self):
+        copy = self.target / '.agents/skills/hk2/SKILL.md'
+        copy.parent.mkdir(parents=True)
+        copy.write_text('x\n')
+        self.old_install(HOOKS, {'.agents/skills/hk2/SKILL.md': sha(copy)})
+        record = json.loads((self.target / '.agents/hooky-install.json').read_text())
+        record['source_revision'] = '0' * 40
+        (self.target / '.agents/hooky-install.json').write_text(json.dumps(record))
+        result = self.install('--remove')
+        self.assertIn('the package never shipped that skill', result.stderr)
+        self.assertEqual(copy.read_text(), 'x\n')
+
     def test_recorded_paths_are_checked_without_case_and_dot_is_refused(self):
         (self.target / '.agents').mkdir()
         for extras in (['.GIT'], ['.Agents/Skills/x'], ['.'], ['a/./b'], ['']):
