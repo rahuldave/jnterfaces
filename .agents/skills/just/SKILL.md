@@ -1,6 +1,7 @@
 ---
 name: just
 description: Use when you write, change or run a Justfile, when a project needs a command for a task, or when you map workflow concepts such as format, lint, types, test and check to commands. It gives the house style of a Justfile and the command contract that agents use.
+license: MIT, copyright (c) 2026 Rahul Dave. The full text is in the LICENSE file of https://github.com/rahuldave/jnterfaces
 ---
 
 # Just
