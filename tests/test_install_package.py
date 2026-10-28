@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -41,7 +42,8 @@ class InstallTest(unittest.TestCase):
         self.temp.cleanup()
 
     def install(self, *args, check=True):
-        return run('bash', self.source / 'scripts/install.sh', self.target, *args, check=check)
+        return run(sys.executable, self.source / 'scripts/install_package.py', '--source', self.source, self.target, *args,
+                   check=check)
 
     def record(self):
         return json.loads((self.target / RECORD).read_text())
@@ -176,7 +178,9 @@ class InstallTest(unittest.TestCase):
         self.assertFalse((self.target / '.agents/skills/jagt-protocol').exists())
         record = self.record()
         self.assertEqual(record['skills'], ['just'])
-        self.assertTrue(all(name.startswith('.agents/skills/just/') for name in record['managed_files']))
+        self.assertTrue(all(name.startswith('.agents/skills/just/') for name in record['managed_files']
+                            if name.startswith('.agents/skills/')))
+        self.assertIn('.agents/install.just', record['managed_files'])
         # Turning a skill on again installs it.
         self.install('--skill', 'just', '--skill', 'cx', '--exact')
         self.assertTrue((self.target / '.agents/skills/cx/SKILL.md').is_file())
@@ -207,7 +211,8 @@ class InstallTest(unittest.TestCase):
         self.assertIn('--exact needs at least one --skill', result.stderr)
 
     def test_refuses_the_source_as_target(self):
-        result = run('bash', self.source / 'scripts/install.sh', self.source, check=False)
+        result = run(sys.executable, self.source / 'scripts/install_package.py', '--source', self.source, self.source,
+                     check=False)
         self.assertNotEqual(result.returncode, 0)
 
 
@@ -318,6 +323,267 @@ class InstallTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('Install failed', result.stderr)
             self.assertNotIn('Traceback', result.stderr)
+
+
+HOOKS = {'hooks': {'SessionStart': [{'matcher': 'startup', 'hooks': [{'type': 'command', 'command': 'start.sh'}]}]}}
+
+
+class ExtrasTest(unittest.TestCase):
+    """A package with extras: managed files outside the skills, merged hook settings and a starter file."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.base = Path(temp.name)
+        self.source = self.base / 'hooky'
+        files = {
+            'skill-package.json': json.dumps({
+                'repository': {'name': 'hooky'}, 'skills': [{'name': 'hk', 'path': '.agents/skills/hk'}],
+                'install_extras': {'files': ['.claude/hooks', 'tools/run.sh'], 'merge_hooks': ['.claude/settings.json'],
+                                   'seed': {'AGENTS.md': 'AGENTS.template.md'}}}),
+            '.agents/skills/hk/SKILL.md': '---\nname: hk\ndescription: d\n---\n',
+            '.claude/hooks/start.sh': '#!/bin/sh\necho start\n',
+            'tools/run.sh': 'echo run\n',
+            '.claude/settings.json': json.dumps(HOOKS),
+            'AGENTS.template.md': '# Agents\n',
+        }
+        for name, text in files.items():
+            (self.source / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.source / name).write_text(text)
+        (self.source / '.claude/hooks/start.sh').chmod(0o755)
+        git(self.source, 'init', '-q')
+        self.commit()
+        self.target = self.base / 'target'
+        self.target.mkdir()
+        git(self.target, 'init', '-q')
+
+    def commit(self):
+        git(self.source, 'add', '-A')
+        git(self.source, 'commit', '-q', '-m', 'source')
+
+    def install(self, *args, check=True):
+        return run(sys.executable, REPO / 'scripts/install_package.py', '--source', self.source, self.target, *args,
+                   check=check)
+
+    def settings(self):
+        return json.loads((self.target / '.claude/settings.json').read_text())
+
+    def record(self, name='.agents/hooky-install.json'):
+        return json.loads((self.target / name).read_text())
+
+    def user_settings(self):
+        mine = {'model': 'x', 'hooks': {'SessionStart': [{'matcher': 'startup', 'hooks': [{'type': 'command', 'command': 'mine.sh'}]}],
+                                        'Stop': [{'hooks': [{'type': 'command', 'command': 'stop.sh'}]}]}}
+        (self.target / '.claude').mkdir()
+        (self.target / '.claude/settings.json').write_text(json.dumps(mine))
+        return mine
+
+    def test_installs_the_extras_merges_the_hooks_and_seeds_a_missing_file(self):
+        mine = self.user_settings()
+        self.install()
+        self.assertTrue(os.access(self.target / '.claude/hooks/start.sh', os.X_OK))
+        self.assertEqual((self.target / 'tools/run.sh').read_text(), 'echo run\n')
+        self.assertEqual((self.target / 'AGENTS.md').read_text(), '# Agents\n')
+        settings = self.settings()
+        self.assertEqual(settings['model'], 'x')
+        self.assertEqual(settings['hooks']['Stop'], mine['hooks']['Stop'])
+        commands = [h['command'] for h in settings['hooks']['SessionStart'][0]['hooks']]
+        self.assertEqual(commands, ['mine.sh', 'start.sh'])
+        record = self.record()
+        self.assertEqual(record['extras'], ['.claude/hooks', 'tools/run.sh'])
+        self.assertEqual(record['merged_hooks'], {'.claude/settings.json': HOOKS})
+        self.assertIn('.claude/hooks/start.sh', record['managed_files'])
+        self.assertNotIn('AGENTS.md', record['managed_files'])
+        before = {name: (self.target / name).read_bytes() for name in ('.claude/settings.json', '.agents/hooky-install.json')}
+        (self.target / 'AGENTS.md').write_text('my agents\n')
+        self.install()
+        self.assertEqual(before, {name: (self.target / name).read_bytes() for name in before})
+        self.assertEqual((self.target / 'AGENTS.md').read_text(), 'my agents\n')
+
+    def test_a_conflicting_hook_command_stops_before_any_write(self):
+        (self.target / '.claude').mkdir()
+        clash = {'hooks': {'SessionStart': [{'matcher': 'startup', 'hooks': [{'type': 'other', 'command': 'start.sh'}]}]}}
+        (self.target / '.claude/settings.json').write_text(json.dumps(clash))
+        result = self.install(check=False)
+        self.assertIn('Conflicting hook command', result.stderr)
+        self.assertFalse((self.target / '.agents').exists())
+        self.assertFalse((self.target / 'tools').exists())
+
+    def test_an_unrecorded_file_in_the_place_of_an_extra_stops_the_install(self):
+        (self.target / 'tools').mkdir()
+        (self.target / 'tools/run.sh').write_text('my own run\n')
+        result = self.install(check=False)
+        self.assertIn('differs from source', result.stderr)
+        self.assertEqual((self.target / 'tools/run.sh').read_text(), 'my own run\n')
+
+    def test_an_extra_or_a_hook_that_the_source_drops_is_taken_out(self):
+        mine = self.user_settings()
+        self.install()
+        manifest = json.loads((self.source / 'skill-package.json').read_text())
+        manifest['install_extras'] = {'files': ['.claude/hooks']}
+        (self.source / 'skill-package.json').write_text(json.dumps(manifest))
+        (self.source / 'tools/run.sh').unlink()
+        self.commit()
+        self.install()
+        self.assertFalse((self.target / 'tools').exists())
+        self.assertEqual(self.settings(), mine)
+        self.assertEqual(self.record()['merged_hooks'], {})
+
+    def test_remove_takes_out_the_files_and_hooks_and_keeps_the_rest(self):
+        mine = self.user_settings()
+        self.install()
+        self.install('--remove', '--dry-run')
+        self.assertTrue((self.target / 'tools/run.sh').exists())
+        result = self.install('--remove')
+        self.assertIn('Removed hooky', result.stdout)
+        self.assertEqual(self.settings(), mine)
+        for gone in ('.agents/skills/hk', '.claude/hooks', 'tools', '.agents/hooky-install.json'):
+            self.assertFalse((self.target / gone).exists(), gone)
+        self.assertTrue((self.target / 'AGENTS.md').exists())
+        self.assertIn('not installed', self.install('--remove').stdout)
+
+    def test_remove_keeps_an_edited_file_and_marks_the_record(self):
+        self.install()
+        (self.target / 'tools/run.sh').write_text('my change\n')
+        result = self.install('--remove')
+        self.assertIn('Kept tools/run.sh', result.stderr)
+        self.assertEqual((self.target / 'tools/run.sh').read_text(), 'my change\n')
+        self.assertFalse((self.target / '.claude/settings.json').exists())
+        record = self.record()
+        self.assertTrue(record['removed'])
+        self.assertEqual(list(record['managed_files']), ['tools/run.sh'])
+
+    def test_record_names_the_file_of_the_record(self):
+        self.install('--record', '.agents/old-name.json')
+        self.assertEqual(self.record('.agents/old-name.json')['package'], 'hooky')
+        self.assertFalse((self.target / '.agents/hooky-install.json').exists())
+        for bad in ('../x.json', 'elsewhere/x.json'):
+            self.assertIn('--record must be', self.install('--record', bad, check=False).stderr)
+
+    def test_bad_extras_fail_with_a_message(self):
+        for extras in ({'files': ['.agents/skills/hk']}, {'files': ['../x']}, {'files': ['.git/config']},
+                       {'merge_hooks': '.claude/settings.json'}, {'seed': {'AGENTS.md': '/etc/passwd'}},
+                       {'files': ['nowhere']}):
+            manifest = json.loads((self.source / 'skill-package.json').read_text())
+            manifest['install_extras'] = extras
+            (self.source / 'skill-package.json').write_text(json.dumps(manifest))
+            self.commit()
+            result = self.install(check=False)
+            self.assertNotEqual(result.returncode, 0, extras)
+            self.assertNotIn('Traceback', result.stderr)
+
+    def test_a_pinned_commit_installs_extras_from_the_commit(self):
+        head = git(self.source, 'rev-parse', 'HEAD')
+        (self.source / 'tools/run.sh').write_text('uncommitted\n')
+        self.install('--source-commit', head)
+        self.assertEqual((self.target / 'tools/run.sh').read_text(), 'echo run\n')
+        self.assertTrue(os.access(self.target / '.claude/hooks/start.sh', os.X_OK))
+
+    def test_remove_keeps_a_hook_that_the_user_had_before_and_the_settings_file(self):
+        (self.target / '.claude').mkdir()
+        (self.target / '.claude/settings.json').write_text(json.dumps(HOOKS))
+        self.install()
+        self.assertEqual(self.record()['merged_hooks'], {})
+        self.install('--remove')
+        self.assertEqual(self.settings(), HOOKS)
+
+    def test_remove_keeps_a_settings_file_that_existed_even_when_it_ends_up_empty(self):
+        (self.target / '.claude').mkdir()
+        (self.target / '.claude/settings.json').write_text('{}')
+        self.install()
+        self.install('--remove')
+        self.assertEqual(self.settings(), {})
+
+    def test_a_recorded_path_outside_the_target_is_refused(self):
+        victim = self.base / 'victim.json'
+        victim.write_text(json.dumps(HOOKS))
+        (self.target / '.agents').mkdir()
+        for key in (str(victim), '../victim.json', '.claude/../../victim.json', '.git/config'):
+            for field in ('merged_hooks', 'extras', 'created_settings'):
+                value = {key: HOOKS} if field == 'merged_hooks' else [key]
+                (self.target / '.agents/hooky-install.json').write_text(json.dumps({field: value}))
+                for args in ((), ('--remove',)):
+                    result = self.install(*args, check=False)
+                    self.assertNotEqual(result.returncode, 0, (key, field, args))
+                    self.assertNotIn('Traceback', result.stderr)
+        self.assertEqual(json.loads(victim.read_text()), HOOKS)
+
+    def test_an_edited_hook_is_kept_and_its_script_stays_on_removal(self):
+        runs = {'hooks': {'Stop': [{'hooks': [{'type': 'command', 'command': 'sh .claude/hooks/start.sh'}]}]}}
+        (self.source / '.claude/settings.json').write_text(json.dumps(runs))
+        self.commit()
+        self.install()
+        settings = self.settings()
+        settings['hooks']['Stop'][0]['hooks'][0]['timeout'] = 5
+        (self.target / '.claude/settings.json').write_text(json.dumps(settings))
+        result = self.install()
+        self.assertIn('Kept your edited hook', result.stderr)
+        self.assertEqual(self.settings(), settings)
+        result = self.install('--remove')
+        self.assertIn('a hook that stays in the settings runs it', result.stderr)
+        self.assertTrue((self.target / '.claude/hooks/start.sh').is_file())
+        self.assertEqual(self.settings(), settings)
+
+    def test_an_old_record_without_merged_hooks_owns_the_source_hooks(self):
+        # The old installer of agent_gest_git_skills merged the source hooks and recorded none of them.
+        (self.target / '.claude/hooks').mkdir(parents=True)
+        (self.target / '.claude/hooks/start.sh').write_text('#!/bin/sh\necho start\n')
+        (self.target / '.claude/settings.json').write_text(json.dumps(HOOKS))
+        (self.target / '.agents').mkdir()
+        (self.target / '.agents/hooky-install.json').write_text(json.dumps({'managed_files': {
+            '.claude/hooks/start.sh': sha(self.target / '.claude/hooks/start.sh')}}))
+        self.install()
+        self.assertEqual(self.record()['merged_hooks'], {'.claude/settings.json': HOOKS})
+        result = self.install('--remove')
+        self.assertNotIn('Kept', result.stderr)
+        self.assertFalse((self.target / '.claude/hooks').exists())
+        self.assertEqual(self.settings(), {})
+
+    def test_an_old_record_takes_out_the_old_version_of_a_changed_hook(self):
+        old = {'hooks': {'SessionStart': [{'matcher': 'startup', 'hooks': [{'type': 'command', 'command': 'start.sh'}]}]}}
+        mine = {'type': 'command', 'command': 'mine.sh'}
+        settings = json.loads(json.dumps(old))
+        settings['hooks']['SessionStart'][0]['hooks'].append(mine)
+        (self.target / '.claude').mkdir()
+        (self.target / '.claude/settings.json').write_text(json.dumps(settings))
+        (self.target / '.agents').mkdir()
+        (self.target / '.agents/hooky-install.json').write_text(json.dumps({'managed_files': {}}))
+        new = json.loads(json.dumps(old))
+        new['hooks']['SessionStart'][0]['hooks'][0]['timeout'] = 30
+        (self.source / '.claude/settings.json').write_text(json.dumps(new))
+        self.commit()
+        result = self.install()
+        self.assertNotIn('Kept your edited hook', result.stderr)
+        hooks = self.settings()['hooks']['SessionStart'][0]['hooks']
+        self.assertEqual(hooks, [mine, new['hooks']['SessionStart'][0]['hooks'][0]])
+        self.install('--remove')
+        self.assertEqual(self.settings()['hooks']['SessionStart'][0]['hooks'], [mine])
+
+    def test_an_old_record_names_an_edited_or_dropped_hook(self):
+        (self.target / '.claude/hooks').mkdir(parents=True)
+        (self.target / '.claude/hooks/start.sh').write_text('#!/bin/sh\necho start\n')
+        edited = {'type': 'command', 'command': 'start.sh', 'timeout': 5}
+        dropped = {'type': 'command', 'command': 'sh .claude/hooks/start.sh --old'}
+        (self.target / '.claude/settings.json').write_text(json.dumps(
+            {'hooks': {'SessionStart': [{'matcher': 'startup', 'hooks': [edited, dropped]}]}}))
+        (self.target / '.agents').mkdir()
+        (self.target / '.agents/hooky-install.json').write_text(json.dumps({'managed_files': {
+            '.claude/hooks/start.sh': sha(self.target / '.claude/hooks/start.sh')}}))
+        result = self.install()
+        self.assertIn("The hook 'start.sh' in .claude/settings.json differs", result.stderr)
+        self.assertIn("The hook 'sh .claude/hooks/start.sh --old' in .claude/settings.json runs a file of the old "
+                      "install", result.stderr)
+
+    def test_recorded_paths_are_checked_without_case_and_dot_is_refused(self):
+        (self.target / '.agents').mkdir()
+        for extras in (['.GIT'], ['.Agents/Skills/x'], ['.'], ['a/./b'], ['']):
+            (self.target / '.agents/hooky-install.json').write_text(json.dumps({'extras': extras}))
+            result = self.install(check=False)
+            self.assertNotEqual(result.returncode, 0, extras)
+            self.assertNotIn('Traceback', result.stderr, extras)
+
+    def test_remove_does_not_go_with_skill(self):
+        self.assertIn('does not go with --skill', self.install('--remove', '--skill', 'hk', check=False).stderr)
 
 
 if __name__ == '__main__':

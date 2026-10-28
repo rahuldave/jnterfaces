@@ -1,0 +1,14 @@
+{
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": ["**", "!dist", "!node_modules", "!.agents", "!.claude", "!.codex"]
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "lineWidth": 120
+  }
+}

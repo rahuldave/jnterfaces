@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "packages": [
     {
       "name": "jnterfaces",
@@ -23,9 +23,9 @@
     },
     {
       "name": "agent_gest_git_skills",
-      "choice": "gest",
+      "choice": "tasker",
       "repository": "https://github.com/rahuldave/agent_gest_git_skills",
-      "about": "the Gest g* workflow skills",
+      "about": "track work with Gest: the g* workflow skills",
       "default": true,
       "needs": [
         "jnterfaces"
@@ -34,17 +34,164 @@
     },
     {
       "name": "nossaifd",
-      "choice": "nossaifd",
+      "choice": "prose",
       "repository": "https://github.com/rahuldave/nossaifd",
-      "about": "the plain English writing guide and its checker",
+      "about": "write plain English, with its guide and checker",
       "default": true
     },
     {
       "name": "sklanes",
-      "choice": "sklanes",
+      "choice": "reporter",
       "repository": "https://github.com/rahuldave/sklanes",
       "about": "report requests for human attention to a Lanes inbox",
       "default": false
     }
-  ]
+  ],
+  "aliases": {
+    "gest": "tasker",
+    "nossaifd": "prose",
+    "sklanes": "reporter"
+  },
+  "profiles": {
+    "python": {
+      "about": "a Python project with uv",
+      "detect": [
+        "pyproject.toml",
+        "uv.lock"
+      ],
+      "justfile": ".agents/skills/just/assets/templates/python-uv.just",
+      "init": {
+        "file": "pyproject.toml",
+        "command": [
+          "uv",
+          "init",
+          "--bare",
+          "--no-workspace"
+        ]
+      },
+      "uv_default_groups": "all",
+      "choices": {
+        "tasker": true,
+        "prose": true
+      },
+      "add": [
+        "uv",
+        "add",
+        "--group",
+        "{group}"
+      ],
+      "remove": [
+        "uv",
+        "remove",
+        "--group",
+        "{group}"
+      ],
+      "tools": {
+        "lint": {
+          "group": "lint",
+          "packages": [
+            "ruff",
+            "pre-commit"
+          ],
+          "files": {
+            "ruff.toml": "profiles/python/ruff.toml",
+            ".pre-commit-config.yaml": "profiles/python/pre-commit-config.yaml"
+          },
+          "skip_if": {
+            "ruff.toml": [
+              "pyproject.toml",
+              "[tool.ruff"
+            ]
+          }
+        },
+        "test": {
+          "group": "test",
+          "packages": [
+            "pytest",
+            "pytest-cov"
+          ]
+        },
+        "typecheck": {
+          "group": "lint",
+          "packages": [
+            "ty"
+          ]
+        }
+      },
+      "default_tools": [
+        "lint",
+        "test"
+      ]
+    },
+    "typescript": {
+      "about": "a TypeScript project with npm, which uv runs from the nodejs-wheel package",
+      "detect": [
+        "package.json",
+        "tsconfig.json"
+      ],
+      "justfile": ".agents/skills/just/assets/templates/typescript-npm.just",
+      "init": {
+        "file": "package.json",
+        "command": [
+          "uvx",
+          "--from",
+          "nodejs-wheel==24.*",
+          "npm",
+          "init",
+          "--yes"
+        ]
+      },
+      "choices": {
+        "tasker": true,
+        "prose": true
+      },
+      "add": [
+        "uvx",
+        "--from",
+        "nodejs-wheel==24.*",
+        "npm",
+        "install",
+        "--save-dev"
+      ],
+      "remove": [
+        "uvx",
+        "--from",
+        "nodejs-wheel==24.*",
+        "npm",
+        "uninstall"
+      ],
+      "tools": {
+        "lint": {
+          "packages": [
+            "@biomejs/biome@2"
+          ],
+          "files": {
+            "biome.json": "profiles/typescript/biome.json"
+          }
+        },
+        "typecheck": {
+          "packages": [
+            "typescript@7",
+            "@types/node@24"
+          ],
+          "files": {
+            "tsconfig.json": "profiles/typescript/tsconfig.json"
+          }
+        },
+        "test": {
+          "packages": [
+            "typescript@7",
+            "@types/node@24"
+          ],
+          "files": {
+            "tsconfig.json": "profiles/typescript/tsconfig.json"
+          }
+        }
+      },
+      "default_tools": [
+        "lint",
+        "typecheck"
+      ]
+    }
+  }
 }

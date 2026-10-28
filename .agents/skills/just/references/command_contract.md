@@ -30,6 +30,7 @@ Use these recipe names when a concept applies to the project. The names stay
 the same from project to project:
 
 ```text
+Install a tool or a role: just install [name]
 Format: just fmt [path]
 Lint: just lint [path]
 Typecheck: just typecheck
