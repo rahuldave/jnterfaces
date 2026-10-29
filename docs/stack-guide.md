@@ -1,11 +1,12 @@
 # How the stack fits together
 
-This guide describes the skill stack as it is at jnterfaces `6c1172f`. It
+This guide describes the skill stack on the `main` branch of jnterfaces. It
 says where each part lives, what a machine needs, and how an install works.
 Then it builds a project in layers, from a project with no code to a project
 with the checks of cheesecracker. Each layer says what works now and what does
 not. The results come from installs into empty Git repositories on
-2026-10-29.
+2026-10-29. The section "Gaps to close" says which gaps a later change
+closed.
 
 ## Terms
 
@@ -47,15 +48,16 @@ packages list their files in `skill-package.json`. The list of packages,
 roles and profiles is in `stack.json` of jnterfaces.
 
 **The clone folder.** The installer looks for each package in the folder that
-holds the jnterfaces clone that runs. If a clone is missing, the installer
-clones it from GitHub. So the clone that you run sets the folder.
+`SKILL_PACKAGES_DIR` names. If the variable is not set, it looks in the folder
+that holds the jnterfaces clone that runs. If a clone is missing, the installer
+clones it from GitHub. Each run prints the folder.
 
 `just install` finds the jnterfaces clone from two variables. `JNTERFACES_DIR`
-names the clone. Otherwise, `SKILL_PACKAGES_DIR` names the folder, by default
-`~/.local/share/skill-packages`. The installer script reads neither variable.
-The project does not save the folder, so export a variable in your shell
-profile, for example `export SKILL_PACKAGES_DIR=~/Projects` on this machine. If you set none,
-`just install` clones new copies into `~/.local/share/skill-packages`.
+names the clone. Otherwise, the clone is in `SKILL_PACKAGES_DIR`, by default
+`~/.local/share/skill-packages`. The project does not save the folder, so
+export the variable in your shell profile, for example `export
+SKILL_PACKAGES_DIR=~/Projects` on this machine. If you set none, `just
+install` clones new copies into `~/.local/share/skill-packages`.
 
 ## What a machine needs
 
@@ -95,12 +97,14 @@ the run installs. It skips a clone with no upstream branch, and it prints
 "Not updated". A config file that a tool copies, for
 example `ruff.toml`, is yours after the first install.
 
-**An edited skill file stops the installs.** The installer does not overwrite
-a file that you edited. Instead, it stops, and it writes nothing. For example,
-one added line in `.agents/skills/nossaifd/SKILL.md` makes `just install` and
-`just uninstall tasker` fail. To go on, undo the edit or remove the file. A
-removal of the role that owns the file, here `just uninstall prose`, works,
-and it keeps the edited file.
+**An edited file stays as you left it.** The installer does not overwrite a
+file of a package that you edited. It names the file, and it installs the
+other files. The record keeps the hash of the install, so the next run and a
+removal still see the edit. To get the new version, undo the edit, or remove
+the file, and run `just install` again.
+
+A file that no install wrote, in the place of a file of a package, still stops
+the install, and the installer writes nothing.
 
 **The first install.** A new project has no Justfile, so it has no `just
 install`. Run the installer from the clone for the first install:
@@ -109,18 +113,28 @@ install`. Run the installer from the clone for the first install:
 uv run ~/Projects/jnterfaces/scripts/install_stack.py --target . prose
 ```
 
-At a terminal, the installer then asks about each of the other roles. The
-default answer for `tasker` is yes. So if you press Enter for each question,
-you get `tasker` too. With no terminal, the command turns on `prose` only.
+A named role asks no questions, so the command turns on `prose` only. With a
+named profile or tool and no named role, a terminal asks about each role.
 
 After that, the project has `.agents/install.just`. A Justfile that has the
 line `import? '.agents/install.just'` gets the recipes `just install` and
 `just uninstall`.
 
 **The agents.** Codex reads skills from `.agents/skills`. Claude Code reads
-skills from `.claude/skills`. The installer does not make `.claude/skills`, so
-Claude Code does not see the skills. fafamid has links in `.claude/skills`,
-but the installer did not write them.
+skills from `.claude/skills`. So for each installed skill, the installer makes
+the link `.claude/skills/NAME`, which points to `../../.agents/skills/NAME`.
+When the skill goes, the link goes. The installer leaves alone any other file
+or link in `.claude/skills`, and a `.claude` or `.claude/skills` that is a
+link or a file.
+
+**A link that you remove.** If you remove a link, no later install makes it
+again. If you remove the whole `.claude/skills` folder, the next install
+makes all the links again.
+
+**copier.** `.agents/install.just` defines the variable `jn_copier`, which runs
+copier 9 through `uvx`. copier makes files from a template, and `copier
+update` brings in a later version of the template and keeps your edits. So a
+recipe can use `{{jn_copier}} copy TEMPLATE FOLDER` with no install.
 
 ## Build a project in layers
 
@@ -169,7 +183,6 @@ uv run --no-project python .agents/skills/nossaifd/scripts/check.py README.md
   `just prose`. You type the `uv run` command above.
 - **No `AGENTS.md`.** Only the `tasker` role writes one. So nothing tells an
   agent to use the nossaifd skill.
-- **Claude Code does not see the skill**, as the section on agents says.
 
 ### Layer 2: the Justfile
 
@@ -367,14 +380,18 @@ the files of a role. For a tool, it removes the packages that `just install`
 added. It keeps each file that you edited, and each package that the project
 had before.
 
+**Removing lint takes out the Git hook.** Before `just uninstall lint`
+removes pre-commit, it runs `uv run --group lint pre-commit uninstall`. It runs only when
+the project has a `pre-commit` Git hook, and when the removal takes out
+pre-commit. If the command fails, the removal stops, and the next `just
+install` tries it again.
+
 **Removing a tool breaks the Justfile.** The installer writes the Justfile
 once, and it never changes the Justfile again. So the recipes of a removed
 tool stay. Tests with `git`, `just` and `uv` as the only programs on PATH
 showed these results after `just uninstall lint` on a Python project:
 
 - `just verify` fails, because `just fmt` finds no ruff.
-- `git commit` fails, because the Git hook from `just hook` finds no
-  pre-commit.
 - `ruff.toml` and `.pre-commit-config.yaml` stay, because they are yours.
 - `pyproject.toml` keeps an empty group, `lint = []`.
 
@@ -397,9 +414,9 @@ be another version, with other results.
 | Lint | `just install lint` | ruff and pre-commit, or biome | No `just hook` for TypeScript |
 | Tests | `just install test` | pytest, or `node --test` | TypeScript fails with no code |
 | Types | `just install typecheck` | ty, or tsc | Not in the Python `verify`. No ty config |
-| Remove a tool | `just uninstall lint` | The packages go | The recipes and the Git hook stay, and they fail |
-| Edit a skill | by hand | The removal of its role | Every other install stops |
-| Claude Code | none | none | No `.claude/skills` links |
+| Remove a tool | `just uninstall lint` | The packages and the Git hook go | The recipes stay, and they fail |
+| Edit a skill | by hand | The edit stays, and the other files install | none |
+| Claude Code | any install | The `.claude/skills` links | none |
 | Server, Docker, CI | none | none | No mixin |
 
 ## The plan: profile repositories
@@ -451,23 +468,22 @@ The profile repositories close the gaps of the recipes:
   it, and `verify` runs only the checks that are installed.
 - **A project with no code has a Justfile** with `just install`, and a later
   profile adds its recipes to it.
-- **The Git hook goes with the lint feature** that installs it. The removal
-  of the feature runs `pre-commit uninstall` before it removes pre-commit, so
-  `.git/hooks` has no hook that fails.
 
-These gaps need their own changes:
+These gaps need their own changes. A gap that a change closed says so.
 
 1. **Make the `.claude/skills` links** when the installer copies a skill, and
-   take them out on removal.
+   take them out on removal. Closed by the installer fixes.
 2. **Add a recipe for the writing checker** to the `prose` role.
 3. **Write a `.gitignore`** for each profile, when the project has none.
 4. **Let the TypeScript checks pass with no code**, as `just test` does for
    Python.
 5. **Add features for the parts of cheesecracker**, for example `serve`,
    `docker` and `ci`.
-6. **Let an install go on past an edited skill file.** For example, the
-   installer can keep the edit, name the file, and install the other files.
+6. **Let an install go on past an edited skill file.** Closed by the
+   installer fixes. The installer keeps the edit, names the file, and installs
+   the other files.
 7. **Ask about the roles only when no role is named** on the command line.
+   Closed by the installer fixes.
 8. **Keep the choice of no profile.** `--profile ''` works for one install,
    but the next install finds the profile from the files again.
 9. **Remove `AGENTS.md` with `tasker`**, or take out its lines about the
@@ -479,6 +495,8 @@ These gaps need their own changes:
     the writing skill.
 13. **Ship a ty config** that leaves out `.agents`, `.claude` and `.codex`.
 14. **Remove an empty dependency group**, such as `lint = []`, with its tool.
-15. **Save the clone folder in the project**, or print the folder that
-    `just install` uses. Also let the installer script read
-    `SKILL_PACKAGES_DIR`.
+15. **Print the clone folder, and let the installer script read
+    `SKILL_PACKAGES_DIR`.** Closed by the installer fixes. The project still
+    does not save the folder.
+16. **Take out the Git hook when the lint tool goes.** Closed by the installer
+    fixes.

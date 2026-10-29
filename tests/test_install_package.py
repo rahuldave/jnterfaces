@@ -75,16 +75,319 @@ class InstallTest(unittest.TestCase):
         self.install()
         self.assertEqual(before, (self.target / RECORD).read_text())
 
-    def test_refuses_to_overwrite_an_edited_file(self):
+    def test_keeps_an_edited_file_and_installs_the_rest(self):
         self.install()
         skill = self.target / '.agents/skills/just/SKILL.md'
+        recorded = self.record()['managed_files']['.agents/skills/just/SKILL.md']
+        skill.write_text('edited by the user\n')
+        (self.source / '.agents/skills/just/SKILL.md').write_text('---\nname: just\ndescription: new\n---\n')
+        (self.source / '.agents/skills/cx/SKILL.md').write_text('---\nname: cx\ndescription: new\n---\n')
+        self.commit_source()
+        result = self.install()
+        self.assertIn('Kept .agents/skills/just/SKILL.md: edited after install', result.stderr)
+        self.assertEqual(result.stderr.count('.agents/skills/just/SKILL.md'), 1)
+        self.assertEqual(skill.read_text(), 'edited by the user\n')
+        self.assertIn('description: new', (self.target / '.agents/skills/cx/SKILL.md').read_text())
+        # The record keeps the hash of the install, so the edit still shows on the next run and on removal.
+        self.assertEqual(self.record()['managed_files']['.agents/skills/just/SKILL.md'], recorded)
+        self.assertIn('edited after install', self.install().stderr)
+        self.assertEqual(skill.read_text(), 'edited by the user\n')
+        result = self.install('--remove')
+        self.assertIn('Kept .agents/skills/just/SKILL.md', result.stderr)
+        self.assertEqual(skill.read_text(), 'edited by the user\n')
+
+    def test_an_undone_edit_gets_the_new_version(self):
+        self.install()
+        skill = self.target / '.agents/skills/just/SKILL.md'
+        original = skill.read_bytes()
         skill.write_text('edited by the user\n')
         (self.source / '.agents/skills/just/SKILL.md').write_text('---\nname: just\ndescription: new\n---\n')
         self.commit_source()
+        self.install()
+        skill.write_bytes(original)
+        self.install()
+        self.assertIn('description: new', skill.read_text())
+        self.assertEqual(self.record()['managed_files']['.agents/skills/just/SKILL.md'], sha(skill))
+
+    def test_links_each_skill_for_claude_and_takes_the_links_out(self):
+        mine = self.target / '.claude/skills/cx'
+        mine.mkdir(parents=True)
+        (mine / 'notes.md').write_text('my own folder\n')
+        foreign = self.target / '.claude/skills/jagt-protocol'
+        foreign.symlink_to('../../somewhere/else')
+        self.install()
+        just = self.target / '.claude/skills/just'
+        self.assertEqual(os.readlink(just), '../../.agents/skills/just')
+        self.assertTrue((just / 'SKILL.md').is_file())
+        self.assertEqual((mine / 'notes.md').read_text(), 'my own folder\n')
+        self.assertEqual(os.readlink(foreign), '../../somewhere/else')
+        # --exact drops cx and jagt-protocol: only a link that points at a dropped skill goes.
+        self.install('--skill', 'just', '--exact')
+        self.assertTrue(just.is_symlink())
+        self.assertTrue(foreign.is_symlink())
+        self.install('--remove')
+        self.assertFalse(just.is_symlink())
+        self.assertTrue(foreign.is_symlink())
+        self.assertTrue((mine / 'notes.md').is_file())
+
+    def test_an_edited_skill_keeps_its_link_on_removal_and_a_linked_skills_folder_is_left_alone(self):
+        self.install()
+        (self.target / '.agents/skills/cx/SKILL.md').write_text('edited\n')
+        self.install('--remove')
+        self.assertTrue((self.target / '.claude/skills/cx').is_symlink())
+        self.assertFalse((self.target / '.claude/skills/just').exists())
+        other = Path(self.temp.name) / 'other'
+        other.mkdir()
+        git(other, 'init', '-q')
+        (other / '.claude').mkdir()
+        (other / '.agents/skills').mkdir(parents=True)
+        (other / '.claude/skills').symlink_to('../.agents/skills')
+        run(sys.executable, self.source / 'scripts/install_package.py', '--source', self.source, other)
+        self.assertEqual(sorted(p.name for p in (other / '.agents/skills').iterdir()), ['cx', 'jagt-protocol', 'just'])
+        self.assertFalse(any(p.is_symlink() for p in (other / '.agents/skills').iterdir()))
+
+    def test_a_claude_skills_file_is_left_alone_and_the_install_succeeds(self):
+        (self.target / '.claude').mkdir()
+        (self.target / '.claude/skills').write_text('not a folder\n')
         result = self.install(check=False)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('differs from source', result.stderr)
-        self.assertEqual(skill.read_text(), 'edited by the user\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.target / '.claude/skills').read_text(), 'not a folder\n')
+        self.assertEqual(self.record()['claude_links'], [])
+
+    def test_a_dry_run_names_the_links_it_would_make_and_remove(self):
+        result = self.install('--dry-run')
+        self.assertIn('Would link .claude/skills to cx, jagt-protocol, just', result.stdout)
+        self.assertFalse((self.target / '.claude').exists())
+        self.install()
+        result = self.install('--remove', '--dry-run')
+        self.assertIn('Would remove the .claude/skills link of cx, jagt-protocol, just', result.stdout)
+        self.assertTrue((self.target / '.claude/skills/just').is_symlink())
+
+    def test_a_link_that_the_user_removed_stays_removed(self):
+        self.install()
+        (self.target / '.claude/skills/cx').unlink()
+        for _ in range(3):
+            self.install()
+            self.assertFalse((self.target / '.claude/skills/cx').is_symlink())
+            self.assertIn('cx', self.record()['claude_links'])
+        # A removal never makes a link, also for a skill that stays because the user edited it.
+        (self.target / '.agents/skills/cx/SKILL.md').write_text('edited\n')
+        self.install('--remove')
+        self.assertFalse((self.target / '.claude/skills/cx').exists())
+
+    def test_a_removal_with_an_old_record_makes_no_link(self):
+        self.install()
+        record = self.record()
+        del record['claude_links']
+        (self.target / RECORD).write_text(json.dumps(record))
+        shutil.rmtree(self.target / '.claude')
+        (self.target / '.agents/skills/cx/SKILL.md').write_text('edited\n')
+        self.install('--remove')
+        self.assertFalse((self.target / '.claude').exists())
+
+    def test_the_link_of_a_skill_uses_its_folder_not_its_name(self):
+        manifest = json.loads((self.source / 'skill-package.json').read_text())
+        manifest['skills'][2]['name'] = 'cx-name'
+        (self.source / 'skill-package.json').write_text(json.dumps(manifest))
+        self.commit_source()
+        self.install()
+        self.assertEqual(os.readlink(self.target / '.claude/skills/cx'), '../../.agents/skills/cx')
+        self.assertFalse((self.target / '.claude/skills/cx-name').exists())
+
+    def test_an_edited_file_with_a_case_only_rename_is_kept(self):
+        self.install()
+        old = '.agents/skills/cx/references/incremental_pipelines.md'
+        new = '.agents/skills/cx/references/Incremental_pipelines.md'
+        (self.target / old).write_text('my notes\n')
+        git(self.source, 'mv', old, new)
+        (self.source / new).write_text('new text\n')
+        self.commit_source()
+        result = self.install(check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        names = os.listdir(self.target / '.agents/skills/cx/references')
+        edited = [name for name in names if (self.target / '.agents/skills/cx/references' / name).read_text() == 'my notes\n']
+        self.assertEqual(len(edited), 1, names)
+        self.assertIn('edited after install', result.stderr)
+
+    def case_insensitive(self):
+        probe = self.target / 'Probe'
+        probe.write_text('')
+        try:
+            return (self.target / 'probe').exists()
+        finally:
+            probe.unlink()
+
+    def test_an_edited_case_rename_is_recorded_under_the_name_on_disk(self):
+        if not self.case_insensitive():
+            self.skipTest('needs a disk that ignores case')
+        self.install()
+        refs = self.target / '.agents/skills/cx/references'
+        old = '.agents/skills/cx/references/incremental_pipelines.md'
+        new = '.agents/skills/cx/references/Incremental_pipelines.md'
+        original = (self.target / old).read_bytes()
+        (self.target / old).write_text('my notes\n')
+        git(self.source, 'mv', old, new)
+        (self.source / new).write_text('new text\n')
+        self.commit_source()
+        self.install()
+        managed = self.record()['managed_files']
+        self.assertIn(old, managed)
+        self.assertNotIn(new, managed)
+        # Renamed back in the source: the edit is still kept.
+        git(self.source, 'mv', new, old)
+        self.commit_source()
+        self.assertIn('edited after install', self.install().stderr)
+        self.assertEqual((self.target / old).read_text(), 'my notes\n')
+        # Renamed again, and the edit undone: the new version arrives under the new name.
+        git(self.source, 'mv', old, new)
+        self.commit_source()
+        self.install()
+        (self.target / old).write_bytes(original)
+        self.install()
+        self.assertEqual(os.listdir(refs), ['Incremental_pipelines.md'])
+        self.assertEqual((self.target / new).read_text(), 'new text\n')
+
+    def old_record_without_skills(self):
+        record = self.record()
+        del record['skills']
+        del record['claude_links']
+        (self.target / RECORD).write_text(json.dumps(record))
+
+    def test_a_partial_install_links_no_skill_whose_folder_is_gone(self):
+        self.install()
+        self.old_record_without_skills()
+        shutil.rmtree(self.target / '.claude')
+        shutil.rmtree(self.target / '.agents/skills/cx')
+        self.install('--skill', 'just')
+        self.assertEqual(sorted(os.listdir(self.target / '.claude/skills')), ['jagt-protocol', 'just'])
+        # The old record listed no skills: the partial install keeps the skills that it left.
+        self.assertEqual(self.record()['skills'], ['cx', 'jagt-protocol', 'just'])
+
+    def test_a_skill_folder_that_the_package_never_shipped_gets_no_link(self):
+        mine = self.target / '.agents/skills/mine/SKILL.md'
+        mine.parent.mkdir(parents=True)
+        mine.write_text('my skill\n')
+        self.install()
+        record = self.record()
+        record['managed_files']['.agents/skills/mine/SKILL.md'] = sha(mine)
+        (self.target / RECORD).write_text(json.dumps(record))
+        self.old_record_without_skills()
+        self.install('--skill', 'just')
+        self.assertFalse((self.target / '.claude/skills/mine').exists())
+        self.install()
+        self.assertFalse((self.target / '.claude/skills/mine').exists())
+        self.assertEqual(mine.read_text(), 'my skill\n')
+
+    def test_a_partial_install_of_an_old_record_drops_a_skill_of_the_user_so_no_removal_takes_it(self):
+        mine = self.target / '.agents/skills/mine/SKILL.md'
+        mine.parent.mkdir(parents=True)
+        mine.write_text('my skill\n')
+        self.install()
+        record = self.record()
+        record['managed_files']['.agents/skills/mine/SKILL.md'] = sha(mine)
+        (self.target / RECORD).write_text(json.dumps(record))
+        self.old_record_without_skills()
+        (self.target / '.claude/skills/mine').symlink_to('../../.agents/skills/mine')
+        self.install('--skill', 'just')
+        self.assertNotIn('.agents/skills/mine/SKILL.md', self.record()['managed_files'])
+        self.install('--remove')
+        self.assertEqual(mine.read_text(), 'my skill\n')
+        self.assertEqual(os.readlink(self.target / '.claude/skills/mine'), '../../.agents/skills/mine')
+
+    def test_a_removal_keeps_the_link_of_a_skill_that_another_package_records(self):
+        self.install()
+        cx = {name: value for name, value in self.record()['managed_files'].items() if name.startswith('.agents/skills/cx/')}
+        (self.target / '.agents/other-install.json').write_text(json.dumps({'managed_files': cx, 'claude_links': ['cx']}))
+        result = self.install('--remove')
+        self.assertIn('another package records it', result.stderr)
+        self.assertEqual(os.readlink(self.target / '.claude/skills/cx'), '../../.agents/skills/cx')
+        self.assertFalse((self.target / '.claude/skills/just').exists())
+
+    def test_a_dropped_skill_with_an_edited_skill_md_keeps_its_link(self):
+        self.install()
+        (self.target / '.agents/skills/cx/SKILL.md').write_text('edited\n')
+        manifest = json.loads((self.source / 'skill-package.json').read_text())
+        manifest['skills'] = [skill for skill in manifest['skills'] if skill['name'] != 'cx']
+        (self.source / 'skill-package.json').write_text(json.dumps(manifest))
+        shutil.rmtree(self.source / '.agents/skills/cx')
+        self.commit_source()
+        result = self.install()
+        self.assertIn('Kept .agents/skills/cx/SKILL.md', result.stderr)
+        self.assertEqual(os.readlink(self.target / '.claude/skills/cx'), '../../.agents/skills/cx')
+
+    def test_a_dropped_skill_whose_folder_goes_later_loses_its_link(self):
+        self.install()
+        (self.target / '.agents/skills/cx/SKILL.md').write_text('edited\n')
+        manifest = json.loads((self.source / 'skill-package.json').read_text())
+        manifest['skills'] = [skill for skill in manifest['skills'] if skill['name'] != 'cx']
+        (self.source / 'skill-package.json').write_text(json.dumps(manifest))
+        shutil.rmtree(self.source / '.agents/skills/cx')
+        self.commit_source()
+        self.install()
+        self.install()
+        shutil.rmtree(self.target / '.agents/skills/cx')
+        self.install()
+        self.assertFalse((self.target / '.claude/skills/cx').is_symlink())
+        self.assertNotIn('cx', self.record()['claude_links'])
+
+    def test_odd_names_in_claude_links_are_ignored(self):
+        self.install()
+        outside = self.target / '.claude/evil'
+        outside.symlink_to('../../.agents/skills/../evil')
+        record = self.record()
+        record['claude_links'] += ['..', '../evil', 7]
+        (self.target / RECORD).write_text(json.dumps(record))
+        self.install('--remove')
+        self.assertTrue(outside.is_symlink())
+
+    def test_a_removal_after_an_older_partial_install_keeps_a_skill_of_the_user(self):
+        # The installer on main wrote this record: a list of skills without the user's folder, which it still listed.
+        mine = self.target / '.agents/skills/mine/SKILL.md'
+        mine.parent.mkdir(parents=True)
+        mine.write_text('my skill\n')
+        self.install()
+        record = self.record()
+        record['managed_files']['.agents/skills/mine/SKILL.md'] = sha(mine)
+        record['skills'] = ['just']
+        (self.target / RECORD).write_text(json.dumps(record))
+        self.install('--remove')
+        self.assertEqual(mine.read_text(), 'my skill\n')
+        self.assertFalse((self.target / '.agents/skills/just').exists())
+
+    def test_a_removal_takes_a_dropped_skill_whose_name_differs_from_its_folder(self):
+        manifest = json.loads((self.source / 'skill-package.json').read_text())
+        manifest['skills'][2]['name'] = 'cx-name'
+        (self.source / 'skill-package.json').write_text(json.dumps(manifest))
+        self.commit_source()
+        self.install()
+        self.assertIn('cx', self.record()['skill_folders'])
+        manifest['skills'] = manifest['skills'][:2]
+        (self.source / 'skill-package.json').write_text(json.dumps(manifest))
+        shutil.rmtree(self.source / '.agents/skills/cx')
+        self.commit_source()
+        # The clone no longer has the revision of the record, as after a force push.
+        record = self.record()
+        record['source_revision'] = '0' * 40
+        (self.target / RECORD).write_text(json.dumps(record))
+        result = self.install('--remove')
+        self.assertNotIn('never shipped', result.stderr)
+        self.assertFalse((self.target / '.agents/skills/cx').exists())
+        self.assertFalse((self.target / '.claude').exists())
+
+    def test_skills_that_come_back_after_claude_was_a_file_get_links(self):
+        self.install()
+        shutil.rmtree(self.target / '.claude')
+        (self.target / '.claude').write_text('a file\n')
+        self.install('--skill', 'just', '--exact')
+        self.assertEqual(self.record()['claude_links'], ['just'])
+        (self.target / '.claude').unlink()
+        self.install()
+        self.assertEqual(sorted(os.listdir(self.target / '.claude/skills')), ['cx', 'jagt-protocol', 'just'])
+
+    def test_an_empty_claude_folder_goes_with_the_last_link(self):
+        self.install()
+        self.install('--remove')
+        self.assertFalse((self.target / '.claude').exists())
 
     def test_refuses_a_file_that_no_install_recorded(self):
         skill = self.target / '.agents/skills/cx/SKILL.md'
@@ -641,6 +944,16 @@ class ExtrasTest(unittest.TestCase):
         self.assertEqual(self.settings(), settings)
         self.install('--remove')
         self.assertEqual(self.settings(), settings)
+
+    def test_removing_an_old_record_keeps_the_link_of_a_skill_that_the_source_never_shipped(self):
+        mine = self.target / '.agents/skills/mine/SKILL.md'
+        mine.parent.mkdir(parents=True)
+        mine.write_text('my skill\n')
+        self.old_install(HOOKS, {'.agents/skills/mine/SKILL.md': sha(mine)})
+        (self.target / '.claude/skills').mkdir()
+        (self.target / '.claude/skills/mine').symlink_to('../../.agents/skills/mine')
+        self.install('--remove')
+        self.assertEqual(os.readlink(self.target / '.claude/skills/mine'), '../../.agents/skills/mine')
 
     def test_removing_an_old_record_leaves_a_skill_that_the_source_never_shipped(self):
         mine = self.target / '.agents/skills/mine/SKILL.md'

@@ -3,6 +3,7 @@ import io
 import json
 import os
 import re
+import shlex
 from pathlib import Path
 import shutil
 import subprocess
@@ -93,6 +94,10 @@ if tool == 'uv':
             data['dependency-groups'][group] = [e for e in entries if py_name(e) not in {py_name(s) for s in specs}]
         Path('pyproject.toml').write_text(dump(data))
         interrupt_after(group)
+    elif args[0] == 'run' and args[-2:] == ['pre-commit', 'uninstall']:
+        if os.environ.get('FAIL_HOOK'):
+            sys.exit(1)
+        Path('.git/hooks/pre-commit').unlink(missing_ok=True)
 elif tool == 'uvx':
     command, rest = args[3], args[4:]
     if command == 'init':
@@ -165,8 +170,8 @@ class StackTests(unittest.TestCase):
         return subprocess.run([sys.executable, self.packages / 'jnterfaces/scripts/install_stack.py',
                                '--target', target or self.target, *args],
                               capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                              env=dict(os.environ, PATH=f'{self.bin}:{os.environ["PATH"]}', TOOL_LOG=str(self.log),
-                                       **(env or {})))
+                              env=dict({k: v for k, v in os.environ.items() if k != 'SKILL_PACKAGES_DIR'},
+                                       PATH=f'{self.bin}:{os.environ["PATH"]}', TOOL_LOG=str(self.log), **(env or {})))
 
     def saved(self):
         return json.loads((self.target / '.agents/stack.json').read_text())
@@ -217,7 +222,9 @@ class StackTests(unittest.TestCase):
         for skill in ('cx', 'lanes', 'gtw'):
             self.assertFalse(self.has(skill), skill)
         self.assertFalse((self.target / RECORDS['sklanes']).exists())
-        self.assertFalse((self.target / '.claude').exists())
+        # The hooks of tasker are gone, and .claude keeps only the links of the skills that stay.
+        self.assertEqual(os.listdir(self.target / '.claude'), ['skills'])
+        self.assertEqual(sorted(os.listdir(self.target / '.claude/skills')), ['jagt-protocol', 'just', 'nossaifd'])
         self.assertFalse(self.saved()['choices']['reporter'])
         # A later run has nothing left to remove.
         run = self.stack()
@@ -295,6 +302,95 @@ class StackTests(unittest.TestCase):
         self.log.unlink()
         self.assertEqual(self.stack('lint').returncode, 0)
         self.assertEqual(self.tools_run(), ['uv add --group lint ruff pre-commit'])
+
+    def test_removing_lint_takes_out_the_git_hook_of_pre_commit_first(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        hook = self.target / '.git/hooks/pre-commit'
+        hook.write_text(f'#!/bin/sh\nINSTALL_PYTHON={self.target}/.venv/bin/python\n')
+        self.log.unlink()
+        run = self.stack('--without', 'lint')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.tools_run(), ['uv run --group lint pre-commit uninstall', 'uv remove --group lint ruff pre-commit'])
+        self.assertFalse(hook.exists())
+
+    def test_no_git_hook_runs_no_uninstall_and_a_failed_uninstall_keeps_the_tool(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        self.log.unlink()
+        self.assertEqual(self.stack('--without', 'lint', '--dry-run').returncode, 0)
+        self.assertEqual(self.tools_run(), [])
+        (self.target / '.git/hooks/pre-commit').write_text(f'INSTALL_PYTHON={self.target}/.venv/bin/python\n')
+        run = self.stack('--without', 'lint', '--dry-run')
+        self.assertIn('Would run: uv run --group lint pre-commit uninstall', run.stdout)
+        run = self.stack('--without', 'lint', env={'FAIL_HOOK': '1'})
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('uv run --group lint pre-commit uninstall exited with 1', run.stderr)
+        self.assertNotIn('uv remove --group lint ruff pre-commit', self.tools_run())
+        self.assertIn('python:lint', self.saved()['tools'])
+        self.assertEqual(self.saved()['removing_tools'], ['python:lint'])
+        # The next run finishes the removal, hook first.
+        self.log.unlink()
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertEqual(self.tools_run(), ['uv run --group lint pre-commit uninstall', 'uv remove --group lint ruff pre-commit'])
+
+    def test_a_hook_of_a_pre_commit_outside_the_project_stays(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        hook = self.target / '.git/hooks/pre-commit'
+        hook.write_text('#!/bin/sh\nINSTALL_PYTHON=/usr/local/bin/python3\n')
+        self.log.unlink()
+        self.assertEqual(self.stack('--without', 'lint').returncode, 0)
+        self.assertEqual(self.tools_run(), ['uv remove --group lint ruff pre-commit'])
+        self.assertTrue(hook.exists())
+
+    def test_the_hook_check_reads_the_quoting_of_pre_commit_and_an_unreadable_hook(self):
+        target = self.base / "it's proj"
+        target.mkdir()
+        hook = self.base / 'hook'
+        python = shlex.quote(str(target / '.venv/bin/python'))
+        hook.write_text(f'#!/usr/bin/env bash\nINSTALL_PYTHON={python}\n')
+        self.assertIn("'\"'\"'", python)
+        self.assertTrue(install_stack.hook_of_project(hook, 'INSTALL_PYTHON', target))
+        self.assertFalse(install_stack.hook_of_project(hook, 'INSTALL_PYTHON', self.target))
+        hook.write_text('INSTALL_PYTHON=\'unclosed\n')
+        self.assertFalse(install_stack.hook_of_project(hook, 'INSTALL_PYTHON', target))
+        if os.geteuid():
+            hook.write_text(f'INSTALL_PYTHON={python}\n')
+            hook.chmod(0)
+            self.addCleanup(hook.chmod, 0o644)
+            with mock.patch('sys.stderr', io.StringIO()) as err:
+                self.assertFalse(install_stack.hook_of_project(hook, 'INSTALL_PYTHON', target))
+            self.assertIn('so it stays', err.getvalue())
+
+    def test_a_pre_commit_that_the_project_had_keeps_its_hook(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "app"\n\n[dependency-groups]\nlint = ["pre-commit"]\n')
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        (self.target / '.git/hooks/pre-commit').write_text('#!/bin/sh\n')
+        self.log.unlink()
+        self.assertEqual(self.stack('--without', 'lint').returncode, 0)
+        self.assertEqual(self.tools_run(), ['uv remove --group lint ruff'])
+        self.assertTrue((self.target / '.git/hooks/pre-commit').exists())
+
+    def test_skill_packages_dir_names_the_folder_of_the_clones(self):
+        other = self.base / 'other'
+        shutil.copytree(self.packages / 'nossaifd', other / 'nossaifd')
+        (other / 'nossaifd/.agents/skills/nossaifd/SKILL.md').write_text('---\nname: nossaifd\ndescription: other\n---\n')
+        commit(other / 'nossaifd')
+        run = self.stack('prose', env={'SKILL_PACKAGES_DIR': str(other)})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(f'The package clones are in {other.resolve()}', run.stderr)
+        self.assertIn('description: other', (self.target / '.agents/skills/nossaifd/SKILL.md').read_text())
+        # jnterfaces itself is always the clone that runs.
+        record = json.loads((self.target / RECORDS['jnterfaces']).read_text())
+        self.assertEqual(record['source_revision'], git(self.packages / 'jnterfaces', 'rev-parse', 'HEAD'))
+
+    def test_the_skills_get_claude_links(self):
+        self.assertEqual(self.stack('--defaults').returncode, 0)
+        for skill in ('just', 'gtw', 'nossaifd'):
+            link = self.target / '.claude/skills' / skill
+            self.assertEqual(os.readlink(link), f'../../.agents/skills/{skill}')
+            self.assertTrue((link / 'SKILL.md').is_file())
+        self.assertEqual(self.stack('--without', 'prose').returncode, 0)
+        self.assertFalse((self.target / '.claude/skills/nossaifd').is_symlink())
+        self.assertTrue((self.target / '.claude/skills/just').is_symlink())
 
     def test_ruff_toml_is_left_out_when_pyproject_has_ruff_settings(self):
         (self.target / 'pyproject.toml').write_text('[tool.ruff]\nline-length = 99\n')
@@ -875,6 +971,20 @@ class StackTests(unittest.TestCase):
         self.assertEqual(err.getvalue().count('Install '), 1)
         self.assertEqual(chosen, {**saved, 'prose': False})
 
+    def test_a_named_role_asks_nothing_on_a_terminal(self):
+        _, choices, _, _ = install_stack.load_registry(REPO / 'stack.json')
+        for on, off in ((['prose'], []), ([], ['tasker'])):
+            args = mock.Mock(with_=on, without=off, all=False, defaults=False, ask=False)
+            with mock.patch('sys.stdin', io.StringIO('')), mock.patch('sys.stderr', io.StringIO()) as err:
+                chosen = install_stack.resolve(args, choices, None, True)
+            self.assertNotIn('Install ', err.getvalue())
+            self.assertEqual({name for name, value in chosen.items() if value}, set(on))
+        # A named tool and no role still asks about the roles.
+        args = mock.Mock(with_=[], without=[], all=False, defaults=False, ask=False)
+        with mock.patch('sys.stdin', io.StringIO('\n' * 5)), mock.patch('sys.stderr', io.StringIO()) as err:
+            install_stack.resolve(args, choices, None, True, implied=True)
+        self.assertEqual(err.getvalue().count('Install '), 5)
+
     def test_questions_stop_when_the_terminal_closes(self):
         _, choices, _, _ = install_stack.load_registry(REPO / 'stack.json')
         args = mock.Mock(with_=[], without=[], all=False, defaults=False, ask=True)
@@ -988,6 +1098,13 @@ class RecipeTests(unittest.TestCase):
         run = self.just('uninstall', 'cx', JNTERFACES_DIR=str(self.jn))
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertFalse((self.target / '.agents/skills/cx').exists())
+
+    def test_a_project_variable_named_copier_still_works_and_jn_copier_runs_copier(self):
+        (self.target / 'Justfile').write_text("import? '.agents/install.just'\ncopier := 'mine'\n\nhello:\n    @echo {{copier}}\n")
+        run = self.just('hello')
+        self.assertEqual((run.returncode, run.stdout.strip()), (0, 'mine'), run.stderr)
+        run = self.just('--evaluate', 'jn_copier')
+        self.assertEqual(run.stdout, "uvx --from 'copier==9.*' copier")
 
     def test_the_folder_of_packages_comes_from_skill_packages_dir(self):
         env = {key: value for key, value in os.environ.items() if key != 'JNTERFACES_DIR'}

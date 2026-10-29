@@ -1,6 +1,12 @@
 # Installed by jnterfaces, and kept up to date by just install. The Justfile imports it: import? '.agents/install.just'
-# The machine needs just and uv only. The packages are Git clones in $SKILL_PACKAGES_DIR, by default
-# ~/.local/share/skill-packages, and a missing clone is cloned from GitHub. JNTERFACES_DIR names one jnterfaces clone.
+# The machine needs just and uv only. The packages are Git clones in $SKILL_PACKAGES_DIR, and a missing clone is cloned
+# from GitHub. JNTERFACES_DIR names one jnterfaces clone; without SKILL_PACKAGES_DIR, the packages are next to it. With
+# neither, the folder is ~/.local/share/skill-packages.
+
+# copier makes files from a template, and copier update brings in a later version of the template and keeps your edits.
+# uv runs it, so every recipe can use it with no install: {{jn_copier}} copy TEMPLATE FOLDER. The jn_ prefix keeps the
+# name apart from the variables of the project.
+jn_copier := "uvx --from 'copier==9.*' copier"
 
 # Install roles, tools or profiles, and save them in .agents/stack.json: just install lint tasker. Alone, install what is saved. just install --help lists the rest
 [positional-arguments]

@@ -8,8 +8,8 @@ stack.json lists the packages, their roles and the profiles. A role, such as tas
 the package behind it can change. A profile, such as python, sets the default roles, the tools, and the Justfile.
 A tool, such as lint, adds packages to the project with the command of its profile: uv for Python, npm for TypeScript.
 
-jnterfaces and its just skill are always installed. Each package is a Git clone in the folder that holds this
-jnterfaces clone; a missing clone is cloned from GitHub. The choices are saved in .agents/stack.json in the target,
+jnterfaces and its just skill are always installed. Each package is a Git clone in the folder that SKILL_PACKAGES_DIR
+names, else in the folder that holds this jnterfaces clone; a missing clone is cloned from GitHub. The choices are saved in .agents/stack.json in the target,
 and a later run without names installs them again.
 
 Names are roles, tools or profiles:
@@ -25,6 +25,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -61,6 +62,47 @@ def load_registry(path):
         raise
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         raise StackError(f'Cannot read the package list {path}: {exc!r}')
+
+
+def before_remove_ok(value):
+    """A before_remove of a tool: a package, the Git hook that the package installs, the command that takes the
+    hook out, and the marker variable that names the program of the hook. Or nothing."""
+    return value is None or (isinstance(value, dict) and {'package', 'git_hook', 'command'} <= set(value)
+                             <= {'package', 'git_hook', 'command', 'marker'}
+                             and isinstance(value['package'], str) and plain_path(value['git_hook'])
+                             and string_list(value['command']) and bool(value['command'])
+                             and isinstance(value.get('marker', ''), str))
+
+
+def hook_of_project(hook, marker, target):
+    """True when the Git hook runs a program of the project. A hook of pre-commit names the Python that installed it
+    on the line INSTALL_PYTHON=PATH, and a hook of a pre-commit outside the project keeps working after the removal.
+    With no marker, every hook counts."""
+    if not marker:
+        return True
+    try:
+        text = hook.read_text(errors='replace')
+    except OSError as exc:
+        print(f'Cannot read the Git hook {hook}, so it stays: {exc}', file=sys.stderr)
+        return False
+    for line in text.splitlines():
+        name, sep, value = line.partition('=')
+        if sep and name.strip() == marker:
+            # pre-commit writes the value with shlex.quote.
+            try:
+                value = (shlex.split(value) or [''])[0]
+            except ValueError:
+                return False
+            # The folder of the program, resolved: .venv/bin/python is itself a link to a Python outside the project.
+            return bool(value) and Path(value).parent.resolve().is_relative_to(target.resolve())
+    return False
+
+
+def git_hook(target, name):
+    """The path of a Git hook of the target, or None when the target is not a Git repository."""
+    run = subprocess.run(['git', '-C', str(target), 'rev-parse', '--git-path', f'hooks/{name}'],
+                         capture_output=True, text=True)
+    return None if run.returncode else (target / run.stdout.strip())
 
 
 def check_registry(registry):
@@ -108,6 +150,7 @@ def check_registry(registry):
                       and all(plain_path(k) and plain_path(v) for k, v in tool.get('files', {}).items())
                       and isinstance(tool.get('group', ''), str)
                       and isinstance(tool.get('skip_if', {}), dict)
+                      and before_remove_ok(tool.get('before_remove'))
                       and all(string_list(v) and len(v) == 2 and plain_path(v[0]) for v in tool.get('skip_if', {}).values())
                       for tool in tools.values()))
         if not ok:
@@ -201,9 +244,9 @@ def resolve(args, choices, recorded, interactive, found=None, defaults=None, imp
     """Return the choices for this run.
 
     Each choice starts from the saved record, else from what is installed, else from the default of the profile or
-    of stack.json. Then the questions or the options change it. On a first run with names, a terminal asks about the
-    other roles. Without a terminal, a named profile or tool takes the defaults, and named roles alone turn on only
-    those roles.
+    of stack.json. Then the questions or the options change it. On a first run with a named profile or tool and no
+    named role, a terminal asks about the roles. A named role asks nothing, with or without a terminal. Then a named
+    profile or tool takes the defaults, and named roles alone turn on only those roles.
     """
     on, off = names(args.with_), names(args.without)
     both = sorted(set(on) & set(off))
@@ -222,7 +265,7 @@ def resolve(args, choices, recorded, interactive, found=None, defaults=None, imp
         start = dict.fromkeys(choices, True)
     elif recorded is None and not args.ask and not args.defaults and (given or implied):
         others = [name for name in choices if name not in named]
-        if interactive:
+        if interactive and not named:
             start = ask(choices, start, only=others)
         elif not implied:
             start = {name: name in found_on(found) for name in choices}
@@ -295,11 +338,17 @@ def check_overrides(packages, overrides):
                          + ', '.join(p['name'] for p in packages))
 
 
+def packages_dir():
+    """The folder of the package clones: SKILL_PACKAGES_DIR, else the folder that holds this jnterfaces clone."""
+    named = os.environ.get('SKILL_PACKAGES_DIR')
+    return Path(named).expanduser().resolve() if named else ROOT.parent
+
+
 def clone_dir(package, overrides):
     """Return the clone of a package. A missing clone in the folder of the packages is cloned from GitHub."""
     name = package['name']
     named = overrides.get(name) or overrides.get(package.get('choice', ''))
-    path = Path(named) if named else ROOT.parent / name
+    path = Path(named) if named else packages_dir() / name
     if name == 'jnterfaces' and not named:
         path = ROOT
     manifest = path / 'skill-package.json'
@@ -493,13 +542,19 @@ def tool_steps(target, profiles, active, tools_add, tools_remove, keep, owned, d
                 print(f'{"Would leave" if dry_run else "Left"} {", ".join(left)} in the project for {name}: just '
                       f'install did not add {them}. Remove {them} yourself if the project no longer needs {them}.',
                       file=sys.stderr)
-            by_owner.setdefault(owner, (group, []))[1].extend(
-                n for n in listed if n in mine and n in placed and n not in needed)
-        for owner, (group, pkgs) in by_owner.items():
+            going = [n for n in listed if n in mine and n in placed and n not in needed]
+            by_owner.setdefault(owner, (group, [], []))[1].extend(going)
+            before = profile['tools'][tool].get('before_remove')
+            # The Git hook of a package that goes would fail at each commit, so its command takes the hook out first.
+            if before and normal_name(before['package'], profile) in going:
+                hook = git_hook(target, before['git_hook'])
+                if hook is not None and hook.is_file() and hook_of_project(hook, before.get('marker'), target):
+                    by_owner[owner][2].append(before['command'])
+        for owner, (group, pkgs, befores) in by_owner.items():
             pkgs = list(dict.fromkeys(pkgs))
             if pkgs:
                 command = [part.replace('{group}', group) for part in profile['remove']] + pkgs
-                steps.append(('remove', name, group, command, {}, {}, (owner, pkgs), None))
+                steps.append(('remove', name, group, command, {}, {'before': befores}, (owner, pkgs), None))
     return steps
 
 
@@ -641,7 +696,8 @@ def main(argv=None):
                         help='ask no questions: keep the saved or installed state, else take the defaults')
     parser.add_argument('--ask', action='store_true', help='ask about each role, even when the target has saved choices')
     parser.add_argument('--clone', action='append', default=[], metavar='NAME=DIR',
-                        help='use this clone of a package; default: a folder next to the jnterfaces clone')
+                        help='use this clone of a package; default: a folder in SKILL_PACKAGES_DIR, else next to '
+                             'the jnterfaces clone')
     parser.add_argument('--update', action='store_true', help='git pull --ff-only each clone of a package first')
     parser.add_argument('--clean', action='store_true', help='install the committed HEAD of each clone')
     parser.add_argument('--dry-run', action='store_true', help='check everything and write nothing in the target')
@@ -707,6 +763,7 @@ def main(argv=None):
     found = installed(target, packages)
     removals = [p for p in packages if p.get('choice') and not chosen[p['choice']] and found.get(p['choice'])]
     clones = {p['name']: clone_dir(p, overrides) for p in [s[0] for s in steps] + removals}
+    print(f'The package clones are in {packages_dir()}; set SKILL_PACKAGES_DIR to use another folder.', file=sys.stderr)
     if args.update:
         for name, clone in clones.items():
             if name != 'jnterfaces':
@@ -756,6 +813,8 @@ def main(argv=None):
                 print(f'Would fail: {problem}')
                 continue
             copy_tool_files(target, files, entry, True)
+            for first in entry.get('before', []):
+                print('Would run: ' + ' '.join(first))
             print('Would run: ' + ' '.join(command) if command else f'The project already has the packages of {tool}')
         write_justfile(target, profiles, active, True)
         if any(step[7] for step in commands):
@@ -823,7 +882,15 @@ def main(argv=None):
         try:
             if not problem:
                 copy_tool_files(target, files, entry, False)
-                if command:
+                for first in entry.get('before', []):
+                    print(f'Before removing {tool} for {profile}: {" ".join(first)}', file=sys.stderr)
+                    code = subprocess.run(first, cwd=target).returncode
+                    if code:
+                        failed = f'{" ".join(first)} exited with {code}'
+                        break
+                if failed:
+                    pass
+                elif command:
                     print(f'{"Adding" if kind == "add" else "Removing"} {tool} for {profile}: {" ".join(command)}',
                           file=sys.stderr)
                     failed = subprocess.run(command, cwd=target).returncode

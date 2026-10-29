@@ -30,8 +30,9 @@ uv run ~/.local/share/skill-packages/jnterfaces/scripts/install_stack.py --profi
 ```
 
 On a terminal, the installer asks which roles to install, and it saves the
-answers in `.agents/stack.json`. Without a terminal, a named profile takes the
-default roles, and named roles alone turn on only those roles. A later `just install` installs the same set again, with
+answers in `.agents/stack.json`. A named role asks nothing, and named roles
+alone turn on only those roles. Without a terminal, a named profile takes the
+default roles. A later `just install` installs the same set again, with
 no questions. So `just install` also updates a project.
 
 ### Roles
@@ -103,7 +104,9 @@ clone, and it writes one record for each package, such as
 `.agents/nossaifd-install.json`. A record holds the source revision and a hash
 of each file.
 
-The installer never overwrites or removes a file that you edited. First it
+The installer never overwrites or removes a file that you edited. It names
+the file and installs the rest. For each installed skill, it also makes the
+link `.claude/skills/NAME` for Claude Code. First it
 checks every package. If one check fails, it writes nothing.
 
 A record from an older installer lists no skills and no hooks. The installer
@@ -124,6 +127,13 @@ The list of packages, roles, aliases and profiles is in `stack.json`.
 [docs/stack-guide.md](docs/stack-guide.md) builds a project in layers, from a
 project with no code to a project with lint and tests. It says what works now
 and what does not.
+
+### copier
+
+`.agents/install.just` defines the variable `jn_copier`, which runs copier 9
+through `uvx`. copier makes files from a template, and `copier update` brings
+in a later version of the template. Any recipe of the project can use it, for
+example `{{jn_copier}} copy TEMPLATE FOLDER`.
 
 ### npx
 

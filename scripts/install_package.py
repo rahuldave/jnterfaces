@@ -436,6 +436,71 @@ def remove_empty_parents(target, path):
         parent = parent.parent
 
 
+def skill_folders(names):
+    """The skill folders of a list of recorded paths."""
+    return {Path(name).parts[2] for name in names if scope_of(name, []) == 'skill'}
+
+
+def recorded_folders(old):
+    """The skill folders that a record names as the package's: its skill_folders, its links and its skill names. A
+    skill name can differ from its folder, so the folders are recorded too."""
+    folders = old.get('skill_folders') if isinstance(old, dict) else None
+    names = old.get('skills') if isinstance(old, dict) else None
+    found = {name for name in (folders if isinstance(folders, list) else []) + (names if isinstance(names, list) else [])
+             if isinstance(name, str)}
+    return found | recorded_links(old)
+
+
+def recorded_links(old):
+    """The skill folders in the claude_links of a record: plain folder names only."""
+    links = old.get('claude_links') if isinstance(old, dict) else None
+    return {name for name in links if isinstance(name, str) and name not in ('', '.', '..') and '/' not in name
+            and '\\' not in name} if isinstance(links, list) else set()
+
+
+def link_skills(target, folders, present, old_links, create=True, dry_run=False):
+    """Make .claude/skills/NAME a link to .agents/skills/NAME for each present skill folder, so that Claude Code reads
+    it, and take out such a link when its skill is gone. Return the links that the package now has.
+
+    A link that an earlier install made and the user then removed stays removed, while .claude/skills is there. Any
+    other file or link in
+    .claude/skills is left alone, and so is a .claude or .claude/skills that is a link or a file.
+    """
+    claude, folder = target / '.claude', target / '.claude/skills'
+    for path in (claude, folder):
+        if path.is_symlink() or (path.exists() and not path.is_dir()):
+            return set(old_links) & set(present)
+    if not folder.is_dir():
+        # With no .claude/skills folder, no link was removed by hand, so every link is made again.
+        old_links = set()
+    links, made, gone = set(), [], []
+    for name in sorted(folders):
+        link, want = folder / name, f'../../.agents/skills/{name}'
+        ours = link.is_symlink() and os.readlink(link) == want
+        if name in present:
+            if ours or name in old_links:
+                # A recorded link that is gone was removed by the user. Its name stays in the record, so that no
+                # later install makes it again.
+                links.add(name)
+            elif create and not link.exists() and not link.is_symlink():
+                links.add(name)
+                made.append(name)
+                if not dry_run:
+                    folder.mkdir(parents=True, exist_ok=True)
+                    os.symlink(want, link)
+        elif ours:
+            gone.append(name)
+            if not dry_run:
+                link.unlink()
+                remove_empty_parents(target, link)
+    if made:
+        print(f'{"Would link" if dry_run else "Linked"} .claude/skills to {", ".join(made)}, so that Claude Code '
+              f'reads {"it" if len(made) == 1 else "them"}')
+    if gone:
+        print(f'{"Would remove" if dry_run else "Removed"} the .claude/skills link of {", ".join(gone)}')
+    return links
+
+
 def scope_of(name, extras):
     """'skill' for a file in a skill folder, 'extra' for a file of an extra, else None."""
     relative = Path(name)
@@ -586,13 +651,14 @@ def remove(args, target, tree, package, provenance, hooks):
     planned = hook_settings(tree, target, hooks, old_hooks, created, removing=True,
                             legacy=bool(old) and 'merged_hooks' not in old, legacy_files=list(old_hashes),
                             revision=revision_then)
-    # An old record has no list of skills. A recorded skill folder that the source never shipped is the user's.
-    foreign = set()
-    if old and 'skills' not in old:
-        foreign = {folder for folder in {Path(name).parts[2] for name in old_hashes if scope_of(name, []) == 'skill'}
-                   if not shipped_at(tree.source, revision_then, Path('.agents/skills') / folder)}
+    # An old record has no list of skills. A recorded skill folder that the source never shipped is the user's. An
+    # older partial install also wrote a list of skills that leaves out such a folder, which it still recorded: a
+    # folder that is in no list, not in the source now and not in the source then is the user's too.
+    foreign = {folder for folder in skill_folders(old_hashes)
+               if ('skills' not in old or folder not in recorded_folders(old)) and folder not in package_skills(tree, [])[2]
+               and not shipped_at(tree.source, revision_then, Path('.agents/skills') / folder)} if old else set()
     left = commands_left(planned)
-    gone, kept = [], {}
+    gone, kept, shared = [], {}, set()
     for name, recorded in old_hashes.items():
         if scope_of(name, old_extras + [path.as_posix() for path in package_extras(tree)[0]]) is None:
             fail(f'Recorded managed file is outside .agents/skills and outside the extras: {name}')
@@ -602,6 +668,7 @@ def remove(args, target, tree, package, provenance, hooks):
         if not destination.is_file():
             continue
         if name in known:
+            shared.add(name)
             print(f'Kept {name}: another package records it.', file=sys.stderr)
         elif scope_of(name, []) == 'skill' and relative.parts[2] in foreign:
             print(f'Left {name}: the package never shipped that skill, so it is not the package\'s to remove.',
@@ -614,18 +681,26 @@ def remove(args, target, tree, package, provenance, hooks):
         else:
             kept[name] = recorded
             print(f'Kept {name}: edited after install; remove it yourself when you no longer want it.', file=sys.stderr)
+    # A skill stays when its SKILL.md stays: edited, run by a hook, or recorded by another package.
+    staying = {Path(name).parts[2] for name in [*kept, *shared] if scope_of(name, []) == 'skill'
+               and Path(name).name == 'SKILL.md'}
+    old_links = recorded_links(old)
+    package_folders = (skill_folders(old_hashes) | old_links) - foreign
     if args.dry_run:
+        link_skills(target, package_folders, staying, old_links, create=False, dry_run=True)
         print(f'Would remove {len(gone)} files of {package} from {target} and keep {len(kept)} edited files')
         return
     for relative in gone:
         (target / relative).unlink()
         remove_empty_parents(target, target / relative)
     write_hooks(target, planned)
+    links = link_skills(target, package_folders, staying, old_links, create=False)
     if kept:
         old['managed_files'] = dict(sorted(kept.items()))
         old['skills'] = sorted({Path(name).parts[2] for name in kept if scope_of(name, []) == 'skill'} & set(old_skills))
         old['merged_hooks'] = {}
         old['created_settings'] = []
+        old['claude_links'] = sorted(links)
         old['removed'] = True
         atomic_write(target / provenance, (json.dumps(old, indent=2) + '\n').encode())
     else:
@@ -676,7 +751,7 @@ def main():
             fail(f'Recorded managed file is outside .agents/skills and outside the extras: {name}')
     known = other_records(target, provenance)
     keep = []
-    planned, aliases = {}, {}
+    planned, aliases, edited = {}, {}, {}
     shipped = {}
     for skill, folder in paths.items():
         files = tree.files(folder)
@@ -697,10 +772,21 @@ def main():
             accepted = {digest(data), old_hashes.get(relative.as_posix())} | known.get(relative.as_posix(), set())
             alias = renamed_from(target, relative, old_hashes)
             if alias is not None:
-                aliases[relative] = alias
                 accepted.add(old_hashes[alias.as_posix()])
             if current not in accepted:
-                fail(f'Existing file differs from source and from every recorded install: {destination}')
+                # On a case-insensitive disk, the old name of a case-only rename is this same file.
+                was = relative.as_posix() if relative.as_posix() in old_hashes else alias and alias.as_posix()
+                if not was:
+                    fail(f'Existing file differs from source and from every recorded install: {destination}')
+                # A file of this package that the user edited stays as it is, and the rest of the install goes on.
+                # The record keeps the old hash under the name on disk, so that a later run and a removal still see
+                # the edit, and an undone edit later takes the new name.
+                edited[was] = old_hashes[was]
+                keep.append((relative.as_posix(), 'edited after install, so the new version from the source is not '
+                                                  'written; undo the edit to get it'))
+                continue
+            if alias is not None:
+                aliases[relative] = alias
         planned[relative] = (data, mode)
     seeds = {}
     for relative, origin in seed.items():
@@ -714,7 +800,7 @@ def main():
     # A file of an earlier install that this source no longer ships is removed when nobody changed it.
     # In scope: skills of this package, now or in its earlier record (in a partial install, only the selected ones),
     # and the extras, which every install ships.
-    owned = all_skills | set(old_skills)
+    owned = all_skills | set(old_skills) | recorded_folders(old)
     if old and 'skills' not in old:
         # An old record has no list of skills. A recorded skill folder is this package's when the old revision has
         # it. Any other folder stays, so a skill of the user is never taken.
@@ -741,7 +827,7 @@ def main():
     prune = []
     for name, recorded in old_hashes.items():
         relative = Path(name)
-        if relative in planned or name in renamed:
+        if relative in planned or name in renamed or name in edited:
             continue
         if scope_of(name, extra_names + old_extras) == 'skill':
             if relative.parts[2] not in owned or relative.parts[2] in held:
@@ -759,9 +845,13 @@ def main():
         else:
             keep.append((name, 'edited after install'))
     managed = {name: value for name, value in old_hashes.items()
-               if scope_of(name, extra_names + old_extras) == 'skill' and (
+               if scope_of(name, extra_names + old_extras) == 'skill' and Path(name).parts[2] in owned and (
                    (partial and not any(name.startswith(prefix) for prefix in scope)) or Path(name).parts[2] in held)}
     managed.update({relative.as_posix(): digest(data) for relative, (data, _) in planned.items()})
+    managed.update(edited)
+    # A skill folder that is not the package's, from an old record, leaves the record, so that no removal takes it.
+    # An old record has no list of skills, so a partial install keeps the skill folders of the package that it leaves.
+    legacy_kept = skill_folders(managed) & owned if old and 'skills' not in old else set()
     metadata = {
         'schema_version': 1,
         'package': package,
@@ -769,7 +859,9 @@ def main():
         'source_revision': revision,
         'source_worktree_dirty': dirty if not args.source_commit else False,
         'source_requested_commit': args.source_commit,
-        'skills': sorted(set(old_skills) | set(paths)) if partial else sorted(set(paths) | (set(old_skills) & held)),
+        'skills': (sorted(set(old_skills) | set(paths) | legacy_kept) if partial
+                   else sorted(set(paths) | (set(old_skills) & held))),
+        'skill_folders': sorted(skill_folders(managed)),
         'extras': sorted(extra_names),
         'merged_hooks': {relative.as_posix(): ours for relative, (_, ours, _) in settings.items() if ours.get('hooks')},
         'created_settings': sorted(relative.as_posix() for relative, (_, _, made) in settings.items() if made),
@@ -777,7 +869,17 @@ def main():
     }
     for name, reason in keep:
         print(f'Kept {name}: {reason}.', file=sys.stderr)
+    # A skill gets a link when its SKILL.md is, or will be, on disk. link_folders holds only the package's skills.
+    present = {Path(name).parts[2] for name in managed if scope_of(name, []) == 'skill' and Path(name).name == 'SKILL.md'
+               and (Path(name) in planned or (target / name).is_file())}
+    # A SKILL.md that stays on disk, edited or recorded by another package, keeps its link too.
+    present |= {Path(name).parts[2] for name, _ in keep if scope_of(name, []) == 'skill'
+                and Path(name).name == 'SKILL.md' and (target / name).is_file()}
+    old_links = recorded_links(old)
+    # A link that the package made stays in scope, so that it goes when its skill folder goes.
+    link_folders = ((skill_folders(managed) | skill_folders(old_hashes)) & owned) | old_links
     if args.dry_run:
+        link_skills(target, link_folders, present, old_links, dry_run=True)
         print(f'Would install {len(planned)} files, remove {len(prune)} old files and write {len(seeds)} starter '
               f'files of {package} in {target} from {revision}')
         return
@@ -795,6 +897,7 @@ def main():
         atomic_write(target / relative, data)
         print(f'Wrote {relative} from {seed[relative]}; it is yours now, and later installs leave it alone.')
     write_hooks(target, settings)
+    metadata['claude_links'] = sorted(link_skills(target, link_folders, present, old_links))
     atomic_write(target / provenance, (json.dumps(metadata, indent=2) + '\n').encode())
     print(f'Installed {package} in {target} from {revision} (dirty source: {metadata["source_worktree_dirty"]})')
 

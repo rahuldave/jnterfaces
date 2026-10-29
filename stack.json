@@ -103,6 +103,19 @@
               "pyproject.toml",
               "[tool.ruff"
             ]
+          },
+          "before_remove": {
+            "package": "pre-commit",
+            "git_hook": "pre-commit",
+            "command": [
+              "uv",
+              "run",
+              "--group",
+              "lint",
+              "pre-commit",
+              "uninstall"
+            ],
+            "marker": "INSTALL_PYTHON"
           }
         },
         "test": {
