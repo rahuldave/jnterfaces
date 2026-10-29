@@ -3,6 +3,9 @@
 # from GitHub. JNTERFACES_DIR names one jnterfaces clone; without SKILL_PACKAGES_DIR, the packages are next to it. With
 # neither, the folder is ~/.local/share/skill-packages.
 
+# The recipes of the profiles and roles: just install writes .agents/just/index.just, and this line imports it
+import? 'just/index.just'
+
 # copier makes files from a template, and copier update brings in a later version of the template and keeps your edits.
 # uv runs it, so every recipe can use it with no install: {{jn_copier}} copy TEMPLATE FOLDER. The jn_ prefix keeps the
 # name apart from the variables of the project.

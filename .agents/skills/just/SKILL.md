@@ -90,7 +90,23 @@ through a recipe. `just install` is that recipe. It is in
 - **`just install tasker`** adds a role. A role is a skill package, such as
   the Gest skills.
 - **`just install`** alone installs again what `.agents/stack.json` saves.
-- **`just uninstall NAME`** takes a tool or a role out.
+- **`just uninstall NAME`** takes a tool, a role or a profile out.
+
+The recipes of a tool come with the tool. A profile package, such as
+jnprofile-python, has one recipe file for each tool. `just install` writes
+these files, all in `.agents/just`:
+
+- **`NAME.just`**, one module for each profile. `just python lint` runs the
+  `lint` of the python profile. It imports the recipe files of the installed
+  tools only.
+- **`index.just`**, which `.agents/install.just` imports. A project with the
+  starter Justfile of jnterfaces also gets combined recipes. `just lint` runs
+  the recipe of each language. `just verify` runs every installed check, then
+  `git diff --check`. A recipe of the same name in the
+  Justfile takes its place. Another project gets the modules only.
+
+Do not edit the files in `.agents/just`. Put the recipes of the project in
+the Justfile.
 
 When a recipe needs a tool that the project does not have, run
 `just install <tool>`. Do not install the tool on the machine, and do not run
@@ -104,9 +120,10 @@ runs npm and node from the `nodejs-wheel` package.
 adapt it to the project.
 
 - **`house-style.just`**: the house style, for a Python project with uv.
-- **Language profiles** use the contract names. They are `python-uv.just`,
-  `typescript-npm.just`, `go.just` and `rust-cargo.just`. The installer writes
-  the template of a profile when a project has no Justfile.
+- **Language templates** use the contract names. They are `python-uv.just`,
+  `typescript-npm.just`, `go.just` and `rust-cargo.just`. Each is a whole
+  Justfile for a project that does not use `just install`. A project that
+  uses it gets the recipes of its tools from the profile packages.
 - **`npm-local-cache.just`**: an npm cache inside the project.
 - **`browser-agent.just`**: recipes for checks in a browser.
 - **`agent-contract.just`**: recipes that print context for agents.

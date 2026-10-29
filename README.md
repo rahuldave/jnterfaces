@@ -53,36 +53,64 @@ The old names `gest`, `nossaifd` and `sklanes` still work.
 
 ### Tools and profiles
 
-A tool is a set of packages for the project itself, such as `lint`. A profile,
-such as `python`, sets the default roles, the tools and the Justfile. The
-installer finds the profile from the files of the project, such as
-`pyproject.toml`, or you name it with `--profile`.
+A tool is one unit of the setup of the project, such as `lint`. It brings its
+packages, its config files and its recipes. A profile, such as `python`, is a
+language. It sets the default roles and the tools. Each profile is a package
+of its own, and `stack.json` names it:
 
-| Profile | Tools | Default tools | The command that adds a tool |
-|---|---|---|---|
-| `python` | `lint`, `test`, `typecheck` | `lint`, `test` | `uv add --group ...` |
-| `typescript` | `lint`, `test`, `typecheck` | `lint`, `typecheck` | npm, which uvx runs from `nodejs-wheel` |
+| Profile | Package | Tools | Default tools | The command that adds a tool |
+|---|---|---|---|---|
+| `python` | [jnprofile-python](https://github.com/rahuldave/jnprofile-python) | `lint`, `test`, `typecheck` | `lint`, `test` | `uv add --group ...` |
+| `typescript` | [jnprofile-typescript](https://github.com/rahuldave/jnprofile-typescript) | `lint`, `test`, `typecheck` | `lint`, `typecheck` | npm, which uvx runs from `nodejs-wheel` |
 
-A tool can also copy config files, such as `ruff.toml`. The installer copies
-a file only when the project does not have it. After that, the file is yours.
-If the project has no Justfile, the installer writes the template of the
-profile. Otherwise it names the line to add to your Justfile.
+On the first install, the installer finds the profile from the files of the
+project, such as `pyproject.toml`, or you name it with `--profile`. After that,
+the saved record keeps the profiles, also when it has none.
 
-If the project has no `pyproject.toml` or `package.json`, the installer makes one with
-`uv init --bare` or `npm init --yes`. For Python, it also sets
+**The recipes follow the tools.** The profile package has one recipe file for
+each tool. `just install` writes a module for each profile in `.agents/just`,
+which imports the recipe files of the installed tools only. It also writes
+`.agents/just/index.just`, which `.agents/install.just` imports. In a project
+that jnterfaces started, with its starter Justfile:
+
+- **`just python lint`** runs the `lint` of one language.
+- **`just lint`** runs the `lint` of each language of the project.
+- **`just verify`** runs every installed check of each language, then `git
+  diff --check`.
+
+The starter Justfile has `set allow-duplicate-recipes`. So a recipe of the
+same name in the Justfile, such as `lint`, takes the place of the combined
+one. A project with a Justfile of its own gets the modules only, such as
+`just python lint`. `.agents/stack.json` records the hash of each
+file that `just install` writes in `.agents/just`, and the installer changes
+only a file whose hash is the recorded one. With more than one language, a
+combined recipe gives the same arguments to each language.
+
+**The other files.** A tool can copy config files, such as `ruff.toml`, and a
+profile copies a starter `.gitignore`. The installer copies a file only when
+the project does not have it. After that, the file is yours. If the project has
+no Justfile, the installer writes a starter Justfile. Otherwise it names the
+line to add to your Justfile.
+
+If the project has no `pyproject.toml` or `package.json`, the installer makes
+one with `uv init --bare` or `npm init --yes`. For Python, it also sets
 `default-groups = "all"` in `pyproject.toml`, so that `uv run` has the tools.
-If a tool fails, a later `just install` tries it again.
+If a tool fails, a later `just install` tries it again. When the last package
+of a dependency group goes, the installer takes out the empty group.
 
 ### Names and options
 
 - **`just install lint tasker`** turns on a tool and a role.
+- **`just uninstall python`** takes out a profile with its tools, its recipes
+  and its package. The project keeps `pyproject.toml`.
 - **`just uninstall reporter lint`** turns them off. It removes the files of
   the role and the packages that `just install` added for the tool. It keeps
   each file that you edited, and each package that the project had before.
   You may remove a package by hand and add it back with no install between.
   Then it still counts as added. To keep it, take it out of
   `owned_packages` in `.agents/stack.json`.
-- **`--profile python,typescript`** sets the profiles.
+- **`--profile python,typescript`** sets the profiles. A saved profile that
+  the list leaves out is turned off.
 - **`--defaults`** takes the defaults, and **`--all`** takes every role.
 - **`--ask`** asks again, even when the project has saved choices.
 - **`--update`** runs `git pull --ff-only` in each clone first.
