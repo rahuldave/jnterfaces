@@ -767,7 +767,8 @@ class StackTests(unittest.TestCase):
         justfile = self.target / 'Justfile'
         justfile.write_text(justfile.read_text() + '\nbroken: nothere\n')
         run = self.stack('typecheck')
-        self.assertIn('just said: error: Recipe `broken` has unknown dependency `nothere`', run.stderr)
+        # just writes recipe with a capital R in some versions only.
+        self.assertRegex(run.stderr, r'(?i)just said: error: recipe `broken` has unknown dependency `nothere`')
         self.assertEqual(run.stderr.count('just said'), 1)
 
     @unittest.skipUnless(shutil.which('just'), 'needs just')
