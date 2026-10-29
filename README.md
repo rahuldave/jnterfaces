@@ -121,6 +121,9 @@ the old copies of skills and hooks that it shipped, and it keeps your edits.
   writes it only when the project does not have it.
 
 The list of packages, roles, aliases and profiles is in `stack.json`.
+[docs/stack-guide.md](docs/stack-guide.md) builds a project in layers, from a
+project with no code to a project with lint and tests. It says what works now
+and what does not.
 
 ### npx
 
