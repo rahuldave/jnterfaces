@@ -21,6 +21,7 @@ Names are roles, tools or profiles:
 """
 import argparse
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -132,33 +133,75 @@ def check_registry(registry):
         raise StackError('Each alias in stack.json must name a choice')
     if not isinstance(profiles, dict):
         raise StackError('profiles in stack.json must be an object')
-    for name, profile in profiles.items():
-        ok = isinstance(profile, dict)
-        tools = profile.get('tools', {}) if ok else {}
-        init = profile.get('init', {}) if ok else {}
-        ok = (ok and string_list(profile.get('detect', [])) and string_list(profile.get('add'))
-              and string_list(profile.get('remove')) and isinstance(tools, dict) and plain_path(profile.get('justfile'))
-              and string_list(profile.get('default_tools', [])) and set(profile.get('default_tools', [])) <= set(tools)
-              and isinstance(profile.get('choices', {}), dict) and set(profile.get('choices', {})) <= set(choices)
-              and profile.get('manifest') in ('pyproject.toml', 'package.json')
-              and isinstance(init, dict)
-              and (not init or (plain_path(init.get('file')) and string_list(init.get('command')) and init['command']))
-              and (profile.get('uv_default_groups') is None or isinstance(profile['uv_default_groups'], str)
-                   or string_list(profile['uv_default_groups']))
-              and all(isinstance(tool, dict) and string_list(tool.get('packages')) and tool['packages']
-                      and isinstance(tool.get('files', {}), dict)
-                      and all(plain_path(k) and plain_path(v) for k, v in tool.get('files', {}).items())
-                      and isinstance(tool.get('group', ''), str)
-                      and isinstance(tool.get('skip_if', {}), dict)
-                      and before_remove_ok(tool.get('before_remove'))
-                      and all(string_list(v) and len(v) == 2 and plain_path(v[0]) for v in tool.get('skip_if', {}).values())
-                      for tool in tools.values()))
-        if not ok:
-            raise StackError(f'The profile {name} in stack.json is malformed')
-    clash = (set(choices) | set(aliases)) & ({tool for p in profiles.values() for tool in p['tools']} | set(profiles))
+    for name, entry in profiles.items():
+        if not (isinstance(entry, dict) and isinstance(entry.get('package'), str) and isinstance(entry.get('repository'), str)
+                and isinstance(entry.get('about'), str) and string_list(entry.get('detect', []))
+                and re.fullmatch(r'[a-z][a-z0-9_]*', name)):
+            raise StackError(f'The profile {name} in stack.json needs a package, a repository, an about and a detect '
+                             f'list, and its name must be a plain lower-case word')
+    clash = (set(choices) | set(aliases)) & set(profiles)
     if clash:
-        raise StackError(f'A name in stack.json is both a role and a tool or profile: {", ".join(sorted(clash))}')
+        raise StackError(f'A name in stack.json is both a role and a profile: {", ".join(sorted(clash))}')
     return packages, choices, aliases, profiles
+
+
+def check_profile(name, profile, choices):
+    """Check the profile.json of a profile package. A tool names its packages, its config files, its recipe file and
+    the recipes that just verify runs."""
+    ok = isinstance(profile, dict)
+    tools = profile.get('tools', {}) if ok else {}
+    init = profile.get('init', {}) if ok else {}
+    base = profile.get('base', {}) if ok else {}
+    ok = (ok and profile.get('name') == name and string_list(profile.get('add'))
+          and string_list(profile.get('remove')) and isinstance(tools, dict) and tools
+          and string_list(profile.get('default_tools', [])) and set(profile.get('default_tools', [])) <= set(tools)
+          and isinstance(profile.get('choices', {}), dict) and set(profile.get('choices', {})) <= set(choices)
+          and profile.get('manifest') in ('pyproject.toml', 'package.json')
+          and isinstance(init, dict)
+          and (not init or (plain_path(init.get('file')) and string_list(init.get('command')) and init['command']))
+          and (profile.get('uv_default_groups') is None or isinstance(profile['uv_default_groups'], str)
+               or string_list(profile['uv_default_groups']))
+          and isinstance(base, dict) and recipe_file_ok(base.get('recipes'))
+          and isinstance(base.get('files', {}), dict)
+          and all(plain_path(k) and plain_path(v) for k, v in base.get('files', {}).items())
+          and all(re.fullmatch(r'[a-z][a-z0-9_-]*', tool_name) for tool_name in tools)
+          and all(isinstance(tool, dict) and string_list(tool.get('packages')) and tool['packages']
+                  and isinstance(tool.get('files', {}), dict)
+                  and all(plain_path(k) and plain_path(v) for k, v in tool.get('files', {}).items())
+                  and isinstance(tool.get('group', ''), str)
+                  and isinstance(tool.get('skip_if', {}), dict)
+                  and all(string_list(v) and len(v) == 2 and plain_path(v[0]) for v in tool.get('skip_if', {}).values())
+                  and before_remove_ok(tool.get('before_remove'))
+                  and recipe_file_ok(tool.get('recipes'))
+                  and string_list(tool.get('verify', []))
+                  and all(re.fullmatch(r'[a-z][a-z0-9_-]*( [^\s"\\]+)*', step) for step in tool.get('verify', []))
+                  for tool in tools.values()))
+    if not ok:
+        raise StackError(f'The profile.json of the {name} profile is malformed')
+    return profile
+
+
+def recipe_file_ok(value):
+    """A recipe file of a profile: a plain file name in the profile's folder of .agents/just, or nothing."""
+    return value is None or (isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_-]+\.just', value) is not None)
+
+
+def load_profiles(names, registry_profiles, choices, overrides):
+    """Read the profile.json of each named profile from the clone of its package. Each profile gets its root and
+    its package."""
+    loaded = {}
+    for name in names:
+        entry = registry_profiles[name]
+        package = {'name': entry['package'], 'repository': entry['repository']}
+        root = clone_dir(package, overrides)
+        try:
+            profile = json.loads((root / 'profile.json').read_text())
+        except (OSError, ValueError) as exc:
+            raise StackError(f'Cannot read profile.json of the {name} profile in {root}: {exc}')
+        profile = check_profile(name, profile, choices)
+        profile['root'], profile['package'] = root, package
+        loaded[name] = profile
+    return loaded
 
 
 def read_record(target, choices, aliases):
@@ -177,17 +220,22 @@ def read_record(target, choices, aliases):
         raise StackError(f'{path} has choices that are not true or false')
     profiles, tools, pending = record.get('profiles', []), record.get('tools', []), record.get('pending_tools', [])
     removing = record.get('removing_tools', [])
+    removing_profiles = record.get('removing_profiles', [])
+    generated = record.get('generated', {})
+    if not isinstance(generated, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in generated.items()):
+        raise StackError(f'{path} has generated files that are not a map of paths to hashes')
     owned, added = record.get('owned_packages', {}), record.get('added_packages', {})
     for field, value in (('owned_packages', owned), ('added_packages', added)):
         if not isinstance(value, dict) or not all(string_list(names) for names in value.values()):
             raise StackError(f'{path} has {field} that are not lists of names')
-    if not all(string_list(value) for value in (profiles, tools, pending, removing)):
+    if not all(string_list(value) for value in (profiles, tools, pending, removing, removing_profiles)):
         raise StackError(f'{path} has profiles or tools that are not a list of names')
     renamed = {}
     for name, value in chosen.items():
         renamed[aliases.get(name, name)] = value
     return {'profiles': profiles, 'choices': renamed, 'tools': tools, 'pending': pending, 'owned': owned,
-            'added_old': added, 'removing': removing}
+            'added_old': added, 'removing': removing, 'removing_profiles': removing_profiles,
+            'generated': generated, 'started': record.get('started') is True}
 
 
 def record_path(package):
@@ -295,20 +343,20 @@ def found_on(found):
 
 
 def sort_names(args, choices, aliases, profiles):
-    """Split the names on the command line and in --with and --without into roles, tools and profiles."""
-    tools = {tool for profile in profiles.values() for tool in profile['tools']}
-    split = {'roles_on': [], 'roles_off': [], 'tools_on': [], 'tools_off': [], 'profiles': []}
+    """Split the names on the command line and in --with and --without into roles, profiles and tools. A name that
+    is no role and no profile is a tool, which an active profile must have."""
+    split = {'roles_on': [], 'roles_off': [], 'tools_on': [], 'tools_off': [], 'profiles': [], 'profiles_off': []}
     for raw, where in [(name, 'on') for name in args.names + names(args.with_)] + [(n, 'off') for n in names(args.without)]:
         name = aliases.get(raw, raw)
         if name in choices:
             split[f'roles_{where}'].append(name)
-        elif name in tools:
+        elif name in profiles:
+            split['profiles' if where == 'on' else 'profiles_off'].append(name)
+        elif re.fullmatch(r'[a-z][a-z0-9_-]*', name):
             split[f'tools_{where}'].append(name)
-        elif name in profiles and where == 'on':
-            split['profiles'].append(name)
         else:
-            raise StackError(f'Unknown name: {raw}. The roles are: {", ".join(choices)}. The tools are: '
-                             f'{", ".join(sorted(tools))}. The profiles are: {", ".join(profiles)}.')
+            raise StackError(f'Unknown name: {raw}. The roles are: {", ".join(choices)}. The profiles are: '
+                             f'{", ".join(profiles)}.')
     return split
 
 
@@ -321,9 +369,14 @@ def pick_profiles(args, split, recorded, profiles, target):
             raise StackError(f'Unknown profile(s): {", ".join(unknown)}. The profiles are: {", ".join(profiles)}')
         return list(dict.fromkeys(chosen + split['profiles']))
     saved = [name for name in (recorded or {}).get('profiles', []) if name in profiles]
-    if saved or split['profiles']:
-        return list(dict.fromkeys(saved + split['profiles']))
     found = [name for name, profile in profiles.items() if any((target / f).exists() for f in profile.get('detect', []))]
+    if recorded is not None or split['profiles']:
+        # A saved record keeps its profiles, also none: the files of the project no longer choose one.
+        hint = [name for name in found if name not in saved + split['profiles']]
+        if hint and recorded is not None and not saved:
+            print(f'The files of the project suggest the profile(s) {", ".join(hint)}. To turn one on, run: '
+                  f'just install --profile {hint[0]}', file=sys.stderr)
+        return list(dict.fromkeys(saved + split['profiles']))
     if found:
         print(f'Profile(s) found from the files of the project: {", ".join(found)}. Pass --profile to change them.',
               file=sys.stderr)
@@ -355,8 +408,12 @@ def clone_dir(package, overrides):
     if not manifest.is_file() and not named and not path.exists():
         print(f'Cloning {package["repository"]} into {path}', file=sys.stderr)
         run = subprocess.run(['git', 'clone', '--quiet', package['repository'], str(path)], capture_output=True, text=True)
-        if run.returncode:
-            raise StackError(f'Cannot clone {package["repository"]} into {path}: {run.stderr.strip()}')
+        if run.returncode or not manifest.is_file():
+            # A clone that failed, or one of an empty repository, goes again, so that a later run clones once more.
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            raise StackError(f'Cannot clone {package["repository"]} into {path}: '
+                             f'{run.stderr.strip() if run.returncode else "the repository has no skill-package.json"}')
     if not manifest.is_file():
         raise StackError(f'No {name} clone at {path}. Run: git clone {package["repository"]} {path}, '
                          f'or pass --clone {name}=DIR.')
@@ -558,8 +615,8 @@ def tool_steps(target, profiles, active, tools_add, tools_remove, keep, owned, d
     return steps
 
 
-def copy_tool_files(target, files, entry, dry_run):
-    """Copy the config files of a tool from jnterfaces, each only when the target does not have it."""
+def copy_tool_files(target, files, entry, dry_run, root):
+    """Copy the config files of a tool from its profile package, each only when the target does not have it."""
     skip_if = entry.get('skip_if', {})
     for destination, origin in files.items():
         path = target / destination
@@ -572,7 +629,7 @@ def copy_tool_files(target, files, entry, dry_run):
         if dry_run:
             print(f'Would write {destination}')
             continue
-        write_new(target, Path(destination), (ROOT / origin).read_bytes())
+        write_new(target, Path(destination), (root / origin).read_bytes())
         print(f'Wrote {destination}; it is yours now, and later installs leave it alone.')
 
 
@@ -655,36 +712,253 @@ def set_default_groups(pyproject, groups):
     print(f'Set {line} in pyproject.toml, so that uv run has the tools.', file=sys.stderr)
 
 
+def drop_empty_group(target, group):
+    """Take an empty dependency group, such as lint = [], out of pyproject.toml after its last package went. The file
+    changes only when the result parses and holds the same data without that group."""
+    path = target / 'pyproject.toml'
+    if not path.is_file() or path.is_symlink():
+        return
+    text = path.read_text()
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return
+    groups = data.get('dependency-groups')
+    if not isinstance(groups, dict) or groups.get(group) != []:
+        return
+    uv = data.get('tool', {}).get('uv', {}) if isinstance(data.get('tool'), dict) else {}
+    named = uv.get('default-groups') if isinstance(uv, dict) else None
+    if isinstance(named, list) and group in named:
+        # uv sync fails on a default group that is not defined, so the empty group stays.
+        return
+    pattern = re.compile(r'(?m)^[ \t]*(' + re.escape(group) + r'|"' + re.escape(group) + r'")[ \t]*=[ \t]*\[[ \t]*\][ \t]*(#[^\n]*)?\n?')
+    new, count = pattern.subn('', text)
+    expected = copy.deepcopy(data)
+    del expected['dependency-groups'][group]
+    try:
+        good = count == 1 and tomllib.loads(new) == expected
+    except tomllib.TOMLDecodeError:
+        good = False
+    if good:
+        path.write_text(new)
+        print(f'Took the empty dependency group {group} out of pyproject.toml.', file=sys.stderr)
+
+
 def justfile_of(target):
+    """The Justfile of the target, under the name that the folder has, on a disk that ignores case too."""
+    try:
+        entries = set(os.listdir(target))
+    except OSError:
+        return None
     for name in JUSTFILES:
-        if (target / name).is_file() or (target / name).is_symlink():
+        if name in entries and ((target / name).is_file() or (target / name).is_symlink()):
             return target / name
     return None
 
 
-def write_justfile(target, profiles, active, dry_run):
-    """Write the Justfile of the first profile when the target has none, else check that it imports the recipe."""
+def write_justfile(target, dry_run):
+    """Write the starter Justfile when the target has none, else check that it imports the recipe file."""
     existing = justfile_of(target)
     if existing is not None:
         if existing.is_symlink():
             print(f'{existing.name} is a symlink, so the installer leaves it alone. Make sure that it has the line '
                   f'{IMPORT_LINE}', file=sys.stderr)
+            return False
         elif '.agents/install.just' not in existing.read_text(errors='replace'):
             print(f'Add this line to {existing.name}, so that just install works: {IMPORT_LINE}', file=sys.stderr)
-        return
-    if not active:
-        print(f'No Justfile and no profile. Write a Justfile with the line {IMPORT_LINE}, or pass --profile.',
-              file=sys.stderr)
-        return
-    template = ROOT / profiles[active[0]]['justfile']
+        return False
+    template = ROOT / 'templates/project.just'
     if dry_run:
-        print(f'Would write Justfile from {template.name}')
+        print('Would write Justfile from templates/project.just')
+        return False
+    write_new(target, Path('Justfile'), template.read_bytes().replace(b'PROJECT', target.name.encode()))
+    print('Wrote Justfile; it is yours now. Put the recipes of the project in it.')
+    return True
+
+
+RECIPES = Path('.agents/just')
+HEADER = '# Written by just install. Do not edit: the next just install writes it again.'
+
+
+
+def module_text(name, profile, installed):
+    """The module of one profile: its settings, an import of the recipe file of each installed tool, and verify."""
+    lines = [HEADER, f'# The recipes of the {name} profile: just {name} NAME. They run in the folder of the project.',
+             'set positional-arguments', "set working-directory := '../..'", '']
+    files = [profile.get('base', {}).get('recipes')] + [profile['tools'][tool].get('recipes') for tool in installed]
+    lines += [f"import? '{name}/{file}'" for file in dict.fromkeys(f for f in files if f)]
+    steps = [step for tool in installed for step in profile['tools'][tool].get('verify', [])]
+    # A step with arguments is a dependency with arguments: fmt --check becomes (fmt "--check").
+    deps = ' '.join(step if ' ' not in step else '(' + step.split(' ')[0] + ' '
+                    + ' '.join(json.dumps(arg) for arg in step.split(' ')[1:]) + ')' for step in steps)
+    lines += ['', f'# Every check of the {name} profile that is installed: {", ".join(steps) or "none yet"}']
+    lines += [f'verify: {deps}'.rstrip()] if steps else ['verify:', f'    @echo "just {name} verify: no checks are installed"']
+    return '\n'.join(lines) + '\n'
+
+
+def owned_by_install(target, path, generated):
+    """True when the file is missing, or just install wrote it as it is now: .agents/stack.json records its hash."""
+    if path.is_symlink():
+        return False
+    if not path.exists():
+        return True
+    try:
+        return generated.get(path.relative_to(target).as_posix()) == hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return False
+
+
+def write_generated(target, path, text, generated):
+    """Write a file of just install, and record its hash."""
+    if not path.exists() or path.read_text() != text:
+        path.write_text(text)
+    generated[path.relative_to(target).as_posix()] = hashlib.sha256(text.encode()).hexdigest()
+
+
+def remove_generated(target, path, generated):
+    path.unlink(missing_ok=True)
+    generated.pop(path.relative_to(target).as_posix(), None)
+
+
+SAID = set()
+
+
+def say(message):
+    """Print a message once in a run, although the recipes are written after each step."""
+    if message not in SAID:
+        SAID.add(message)
+        print(message, file=sys.stderr)
+
+
+def just_error(target, justfile):
+    """The first error line of just for a Justfile, or None when it parses or just is missing."""
+    if not shutil.which('just'):
+        return None
+    run = subprocess.run(['just', '--justfile', str(justfile), '--working-directory', str(target), '--summary'],
+                         capture_output=True, text=True)
+    if run.returncode == 0:
+        return None
+    lines = [line for line in run.stderr.splitlines() if line.startswith('error')] or run.stderr.splitlines() or ['']
+    return lines[0]
+
+
+def just_dump(target, justfile):
+    """The JSON dump of a Justfile, or None when just is missing or the file does not parse."""
+    if not shutil.which('just'):
+        return None
+    run = subprocess.run(['just', '--justfile', str(justfile), '--working-directory', str(target), '--dump',
+                          '--dump-format', 'json'], capture_output=True, text=True)
+    try:
+        return json.loads(run.stdout) if run.returncode == 0 else None
+    except ValueError:
+        return None
+
+
+def index_text(modules, recipes, aggregate=True):
+    """The index: a module for each profile, and, for each recipe name of the profiles, a recipe that runs it in each
+    profile that has it. verify also runs git diff --check. A project that jnterfaces did not start gets the modules
+    only."""
+    lines = [HEADER, '# The recipes of the profiles of this project. .agents/install.just imports this file.', '']
+    lines += [f"mod {name} '{name}.just'" for name in modules]
+    if not aggregate:
+        return '\n'.join(lines) + '\n'
+    names = sorted({recipe for name in modules for recipe in recipes.get(name, {})} - {'verify'})
+    for recipe in names:
+        having = [name for name in modules if recipe in recipes.get(name, {})]
+        takes = [name for name in having if recipes[name][recipe]]
+        lines += ['', f'# just {recipe} for each language that has it: {", ".join(having)}']
+        if takes:
+            lines += ['[positional-arguments]', f'{recipe} *args:']
+        else:
+            lines += [f'{recipe}:']
+        lines += [f'    just --justfile "{{{{justfile()}}}}" {name} {recipe}' + (' "$@"' if name in takes else '')
+                  for name in having]
+    if modules:
+        lines += ['', f'# Every installed check of each language, then the check of git for whitespace errors',
+                  'verify:'] + [f'    just --justfile "{{{{justfile()}}}}" {name} verify' for name in modules]
+        lines += ['    git diff --check']
+    if modules and 'diff-check' not in names:
+        lines += ['', '# Find whitespace errors in the changes', 'diff-check:', '    git diff --check']
+    return '\n'.join(lines) + '\n'
+
+
+def write_recipes(target, profiles, active, tools, dry_run, generated, started, known=()):
+    """Write .agents/just: a module for each active profile with the recipes of its installed tools, and the index.
+    A file that the user changed stays as it is. If the Justfile does not parse with the index, the index gets the
+    modules only, then nothing."""
+    folder = target / RECIPES
+    if folder.is_symlink() or (folder.exists() and not folder.is_dir()):
+        print(f'{folder} is not a plain folder, so the recipes of the profiles are not written.', file=sys.stderr)
         return
-    write_new(target, Path('Justfile'), template.read_bytes())
-    print(f'Wrote Justfile from the {active[0]} profile ({template.name}); it is yours now.')
+    modules = {}
+    for name in active:
+        installed = [tool for tool in profiles[name]['tools'] if f'{name}:{tool}' in tools]
+        modules[name] = module_text(name, profiles[name], installed)
+    if dry_run:
+        print('Would write the recipes of ' + (', '.join(modules) if modules else 'no profile') + ' in .agents/just')
+        return
+    kept = {}
+    for name, text in modules.items():
+        path = folder / f'{name}.just'
+        # A file with the text that just install writes now is its own, also after a run that stopped before the record.
+        same = path.is_file() and not path.is_symlink() and path.read_text(errors='replace') == text
+        if not same and not owned_by_install(target, path, generated):
+            say(f'Kept {path.relative_to(target)}: just install did not write it as it is now, so it leaves it alone.')
+            kept[name] = path
+            continue
+        folder.mkdir(parents=True, exist_ok=True)
+        write_generated(target, path, text, generated)
+        kept[name] = path
+    # The module of a profile that left goes, when just install wrote it as it is now.
+    for relative in list(generated):
+        path = target / relative
+        if (Path(relative).parent == RECIPES and path.suffix == '.just' and path.stem in known
+                and path.stem not in modules and owned_by_install(target, path, generated)):
+            remove_generated(target, path, generated)
+    recipes = {}
+    for name, path in kept.items():
+        dump = just_dump(target, path)
+        recipes[name] = {} if dump is None else {
+            recipe: bool(info.get('parameters')) for recipe, info in dump.get('recipes', {}).items()
+            if not info.get('private')}
+    index = folder / 'index.just'
+    justfile = justfile_of(target)
+    started = started or justfile is None
+    texts = {index_text(kept, recipes, aggregate=True), index_text(kept, recipes, aggregate=False),
+             index_text({}, recipes, aggregate=False)}
+    same = index.is_file() and not index.is_symlink() and index.read_text(errors='replace') in texts
+    if not same and not owned_by_install(target, index, generated):
+        say(f'Kept {index.relative_to(target)}: just install did not write it as it is now, so it leaves it alone.')
+        error = just_error(target, justfile) if justfile is not None else None
+        if error:
+            say(f'The Justfile does not parse with the index that you kept. just said: {error}')
+        return
+    if kept and not started:
+        say(f'{justfile.name} was not started by jnterfaces, so just install adds the recipes of each profile as a '
+            f'module only: just {next(iter(kept))} NAME.')
+    if not (kept or index.exists()):
+        return
+    folder.mkdir(parents=True, exist_ok=True)
+    # The Justfile must still parse, so that just install keeps working. If a name of the project meets a name of
+    # the index, the index gets the modules only, then nothing.
+    tries = [('all', kept, started)] if started else []
+    tries += [('modules', kept, False), ('none', {}, False)]
+    first = None
+    for kind, chosen, aggregate in tries:
+        write_generated(target, index, index_text(chosen, recipes, aggregate=aggregate), generated)
+        error = just_error(target, justfile) if justfile is not None else None
+        if error is None:
+            if first:
+                say(f'The Justfile does not parse with the {"combined recipes" if first[0] == "all" else "modules"} '
+                    f'of the profiles, so the index has {"the modules only" if kind == "modules" else "none of them"}. '
+                    f'Rename the recipe, alias or module of the project with that name. just said: {first[1]}')
+            return
+        first = first or (kind, error)
+    say(f'The Justfile does not parse, also with an empty index. just said: {error}')
 
 
 def main(argv=None):
+    SAID.clear()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('names', nargs='*', help='roles, tools or profiles to turn on')
     parser.add_argument('--target', type=Path, default=Path('.'), help='the repository to install into; default: here')
@@ -718,14 +992,31 @@ def main(argv=None):
         if not sep or not name or not path:
             raise StackError(f'--clone needs NAME=DIR: {item}')
         overrides[name] = Path(path).expanduser()
-    packages, choices, aliases, profiles = load_registry(args.registry)
-    check_overrides(packages, overrides)
-    split = sort_names(args, choices, aliases, profiles)
+    packages, choices, aliases, registry_profiles = load_registry(args.registry)
+    check_overrides(packages + [{'name': entry['package']} for entry in registry_profiles.values()], overrides)
+    split = sort_names(args, choices, aliases, registry_profiles)
     record = read_record(target, choices, aliases)
-    active = pick_profiles(args, split, record, profiles, target)
+    active = pick_profiles(args, split, record, registry_profiles, target)
+    saved_on = [name for name in (record or {}).get('profiles', []) if name in registry_profiles]
+    # --profile sets the profiles, so a saved profile that it leaves out is turned off.
+    dropped = [name for name in saved_on if name not in active] if args.profile is not None else []
+    if dropped:
+        print(f'--profile leaves out the saved profile(s) {", ".join(dropped)}, so they are turned off.', file=sys.stderr)
+    # A removal of a profile that an earlier run did not finish goes on, unless this run names the profile again.
+    unfinished = [name for name in (record or {}).get('removing_profiles', [])
+                  if name in saved_on and name not in split['profiles'] and name not in (args.profile or '').split(',')]
+    # A profile that is turned off stays active in this run, so that its tools can be removed.
+    leaving = list(dict.fromkeys([name for name in split['profiles_off'] if name in active or name in saved_on]
+                                 + dropped + unfinished))
+    active = list(dict.fromkeys(active + [name for name in leaving if name not in active]))
+    unknown_off = [name for name in split['profiles_off'] if name not in active]
+    if unknown_off:
+        print(f'The profile(s) {", ".join(unknown_off)} are not on, so there is nothing to remove.', file=sys.stderr)
+    profiles = load_profiles(active, registry_profiles, choices, overrides)
     defaults = {name: bool(entry.get('default')) for name, entry in choices.items()}
     for name in active:
-        defaults.update({choice: bool(value) for choice, value in profiles[name].get('choices', {}).items()})
+        if name not in leaving:
+            defaults.update({choice: bool(value) for choice, value in profiles[name].get('choices', {}).items()})
     args.with_, args.without = split['roles_on'], split['roles_off']
     implied = bool(split['tools_on'] or split['profiles'] or args.profile)
     chosen = resolve(args, choices, record and record['choices'], sys.stdin.isatty(), installed(target, packages),
@@ -733,8 +1024,10 @@ def main(argv=None):
     available = {tool for name in active for tool in profiles[name]['tools']}
     wanted = set(split['tools_on']) | set(split['tools_off'])
     if wanted - available:
-        raise StackError(f'No active profile has the tool(s) {", ".join(sorted(wanted - available))}. The profiles '
-                         f'here are: {", ".join(active) or "none"}. Pass --profile to set them.')
+        raise StackError(f'Unknown name, or no active profile has the tool: {", ".join(sorted(wanted - available))}. '
+                         f'The roles are: {", ".join(choices)}. The profiles here are: {", ".join(active) or "none"}, '
+                         f'and their tools are: {", ".join(sorted(available)) or "none"}. The profiles are: '
+                         f'{", ".join(registry_profiles)}.')
     # Each tool belongs to one profile, so the lists hold profile:tool pairs: python and typescript both have a lint.
     saved_profiles = (record or {}).get('profiles', [])
 
@@ -749,20 +1042,33 @@ def main(argv=None):
     saved_tools = pairs((record or {}).get('tools', []))
     pending = pairs((record or {}).get('pending', []))
     # A profile turned on now gets its own default tools. A tool that a saved profile turned off stays off.
-    new_defaults = [f'{name}:{tool}' for name in active if name not in saved_profiles
-                    for tool in profiles[name].get('default_tools', [])]
+    # A profile named again while its removal is unfinished starts again, with its default tools.
+    revived = {name for name in (record or {}).get('removing_profiles', []) if name in split['profiles']
+               or name in (args.profile or '').split(',')}
+    new_defaults = [f'{name}:{tool}' for name in active if (name not in saved_profiles or name in revived)
+                    and name not in leaving for tool in profiles[name].get('default_tools', [])]
     # A named tool, on or off, is the tool of each active profile that has it.
     named_on = [f'{name}:{tool}' for tool in split['tools_on'] for name in active if tool in profiles[name]['tools']]
     off = {f'{name}:{tool}' for tool in split['tools_off'] for name in active if tool in profiles[name]['tools']}
+    off |= {f'{name}:{tool}' for name in leaving for tool in profiles[name]['tools']}
     # A removal that an earlier run did not finish goes on, unless this run names the tool again.
-    off |= set(pairs((record or {}).get('removing', []))) - set(named_on)
+    # Naming a profile again also cancels the unfinished removal of its tools.
+    again = set(split['profiles']) | set((args.profile or '').split(','))
+    off |= {pair for pair in pairs((record or {}).get('removing', []))
+            if pair not in named_on and pair.partition(':')[0] not in again}
     tools_add = [pair for pair in dict.fromkeys(named_on + new_defaults + pending) if pair not in off]
     tools = [pair for pair in dict.fromkeys(saved_tools + tools_add) if pair not in off]
     tools_remove = [pair for pair in saved_tools if pair in off]
     steps = plan(packages, chosen)
+    # The package of each profile is installed like a package of a role: its skills and its recipe files.
+    steps += [(profiles[name]['package'], ['--record', str(record_path(profiles[name]['package']))])
+              for name in active if name not in leaving]
     found = installed(target, packages)
     removals = [p for p in packages if p.get('choice') and not chosen[p['choice']] and found.get(p['choice'])]
+    removals += [profiles[name]['package'] for name in leaving
+                 if (target / record_path(profiles[name]['package'])).is_file()]
     clones = {p['name']: clone_dir(p, overrides) for p in [s[0] for s in steps] + removals}
+    clones.update({profiles[name]['package']['name']: profiles[name]['root'] for name in active})
     print(f'The package clones are in {packages_dir()}; set SKILL_PACKAGES_DIR to use another folder.', file=sys.stderr)
     if args.update:
         for name, clone in clones.items():
@@ -808,15 +1114,19 @@ def main(argv=None):
             init = profiles[name].get('init')
             if init and any(step[1] == name for step in commands) and not (target / init['file']).exists():
                 print('Would run: ' + ' '.join(init['command']))
-        for kind, _, tool, command, files, entry, _, problem in commands:
+        for kind, profile, tool, command, files, entry, _, problem in commands:
             if problem:
                 print(f'Would fail: {problem}')
                 continue
-            copy_tool_files(target, files, entry, True)
+            copy_tool_files(target, files, entry, True, profiles[profile]['root'])
             for first in entry.get('before', []):
                 print('Would run: ' + ' '.join(first))
             print('Would run: ' + ' '.join(command) if command else f'The project already has the packages of {tool}')
-        write_justfile(target, profiles, active, True)
+        for name in active:
+            if name not in saved_profiles and name not in leaving:
+                copy_tool_files(target, profiles[name].get('base', {}).get('files', {}), {}, True, profiles[name]['root'])
+        write_justfile(target, True)
+        write_recipes(target, profiles, [n for n in active if n not in leaving], tools, True, {}, False)
         if any(step[7] for step in commands):
             print('Dry run: the real run would fail at the steps above.')
             return 1
@@ -832,21 +1142,42 @@ def main(argv=None):
             raise StackError(f'The removal of {package["name"]} failed.')
     record_file = target / RECORD
 
-    def save(tool_list, waiting, leaving=()):
+    # The files that just install writes in .agents/just, with their hashes, and whether it wrote the Justfile. A
+    # file is the installer's to change only while its hash is the recorded one.
+    generated = dict((record or {}).get('generated', {}))
+    state = {'started': bool((record or {}).get('started'))}
+
+    def save(tool_list, waiting, going=()):
         record_file.parent.mkdir(exist_ok=True)
-        record = {'version': 2, 'profiles': active, 'choices': dict(sorted(chosen.items())), 'tools': tool_list}
+        # A profile that is turned off leaves the record once none of its tools is left.
+        kept_profiles = [name for name in active if name not in leaving
+                         or any(pair.partition(':')[0] == name for pair in tool_list)]
+        record = {'version': 2, 'profiles': kept_profiles, 'choices': dict(sorted(chosen.items())), 'tools': tool_list}
         kept = {key: sorted(names) for key, names in sorted(owned.items()) if names}
         if kept:
             record['owned_packages'] = kept
         if waiting:
             record['pending_tools'] = waiting
-        if leaving:
-            record['removing_tools'] = list(leaving)
+        if going:
+            record['removing_tools'] = list(going)
+        unfinished_profiles = [name for name in leaving if name in kept_profiles]
+        if unfinished_profiles:
+            record['removing_profiles'] = unfinished_profiles
+        write_recipes(target, profiles, [name for name in kept_profiles if name not in leaving], tool_list, False,
+                      generated, state['started'], registry_profiles)
+        if generated:
+            record['generated'] = dict(sorted(generated.items()))
+        if state['started']:
+            record['started'] = True
         record_file.write_text(json.dumps(record, indent=2) + '\n')
 
     # Save the roles before the tools run, so that a failed tool keeps the roles that were installed.
     save(saved_tools, [t for t in tools_add if t not in saved_tools], tools_remove)
-    write_justfile(target, profiles, active, False)
+    if write_justfile(target, False):
+        state['started'] = True
+    for name in active:
+        if name not in saved_profiles and name not in leaving:
+            copy_tool_files(target, profiles[name].get('base', {}).get('files', {}), {}, False, profiles[name]['root'])
     for name in active:
         prepare(target, profiles[name], [step for step in commands if step[1] == name])
     done = list(saved_tools)
@@ -881,7 +1212,7 @@ def main(argv=None):
         failed = problem
         try:
             if not problem:
-                copy_tool_files(target, files, entry, False)
+                copy_tool_files(target, files, entry, False, profiles[profile]['root'])
                 for first in entry.get('before', []):
                     print(f'Before removing {tool} for {profile}: {" ".join(first)}', file=sys.stderr)
                     code = subprocess.run(first, cwd=target).returncode
@@ -916,6 +1247,8 @@ def main(argv=None):
                 done.append(pair)
         else:
             owned[owner] = sorted(set(owned.get(owner, [])) - set(names))
+            if profiles[profile]['manifest'] == 'pyproject.toml' and command:
+                drop_empty_group(target, tool)
         for steps_left in covering.values():
             steps_left.discard(index)
         # Save after each step, so that an interrupted run keeps what it added and removed.
@@ -938,3 +1271,6 @@ if __name__ == '__main__':
     except StackError as exc:
         print(f'Install failed: {exc}', file=sys.stderr)
         sys.exit(1)
+    except KeyboardInterrupt:
+        print('Stopped. The record keeps what was done; run just install again to finish.', file=sys.stderr)
+        sys.exit(130)

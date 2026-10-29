@@ -1,4 +1,5 @@
 """Tests for scripts/install_stack.py and .agents/install.just: roles, tools and profiles in one target."""
+import hashlib
 import io
 import json
 import os
@@ -9,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from unittest import mock
 
@@ -16,9 +18,211 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'scripts'))
 import install_stack  # noqa: E402
 
+RECORDS_PROFILE = {'python': '.agents/jnprofile-python-install.json',
+                   'typescript': '.agents/jnprofile-typescript-install.json'}
 RECORDS = {'jnterfaces': '.agents/jnterfaces-install.json', 'agent_gest_git_skills': '.agents/gest-git-install.json',
            'nossaifd': '.agents/nossaifd-install.json', 'sklanes': '.agents/sklanes-install.json'}
 SKILLS = {'agent_gest_git_skills': 'gtw', 'nossaifd': 'nossaifd', 'sklanes': 'lanes'}
+# The profiles of the tests, as the profile packages jnprofile-python and jnprofile-typescript ship them. The tests
+# make each package from this data, so that they run offline and do not change when the real packages change.
+PROFILES = json.loads('''{
+    "python": {
+        "about": "a Python project with uv",
+        "detect": [
+            "pyproject.toml",
+            "uv.lock"
+        ],
+        "manifest": "pyproject.toml",
+        "init": {
+            "file": "pyproject.toml",
+            "command": [
+                "uv",
+                "init",
+                "--bare",
+                "--no-workspace"
+            ]
+        },
+        "uv_default_groups": "all",
+        "choices": {
+            "tasker": true,
+            "prose": true
+        },
+        "add": [
+            "uv",
+            "add",
+            "--group",
+            "{group}"
+        ],
+        "remove": [
+            "uv",
+            "remove",
+            "--group",
+            "{group}"
+        ],
+        "tools": {
+            "lint": {
+                "group": "lint",
+                "packages": [
+                    "ruff",
+                    "pre-commit"
+                ],
+                "files": {
+                    "ruff.toml": "profiles/python/ruff.toml",
+                    ".pre-commit-config.yaml": "profiles/python/pre-commit-config.yaml"
+                },
+                "skip_if": {
+                    "ruff.toml": [
+                        "pyproject.toml",
+                        "[tool.ruff"
+                    ]
+                },
+                "recipes": "lint.just",
+                "verify": [
+                    "fmt --check",
+                    "lint"
+                ],
+                "before_remove": {
+                    "package": "pre-commit",
+                    "git_hook": "pre-commit",
+                    "marker": "INSTALL_PYTHON",
+                    "command": [
+                        "uv",
+                        "run",
+                        "--group",
+                        "lint",
+                        "pre-commit",
+                        "uninstall"
+                    ]
+                }
+            },
+            "test": {
+                "group": "test",
+                "packages": [
+                    "pytest",
+                    "pytest-cov"
+                ],
+                "recipes": "test.just",
+                "verify": [
+                    "test"
+                ]
+            },
+            "typecheck": {
+                "group": "lint",
+                "packages": [
+                    "ty"
+                ],
+                "recipes": "typecheck.just",
+                "verify": [
+                    "typecheck"
+                ]
+            }
+        },
+        "default_tools": [
+            "lint",
+            "test"
+        ],
+        "name": "python",
+        "base": {
+            "recipes": "base.just",
+            "files": {
+                ".gitignore": "profiles/python/gitignore"
+            }
+        }
+    },
+    "typescript": {
+        "about": "a TypeScript project with npm, which uv runs from the nodejs-wheel package",
+        "detect": [
+            "package.json",
+            "tsconfig.json"
+        ],
+        "manifest": "package.json",
+        "init": {
+            "file": "package.json",
+            "command": [
+                "uvx",
+                "--from",
+                "nodejs-wheel==24.*",
+                "npm",
+                "init",
+                "--yes"
+            ]
+        },
+        "choices": {
+            "tasker": true,
+            "prose": true
+        },
+        "add": [
+            "uvx",
+            "--from",
+            "nodejs-wheel==24.*",
+            "npm",
+            "install",
+            "--save-dev"
+        ],
+        "remove": [
+            "uvx",
+            "--from",
+            "nodejs-wheel==24.*",
+            "npm",
+            "uninstall"
+        ],
+        "tools": {
+            "lint": {
+                "packages": [
+                    "@biomejs/biome@2"
+                ],
+                "files": {
+                    "biome.json": "profiles/typescript/biome.json"
+                },
+                "recipes": "lint.just",
+                "verify": [
+                    "lint"
+                ]
+            },
+            "typecheck": {
+                "packages": [
+                    "typescript@7",
+                    "@types/node@24"
+                ],
+                "files": {
+                    "tsconfig.json": "profiles/typescript/tsconfig.json"
+                },
+                "recipes": "typecheck.just",
+                "verify": [
+                    "typecheck"
+                ]
+            },
+            "test": {
+                "packages": [
+                    "typescript@7",
+                    "@types/node@24"
+                ],
+                "files": {
+                    "tsconfig.json": "profiles/typescript/tsconfig.json"
+                },
+                "recipes": "test.just",
+                "verify": [
+                    "test"
+                ]
+            }
+        },
+        "default_tools": [
+            "lint",
+            "typecheck"
+        ],
+        "name": "typescript",
+        "base": {
+            "recipes": "base.just",
+            "files": {
+                ".gitignore": "profiles/typescript/gitignore"
+            }
+        }
+    }
+}''')
+# The recipes of each recipe file of a test profile
+RECIPES = {"python": {"lint": ["fmt", "lint", "hook"], "test": ["test", "cov"], "typecheck": ["typecheck"]}, "typescript": {"lint": ["fmt", "lint"], "typecheck": ["typecheck"], "test": ["build", "test"]}}
+
+
 # A uv and a uvx that log each call, so that the tests of the tools run offline. Like the real ones, they write the
 # project file: uv init makes pyproject.toml, uv add and uv remove edit a dependency group, and uv remove refuses a
 # package that the group does not list. npm init makes package.json, and npm install and npm uninstall edit it.
@@ -141,6 +345,8 @@ class StackTests(unittest.TestCase):
         commit(jn)
         for name, skill in SKILLS.items():
             self.package(name, skill)
+        for name in PROFILES:
+            self.profile_package(name)
         self.target = self.base / 'target'
         self.target.mkdir()
         git(self.target, 'init', '-q')
@@ -165,6 +371,40 @@ class StackTests(unittest.TestCase):
         (root / 'skill-package.json').write_text(json.dumps(manifest))
         git(root, 'init', '-q')
         commit(root)
+
+    def profile_package(self, name, profile=None, recipes=None):
+        """Make the profile package jnprofile-NAME: profile.json, a recipe file for each tool, and the config files."""
+        profile = json.loads(json.dumps(PROFILES[name] if profile is None else profile))
+        recipes = RECIPES[name] if recipes is None else recipes
+        root = self.packages / f'jnprofile-{name}'
+        if root.exists():
+            shutil.rmtree(root)
+        folder = root / '.agents/just' / name
+        folder.mkdir(parents=True)
+        (folder / 'base.just').write_text(f'# The base of {name}\nsetup:\n    @echo setup {name}\n')
+        for tool, names in recipes.items():
+            (folder / f'{tool}.just').write_text(''.join(f'{recipe} *args:\n    @echo {name} {recipe} "$@"\n'
+                                                         for recipe in names))
+        skill = root / f'.agents/skills/{name}-profile'
+        skill.mkdir(parents=True)
+        (skill / 'SKILL.md').write_text(f'---\nname: {name}-profile\ndescription: d\n---\n')
+        for entry in [profile.get('base', {})] + list(profile['tools'].values()):
+            for origin in entry.get('files', {}).values():
+                (root / origin).parent.mkdir(parents=True, exist_ok=True)
+                (root / origin).write_text(f'# {origin}\n')
+        (root / 'profile.json').write_text(json.dumps(profile))
+        (root / 'skill-package.json').write_text(json.dumps({
+            'repository': {'name': f'jnprofile-{name}'},
+            'skills': [{'name': f'{name}-profile', 'path': f'.agents/skills/{name}-profile'}],
+            'install_extras': {'files': [f'.agents/just/{name}']}}))
+        git(root, 'init', '-q')
+        commit(root)
+
+    def edit_profile(self, name, change):
+        """Change the profile.json of a test profile package, and commit it."""
+        profile = json.loads(json.dumps(PROFILES[name]))
+        change(profile)
+        self.profile_package(name, profile)
 
     def stack(self, *args, env=None, target=None):
         return subprocess.run([sys.executable, self.packages / 'jnterfaces/scripts/install_stack.py',
@@ -199,9 +439,11 @@ class StackTests(unittest.TestCase):
         self.assertFalse(self.has('cx') or self.has('lanes'))
         self.assertTrue((self.target / '.agents/install.just').is_file())
         self.assertTrue((self.target / '.claude/hooks/start.sh').is_file())
-        self.assertEqual(self.saved(), {'version': 2, 'profiles': [], 'tools': [], 'choices': {
+        self.assertEqual(self.saved(), {'version': 2, 'profiles': [], 'tools': [], 'started': True, 'choices': {
             'cx': False, 'jagt-protocol': False, 'prose': True, 'reporter': False, 'tasker': True}})
-        self.assertIn('No Justfile and no profile', run.stderr)
+        # With no profile, the project still gets the starter Justfile, which imports the recipe file.
+        self.assertIn('Wrote Justfile', run.stdout)
+        self.assertIn("import? '.agents/install.just'", (self.target / 'Justfile').read_text())
         for record in ('jnterfaces', 'agent_gest_git_skills', 'nossaifd'):
             self.assertRegex(json.loads((self.target / RECORDS[record]).read_text())['source_revision'], '^[0-9a-f]{40}$')
 
@@ -392,6 +634,280 @@ class StackTests(unittest.TestCase):
         self.assertFalse((self.target / '.claude/skills/nossaifd').is_symlink())
         self.assertTrue((self.target / '.claude/skills/just').is_symlink())
 
+    def just_in_target(self, *args):
+        return subprocess.run(['just', *args], cwd=self.target, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_the_recipes_follow_the_tools(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        module = (self.target / '.agents/just/python.just').read_text()
+        self.assertIn("import? 'python/lint.just'", module)
+        self.assertIn("import? 'python/test.just'", module)
+        self.assertNotIn('typecheck.just', module)
+        self.assertIn('verify: (fmt "--check") lint test', module)
+        run = self.just_in_target('lint', '--fix')
+        self.assertEqual((run.returncode, run.stdout.strip()), (0, 'python lint --fix'), run.stderr)
+        self.assertEqual(self.just_in_target('python', 'test').stdout.strip(), 'python test')
+        run = self.just_in_target('verify')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.stdout.split(), ['python', 'fmt', '--check', 'python', 'lint', 'python', 'test'])
+        # A tool that goes takes its recipes with it, and one that comes adds its check to verify.
+        self.assertEqual(self.stack('--without', 'lint').returncode, 0)
+        self.assertNotIn('lint', self.just_in_target('--summary').stdout.split())
+        self.assertEqual(self.stack('typecheck').returncode, 0)
+        self.assertIn('verify: test typecheck', (self.target / '.agents/just/python.just').read_text())
+        self.assertIn('typecheck', self.just_in_target('--summary').stdout.split())
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_project_started_by_jnterfaces_gets_combined_recipes_and_can_override_them(self):
+        self.assertEqual(self.stack('--profile', 'python,typescript', '--defaults').returncode, 0)
+        index = (self.target / '.agents/just/index.just').read_text()
+        self.assertIn("mod python 'python.just'", index)
+        self.assertIn("mod typescript 'typescript.just'", index)
+        run = self.just_in_target('fmt', 'x')
+        self.assertEqual(run.stdout.split(), ['python', 'fmt', 'x', 'typescript', 'fmt', 'x'], run.stderr)
+        # A recipe of the project with the name of a recipe of the index takes its place, also in verify, and a recipe
+        # of the project can depend on a recipe of the index.
+        justfile = self.target / 'Justfile'
+        justfile.write_text(justfile.read_text() + '\nlint:\n    @echo mine\n\nci: verify\n')
+        self.assertEqual(self.stack('typecheck').returncode, 0)
+        self.assertEqual(self.just_in_target('lint').stdout.strip(), 'mine')
+        self.assertEqual(self.just_in_target('typescript', 'lint').stdout.strip(), 'typescript lint')
+        run = self.just_in_target('ci')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('typescript typecheck', run.stdout)
+
+    def test_the_record_holds_the_files_of_just_install_and_the_starter_justfile(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        saved = self.saved()
+        self.assertTrue(saved['started'])
+        self.assertEqual(sorted(saved['generated']), ['.agents/just/index.just', '.agents/just/python.just'])
+        for path, digest in saved['generated'].items():
+            self.assertEqual(hashlib.sha256((self.target / path).read_bytes()).hexdigest(), digest)
+        # The record decides, not a line in the Justfile: without the comment, the project still gets the recipes.
+        justfile = self.target / 'Justfile'
+        justfile.write_text('\n'.join(line for line in justfile.read_text().splitlines() if 'jnterfaces' not in line))
+        self.assertEqual(self.stack('typecheck').returncode, 0)
+        self.assertIn('\nverify:', (self.target / '.agents/just/index.just').read_text())
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_clash_falls_back_so_the_justfile_still_parses(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        justfile = self.target / 'Justfile'
+        start = justfile.read_text()
+        cases = [(start.replace('set allow-duplicate-recipes', '') + '\nlint:\n    @echo mine\n', 'lint', 'mine'),
+                 (start + '\nhello:\n    @echo hi\n\nalias lint := hello\n', 'lint', 'hi'),
+                 (start + '\npython:\n    @echo own\n', 'python', 'own')]
+        for text, recipe, out in cases:
+            justfile.write_text(text)
+            run = self.stack()
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertIn('Rename the recipe, alias or module of the project with that name', run.stderr)
+            self.assertEqual(self.just_in_target('--summary').returncode, 0, text)
+            self.assertEqual(self.just_in_target(recipe).stdout.strip(), out)
+            self.assertEqual(self.just_in_target('install', '--help').returncode, 0)
+
+    def test_a_module_written_before_a_stop_is_still_the_installers(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        record = self.saved()
+        record['generated'] = {path: '0' * 64 for path in record['generated']}
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        run = self.stack('typecheck')
+        self.assertNotIn('Kept .agents/just', run.stderr)
+        self.assertIn("import? 'python/typecheck.just'", (self.target / '.agents/just/python.just').read_text())
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_an_edited_index_that_names_a_gone_module_is_reported(self):
+        self.assertEqual(self.stack('--profile', 'python,typescript', '--defaults').returncode, 0)
+        index = self.target / '.agents/just/index.just'
+        index.write_text('# mine\n' + index.read_text())
+        run = self.stack('--without', 'typescript')
+        self.assertIn('The Justfile does not parse with the index that you kept', run.stderr)
+
+    def test_a_crafted_record_entry_deletes_no_other_file(self):
+        notes = self.target / '.agents/just/notes.just'
+        notes.parent.mkdir(parents=True)
+        notes.write_text('my notes\n')
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        record = self.saved()
+        record['generated']['.agents/just/notes.just'] = hashlib.sha256(notes.read_bytes()).hexdigest()
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertEqual(notes.read_text(), 'my notes\n')
+
+    def test_a_file_that_just_install_did_not_write_stays(self):
+        module = self.target / '.agents/just/python.just'
+        module.parent.mkdir(parents=True)
+        module.write_text('# mine, with the header line of just install\n')
+        run = self.stack('--profile', 'python', '--defaults')
+        self.assertIn('Kept .agents/just/python.just', run.stderr)
+        self.assertEqual(module.read_text(), '# mine, with the header line of just install\n')
+        self.assertNotIn('.agents/just/python.just', self.saved()['generated'])
+        # A removal of the profile leaves it too.
+        self.assertEqual(self.stack('--without', 'python').returncode, 0)
+        self.assertTrue(module.is_file())
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_project_not_started_by_jnterfaces_gets_modules_only(self):
+        (self.target / 'Justfile').write_text("import? '.agents/install.just'\n\nlint:\n    @echo mine\n")
+        run = self.stack('--profile', 'python', '--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('was not started by jnterfaces', run.stderr)
+        self.assertEqual(run.stderr.count('was not started by jnterfaces'), 1)
+        index = (self.target / '.agents/just/index.just').read_text()
+        self.assertIn("mod python 'python.just'", index)
+        self.assertNotIn('verify', index)
+        self.assertEqual(self.just_in_target('lint').stdout.strip(), 'mine')
+        self.assertEqual(self.just_in_target('python', 'lint').stdout.strip(), 'python lint')
+        self.assertEqual(self.just_in_target('python', 'verify').returncode, 0)
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_justfile_that_does_not_parse_is_named(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        justfile = self.target / 'Justfile'
+        justfile.write_text(justfile.read_text() + '\nbroken: nothere\n')
+        run = self.stack('typecheck')
+        # just writes recipe with a capital R in some versions only.
+        self.assertRegex(run.stderr, r'(?i)just said: error: recipe `broken` has unknown dependency `nothere`')
+        self.assertEqual(run.stderr.count('just said'), 1)
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_an_edited_index_still_lets_the_modules_follow_the_tools(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        index = self.target / '.agents/just/index.just'
+        index.write_text('# mine\n' + index.read_text())
+        run = self.stack('typecheck')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('already has the name python', run.stderr)
+        self.assertIn("import? 'python/typecheck.just'", (self.target / '.agents/just/python.just').read_text())
+        self.assertEqual(self.just_in_target('python', 'typecheck').stdout.strip(), 'python typecheck')
+
+    def test_naming_the_profile_again_keeps_its_tools(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        self.assertNotEqual(self.stack('--without', 'python', env={'FAIL_TOOL': 'test'}).returncode, 0)
+        self.log.unlink()
+        self.assertEqual(self.stack('python').returncode, 0)
+        # lint went before the failure; naming the profile again brings back its default tools.
+        self.assertEqual(sorted(self.tool_names('tools')), ['lint', 'test'])
+        self.assertNotIn('removing_tools', self.saved())
+        self.assertFalse(any(line.startswith('uv remove') for line in self.tools_run()))
+
+    def test_a_failed_profile_removal_goes_on_at_the_next_run(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        run = self.stack('--without', 'python', env={'FAIL_TOOL': 'test'})
+        self.assertNotEqual(run.returncode, 0)
+        self.assertEqual(self.saved()['removing_profiles'], ['python'])
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.saved()['profiles'], [])
+        self.assertNotIn('removing_profiles', self.saved())
+        self.assertFalse((self.target / RECORDS_PROFILE['python']).exists())
+        self.assertFalse((self.target / '.agents/just/python.just').exists())
+
+    def test_naming_the_profile_again_cancels_its_removal(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        self.assertNotEqual(self.stack('--without', 'python', env={'FAIL_TOOL': 'test'}).returncode, 0)
+        self.assertEqual(self.stack('python').returncode, 0)
+        self.assertEqual(self.saved()['profiles'], ['python'])
+        self.assertTrue((self.target / RECORDS_PROFILE['python']).is_file())
+
+    def test_profile_that_leaves_out_a_saved_profile_turns_it_off(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        self.log.unlink()
+        run = self.stack('--profile', 'typescript', '--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('leaves out the saved profile(s) python', run.stderr)
+        self.assertIn('uv remove --group lint ruff pre-commit', self.tools_run())
+        self.assertEqual(self.saved()['profiles'], ['typescript'])
+        self.assertFalse((self.target / RECORDS_PROFILE['python']).exists())
+        self.assertFalse((self.target / '.agents/just/python').exists())
+
+    def test_an_empty_group_that_default_groups_names_stays(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n\n[tool.uv]\ndefault-groups = ["lint"]\n')
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        self.assertEqual(self.stack('--without', 'lint').returncode, 0)
+        data = tomllib.loads((self.target / 'pyproject.toml').read_text())
+        self.assertEqual(data['dependency-groups']['lint'], [])
+
+    def test_a_clone_of_an_empty_repository_is_removed_so_a_later_run_clones_again(self):
+        empty = self.base / 'empty.git'
+        subprocess.run(['git', 'init', '-q', '--bare', str(empty)], check=True)
+        shutil.rmtree(self.packages / 'jnprofile-python')
+        registry = self.registry_with(lambda r: r['profiles']['python'].update(repository=str(empty)))
+        run = self.stack('--profile', 'python', '--defaults', '--registry', registry)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('Cannot clone', run.stderr)
+        self.assertFalse((self.packages / 'jnprofile-python').exists())
+
+    def test_each_run_starts_with_no_message_said(self):
+        install_stack.SAID.add('an old message')
+        with self.assertRaises(install_stack.StackError):
+            install_stack.main(['--target', str(self.base / 'nothere')])
+        self.assertNotIn('an old message', install_stack.SAID)
+
+    def test_an_edited_recipe_file_of_just_install_stays(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        module = self.target / '.agents/just/python.just'
+        module.write_text('# mine\n')
+        run = self.stack('typecheck')
+        self.assertIn('Kept .agents/just/python.just', run.stderr)
+        self.assertEqual(module.read_text(), '# mine\n')
+
+    def test_without_a_profile_takes_out_its_tools_recipes_and_package(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
+        self.assertEqual(self.stack('--profile', 'python', '--defaults', 'typecheck').returncode, 0)
+        self.assertTrue((self.target / RECORDS_PROFILE['python']).is_file())
+        self.log.unlink()
+        run = self.stack('--without', 'python')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(sorted(self.tools_run()), ['uv remove --group lint ty ruff pre-commit',
+                                                    'uv remove --group test pytest pytest-cov'])
+        self.assertEqual(self.saved()['profiles'], [])
+        self.assertEqual(self.saved()['tools'], [])
+        self.assertFalse((self.target / RECORDS_PROFILE['python']).exists())
+        self.assertFalse((self.target / '.agents/just/python.just').exists())
+        self.assertFalse((self.target / '.agents/just/python').exists())
+        self.assertNotIn('mod python', (self.target / '.agents/just/index.just').read_text())
+        # The empty groups are gone, and the project keeps pyproject.toml.
+        self.assertNotIn('dependency-groups.lint', (self.target / 'pyproject.toml').read_text())
+        self.assertNotIn('lint =', (self.target / 'pyproject.toml').read_text())
+        # A later run does not find the profile from pyproject.toml again, and names how to turn it on.
+        run = self.stack()
+        self.assertEqual(self.saved()['profiles'], [])
+        self.assertIn('just install --profile python', run.stderr)
+        self.assertIn('are not on', self.stack('--without', 'python').stderr)
+
+    def test_an_empty_group_goes_only_when_it_is_empty(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
+        self.assertEqual(self.stack('--profile', 'python', '--defaults', 'typecheck').returncode, 0)
+        self.assertEqual(self.stack('--without', 'lint').returncode, 0)
+        data = tomllib.loads((self.target / 'pyproject.toml').read_text())
+        self.assertEqual(data['dependency-groups']['lint'], ['ty'])
+        run = self.stack('--without', 'typecheck')
+        self.assertIn('Took the empty dependency group lint out', run.stderr)
+        data = tomllib.loads((self.target / 'pyproject.toml').read_text())
+        self.assertNotIn('lint', data['dependency-groups'])
+        self.assertEqual(data['dependency-groups']['test'], ['pytest', 'pytest-cov'])
+
+    def test_a_profile_writes_its_gitignore_once(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        gitignore = self.target / '.gitignore'
+        self.assertEqual(gitignore.read_text(), '# profiles/python/gitignore\n')
+        gitignore.unlink()
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertFalse(gitignore.exists())
+
+    def test_a_dry_run_names_the_recipes_and_writes_none(self):
+        run = self.stack('--profile', 'python', '--defaults', '--dry-run')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('Would write the recipes of python in .agents/just', run.stdout)
+        self.assertIn('Would write .gitignore', run.stdout)
+        self.assertFalse((self.target / '.agents').exists())
+
     def test_ruff_toml_is_left_out_when_pyproject_has_ruff_settings(self):
         (self.target / 'pyproject.toml').write_text('[tool.ruff]\nline-length = 99\n')
         run = self.stack('--defaults')
@@ -409,7 +925,12 @@ class StackTests(unittest.TestCase):
         self.assertEqual(self.stack('--without', 'typecheck,test').returncode, 0)
         self.assertEqual(self.tools_run(), ['uvx --from nodejs-wheel==24.* npm uninstall typescript @types/node'])
         self.assertTrue((self.target / 'tsconfig.json').is_file())
-        self.assertIn('nodejs-wheel', (self.target / 'Justfile').read_text())
+        # The recipes follow the tools: only the base and lint are left.
+        self.assertIn("mod typescript 'typescript.just'", (self.target / '.agents/just/index.just').read_text())
+        module = (self.target / '.agents/just/typescript.just').read_text()
+        self.assertIn("import? 'typescript/lint.just'", module)
+        self.assertNotIn('typecheck.just', module)
+        self.assertNotIn('test.just', module)
 
     def test_a_failed_tool_keeps_the_roles_and_a_later_run_tries_it_again(self):
         run = self.stack('--profile', 'python', env={'FAIL_TOOL': 'lint'})
@@ -495,10 +1016,13 @@ class StackTests(unittest.TestCase):
         return path
 
     def test_a_failed_removal_in_one_profile_keeps_the_tool_when_another_profile_removed_it(self):
+        pb = json.loads(json.dumps(PROFILES['python']))
+        pb.update(name='pb', remove=['false'], choices={})
+        pb.pop('init')
+        self.profile_package('pb', pb, RECIPES['python'])
+
         def two(r):
-            r['profiles']['pb'] = json.loads(json.dumps(r['profiles']['python']))
-            r['profiles']['pb'].update(detect=[], remove=['false'], init={}, choices={})
-            r['profiles']['pb'].pop('init')
+            r['profiles']['pb'] = dict(r['profiles']['python'], package='jnprofile-pb', detect=[])
         registry = self.registry_with(two)
         (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
         self.assertEqual(self.stack('--profile', 'python,pb', '--defaults', '--registry', registry).returncode, 0)
@@ -514,9 +1038,8 @@ class StackTests(unittest.TestCase):
         data = json.loads((self.target / 'package.json').read_text())
         data['devDependencies'].pop('@biomejs/biome')
         (self.target / 'package.json').write_text(json.dumps(data))
-        def failing_add(r):
-            r['profiles']['typescript']['add'] = ['false']
-        run = self.stack('--without', 'test', 'lint', '--registry', self.registry_with(failing_add))
+        self.edit_profile('typescript', lambda p: p.update(add=['false']))
+        run = self.stack('--without', 'test', 'lint')
         self.assertNotEqual(run.returncode, 0)
         self.assertNotIn('test', self.tool_names('tools'))
 
@@ -525,11 +1048,11 @@ class StackTests(unittest.TestCase):
         (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n')
         self.assertEqual(self.stack('--profile', 'python,typescript', '--defaults', 'test').returncode, 0)
         self.assertIn('test', self.tool_names('tools'))
-        def nested(r):
-            r['profiles']['typescript']['tools']['typecheck']['files'] = {'sub/tsconfig.json': 'profiles/typescript/tsconfig.json'}
+        self.edit_profile('typescript', lambda p: p['tools']['typecheck'].update(
+            files={'sub/tsconfig.json': 'profiles/typescript/tsconfig.json'}))
         (self.target / 'sub').symlink_to(self.base)
         self.log.unlink()
-        run = self.stack('typecheck', '--without', 'test', '--registry', self.registry_with(nested))
+        run = self.stack('typecheck', '--without', 'test')
         self.assertNotEqual(run.returncode, 0)
         self.assertIn('uv remove --group test pytest pytest-cov', self.tools_run())
         self.assertIn('sub is a symlink', run.stderr)
@@ -840,12 +1363,20 @@ class StackTests(unittest.TestCase):
 
     def test_registry_paths_refuse_dot_git_and_outside_guards(self):
         for change in (lambda r: r['packages'][1].update(record='.'),
-                       lambda r: r['packages'][1].update(record='a/./b.json'),
-                       lambda r: r['profiles']['python'].update(init={'file': '.git/x', 'command': ['true']}),
-                       lambda r: r['profiles']['python']['tools']['lint']['files'].update({'vendor/.git/hooks/x': 'profiles/python/ruff.toml'}),
-                       lambda r: r['profiles']['python']['tools']['lint'].update(skip_if={'ruff.toml': ['../x', 'y']})):
+                       lambda r: r['packages'][1].update(record='a/./b.json')):
             with self.assertRaises(install_stack.StackError):
                 install_stack.load_registry(self.registry_with(change))
+        _, choices, _, _ = install_stack.load_registry(REPO / 'stack.json')
+        for change in (lambda p: p.update(init={'file': '.git/x', 'command': ['true']}),
+                       lambda p: p['tools']['lint']['files'].update({'vendor/.git/hooks/x': 'profiles/python/ruff.toml'}),
+                       lambda p: p['tools']['lint'].update(skip_if={'ruff.toml': ['../x', 'y']}),
+                       lambda p: p['base'].update(files={'.gitignore': '../x'}),
+                       lambda p: p['tools']['lint'].update(recipes='../lint.just'),
+                       lambda p: p['tools']['lint'].update(recipes='sub/lint.just')):
+            profile = json.loads(json.dumps(PROFILES['python']))
+            change(profile)
+            with self.assertRaises(install_stack.StackError):
+                install_stack.check_profile('python', profile, choices)
 
     def test_named_roles_alone_turn_on_only_those_roles_without_a_terminal(self):
         run = self.stack('tasker')
@@ -868,7 +1399,7 @@ class StackTests(unittest.TestCase):
 
     def test_a_tool_needs_a_profile_that_has_it(self):
         run = self.stack('lint')
-        self.assertIn('No active profile has the tool(s) lint', run.stderr)
+        self.assertIn('no active profile has the tool: lint', run.stderr)
         self.assertFalse((self.target / '.agents').exists())
 
     def test_a_missing_clone_is_cloned_and_a_named_clone_must_exist(self):
@@ -914,7 +1445,7 @@ class StackTests(unittest.TestCase):
 
     def test_bad_names_and_options(self):
         run = self.stack('nope')
-        self.assertIn('Unknown name: nope', run.stderr)
+        self.assertIn('Unknown name, or no active profile has the tool: nope', run.stderr)
         self.assertIn('The roles are: cx, jagt-protocol, tasker, prose, reporter', run.stderr)
         self.assertIn('cannot be both turned on and turned off', self.stack('cx', '--without', 'cx').stderr)
         self.assertIn('--all or --defaults', self.stack('--all', '--defaults').stderr)
@@ -994,30 +1525,41 @@ class StackTests(unittest.TestCase):
 
     def test_a_malformed_registry_is_refused(self):
         registry = json.loads((REPO / 'stack.json').read_text())
-        for change in (lambda r: r['aliases'].update(x='nope'), lambda r: r['profiles']['python'].update(add='uv add'),
-                       lambda r: r['profiles']['python']['tools'].update(cx={'packages': ['x']}),
-                       lambda r: r['profiles']['python'].update(default_tools=['nope']),
+        for change in (lambda r: r['aliases'].update(x='nope'),
                        lambda r: r.update(packages={'a': 1}), lambda r: r['profiles'].update(python=[]),
+                       lambda r: r['profiles']['python'].pop('package'),
+                       lambda r: r['profiles'].update(Bad=dict(r['profiles']['python'])),
+                       lambda r: r['profiles'].update(prose=dict(r['profiles']['python'])),
                        lambda r: r['packages'][0]['optional_skills'].append({'about': 'no choice'}),
                        lambda r: r['packages'][0].pop('required_skills'),
-                       lambda r: r['profiles']['python'].update(justfile='../x.just'),
-                       lambda r: r['profiles']['python']['tools']['lint']['files'].update({'../x': 'profiles/python/ruff.toml'}),
                        lambda r: r['packages'][1].update(record='/etc/x.json'),
                        lambda r: r['packages'][1].update(record='.GIT/config'),
                        lambda r: r['packages'][1].update(needs='jnterfaces'),
                        lambda r: r['packages'][2].pop('about'),
-                       lambda r: r['packages'][0]['optional_skills'].append({'choice': 'tasker', 'about': 'twice'}),
-                       lambda r: r['profiles']['python']['init'].update(command=[]),
-                       lambda r: r['profiles']['python']['tools']['lint'].update(group=3),
-                       lambda r: r['profiles']['python']['tools']['lint'].update(skip_if={'ruff.toml': 'x'}),
-                       lambda r: r['profiles']['python'].update(uv_default_groups={'a': 1}),
-                       lambda r: r['profiles']['python'].pop('manifest')):
+                       lambda r: r['packages'][0]['optional_skills'].append({'choice': 'tasker', 'about': 'twice'})):
             broken = json.loads(json.dumps(registry))
             change(broken)
             path = self.base / 'broken.json'
             path.write_text(json.dumps(broken))
             with self.assertRaises(install_stack.StackError):
                 install_stack.load_registry(path)
+        _, choices, _, _ = install_stack.load_registry(REPO / 'stack.json')
+        for change in (lambda p: p.update(add='uv add'), lambda p: p['tools'].update(cx={'packages': ['x']}) or
+                       p['tools']['cx'].update(recipes=3),
+                       lambda p: p.update(default_tools=['nope']), lambda p: p.update(name='other'),
+                       lambda p: p['tools']['lint']['files'].update({'../x': 'profiles/python/ruff.toml'}),
+                       lambda p: p['init'].update(command=[]), lambda p: p['tools']['lint'].update(group=3),
+                       lambda p: p['tools']['lint'].update(skip_if={'ruff.toml': 'x'}),
+                       lambda p: p.update(uv_default_groups={'a': 1}), lambda p: p.pop('manifest'),
+                       lambda p: p['tools']['lint'].update(verify=['fmt "--check"']),
+                       lambda p: p['tools']['lint'].update(verify='lint'), lambda p: p['tools'].update(Bad={'packages': ['x']}),
+                       lambda p: p.update(choices={'nope': True}), lambda p: p.update(tools={})):
+            profile = json.loads(json.dumps(PROFILES['python']))
+            change(profile)
+            with self.assertRaises(install_stack.StackError):
+                install_stack.check_profile('python', profile, choices)
+        self.assertEqual(install_stack.check_profile('python', json.loads(json.dumps(PROFILES['python'])), choices)['name'],
+                         'python')
 
     def test_the_readme_table_matches_stack_json(self):
         _, choices, _, _ = install_stack.load_registry(REPO / 'stack.json')
@@ -1025,13 +1567,13 @@ class StackTests(unittest.TestCase):
         rows = dict(re.findall(r'^\| `([a-z-]+)` \| [^|]+ \| [^|]+ \| (yes|no) \|$', readme, re.M))
         self.assertEqual(rows, {name: 'yes' if entry.get('default') else 'no' for name, entry in choices.items()})
 
-    def test_the_profile_files_and_templates_exist(self):
-        _, _, _, profiles = install_stack.load_registry(REPO / 'stack.json')
-        for profile in profiles.values():
-            self.assertIn("import? '.agents/install.just'", (REPO / profile['justfile']).read_text())
-            for tool in profile['tools'].values():
-                for origin in tool.get('files', {}).values():
-                    self.assertTrue((REPO / origin).is_file(), origin)
+    def test_the_starter_justfile_imports_the_recipe_file_and_parses(self):
+        template = (REPO / 'templates/project.just').read_text()
+        self.assertIn("import? '.agents/install.just'", template)
+        if shutil.which('just'):
+            run = subprocess.run(['just', '--justfile', REPO / 'templates/project.just', '--summary'],
+                                 capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
 
 
 class RealPackagesTest(unittest.TestCase):

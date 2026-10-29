@@ -15,8 +15,8 @@ closed.
 | skill | A folder with a `SKILL.md` file. An agent reads it to learn one job. |
 | package | A Git repository that ships skills, for example nossaifd. |
 | role | The name of a job, for example `prose`. A package does the job, so the package can change and the role name stays. |
-| profile | A language setup, for example `python`. It names the manifest, the Justfile template and the tools. |
-| tool | A set of packages for the code of the project, for example `lint`, which adds ruff and pre-commit. |
+| profile | A language setup, for example `python`. A profile package, such as jnprofile-python, ships it. |
+| tool | One unit of the setup of a profile, for example `lint`. It brings packages, config files and recipes. |
 | manifest | The file that lists the dependencies of the project: `pyproject.toml` or `package.json`. |
 | record | A JSON file in `.agents/` that lists what the installer wrote, with a hash of each file. |
 | mixin | One layer that you add to a project, for example a role or a tool. |
@@ -27,9 +27,9 @@ The stack has parts in four places:
 
 | Place | What it holds |
 |---|---|
-| GitHub, `rahuldave/...` | The source of each package: jnterfaces, agent_gest_git_skills, nossaifd and sklanes. |
+| GitHub, `rahuldave/...` | The source of each package: jnterfaces, agent_gest_git_skills, nossaifd, sklanes, and the profile packages jnprofile-python and jnprofile-typescript. |
 | The clone folder | One Git clone of each package. The default folder is `~/.local/share/skill-packages`. |
-| The project | Copies of the skills in `.agents/skills`, the records, and `.agents/stack.json`. |
+| The project | Copies of the skills in `.agents/skills`, the recipes in `.agents/just`, the records, and `.agents/stack.json`. |
 | The machine | The programs: `git`, `just`, `uv`, and the programs that some roles need. |
 
 The packages and their roles are in this table:
@@ -45,7 +45,8 @@ The packages and their roles are in this table:
 
 Only jnterfaces has an installer, `scripts/install_stack.py`. The other
 packages list their files in `skill-package.json`. The list of packages,
-roles and profiles is in `stack.json` of jnterfaces.
+roles and profiles is in `stack.json` of jnterfaces. A profile package also
+has `profile.json`, which lists its tools.
 
 **The clone folder.** The installer looks for each package in the folder that
 `SKILL_PACKAGES_DIR` names. If the variable is not set, it looks in the folder
@@ -80,15 +81,16 @@ The installer runs these steps:
    `.agents/stack.json`. If neither names a profile, it looks at the files of
    the project. For example, `pyproject.toml` turns on the `python` profile.
 2. It checks each package. If a check fails, it writes nothing.
-3. It copies the skills and other files of each role into the project, and it
-   writes one record for each package.
+3. It copies the skills and other files of each role and profile into the
+   project, and it writes one record for each package.
 4. It saves the choices in `.agents/stack.json`.
-5. If the project has no Justfile, it writes the Justfile template of the
-   profile.
+5. If the project has no Justfile, it writes the starter Justfile.
 6. If a tool of a profile is to be added and the project has no manifest, it
    makes one, with `uv init --bare` or `npm init --yes`.
 7. It adds the packages of each tool, with `uv add --group` or `npm install
    --save-dev`, and it copies the config files of the tool.
+8. It writes the recipes of the installed tools in `.agents/just`. After each
+   step, it saves the record and writes the recipes again.
 
 A later `just install` with no names installs the same set again, from the
 clones as they are. To get new commits of the packages, run `just install
@@ -136,11 +138,54 @@ copier 9 through `uvx`. copier makes files from a template, and `copier
 update` brings in a later version of the template and keeps your edits. So a
 recipe can use `{{jn_copier}} copy TEMPLATE FOLDER` with no install.
 
+## How the recipes arrive
+
+Each tool of a profile has one recipe file, for example
+`.agents/just/python/lint.just`. The profile package installs these files.
+`just install` then writes two kinds of file in `.agents/just`:
+
+- **`python.just`**, a module for each profile. It imports the recipe files
+  of the installed tools only, and its `verify` runs their checks. Its
+  recipes run in the folder of the project. `just python lint` runs one.
+- **`index.just`**, which `.agents/install.just` imports. It has a `mod` line
+  for each profile. In a project that jnterfaces started, it also has a
+  combined recipe for each recipe name. So `just lint` runs the `lint` of
+  each language. Its `verify` runs the `verify` of each language, then
+  `git diff --check`.
+
+**A project that jnterfaces started.** When the project has no Justfile, the
+installer writes the starter Justfile, and `.agents/stack.json` records
+`"started": true`. The starter Justfile has `set allow-duplicate-recipes`. So
+a recipe in the Justfile itself with the name of a recipe of the index, such
+as `lint`, takes its place. It does not take the place of the recipe of a
+language, so `just python verify` still runs the `lint` of the profile. A
+recipe of yours can also depend on a recipe of the index, for example `ci:
+verify`.
+
+**A project that jnterfaces did not start**, such as one with its own
+Justfile, gets the modules only, for example `just python lint`.
+
+**A name that meets a name of the index.** An alias, a module, or a recipe
+in a project without `set allow-duplicate-recipes` can have the name of a
+recipe or a module of the index. Then the Justfile does not parse.
+
+The installer checks the Justfile after it writes the index. If it does not
+parse, the installer writes the index with the modules only, then with none,
+and it names the clash. So `just install` keeps working. Rename the name of
+the project to get the recipes back.
+
+**The record.** `.agents/stack.json` holds the hash of each file that `just
+install` wrote in `.agents/just`, under `generated`. The installer changes or
+removes a file only while its hash is the recorded one. It keeps any other
+file, and it names that file. Put your own recipes in the Justfile.
+
+With more than one language, a combined recipe gives the same arguments to
+each language. To give arguments to one language, run `just python test x`.
+
 ## Build a project in layers
 
 Each layer adds one mixin. Start at layer 0, and add the layers that the
-project needs. A layer works with the layers above it, unless the layer says
-otherwise.
+project needs. Each command after layer 1 is a recipe of the project.
 
 ### Layer 0: an empty Git repository
 
@@ -158,11 +203,13 @@ uv run ~/Projects/jnterfaces/scripts/install_stack.py --target . prose
 
 **What you get:**
 
-- `.agents/skills/just` and `.agents/skills/nossaifd`, with `check.py`.
+- `.agents/skills/just` and `.agents/skills/nossaifd`, with `check.py`, and
+  their links in `.claude/skills`.
 - `.agents/install.just`, the records, and `.agents/stack.json`.
+- The starter Justfile, which imports `.agents/install.just`. So `just
+  install`, `just uninstall` and `just install --help` work.
 
-**What works.** The install needs `git` and `uv` only. Run the checker on a
-page:
+Run the checker on a page:
 
 ```bash
 uv run --no-project python .agents/skills/nossaifd/scripts/check.py README.md
@@ -170,42 +217,16 @@ uv run --no-project python .agents/skills/nossaifd/scripts/check.py README.md
 
 **What does not work:**
 
-- **A project with a manifest gets tools.** If the project has
-  `pyproject.toml` or `package.json`, the installer finds the profile. Then it
-  adds the default tools of the profile, and a Justfile if the project has
-  none. To install the role alone, pass `--profile ''`. But the project
-  saves no profile, so the next `just install` finds the profile again, and
-  it adds the tools.
-- **No Justfile.** With no profile, the installer writes no Justfile. It
-  prints the line to add. So `just install` is not there until you write a
-  Justfile.
-- **No recipe for the checker.** No template has a recipe such as
-  `just prose`. You type the `uv run` command above.
+- **No recipe for the checker.** You type the `uv run` command above.
 - **No `AGENTS.md`.** Only the `tasker` role writes one. So nothing tells an
   agent to use the nossaifd skill.
+- **A project with a manifest gets a profile.** If the project has
+  `pyproject.toml` or `package.json` on the first install, the installer
+  finds the profile and adds its default tools. To install the role alone,
+  pass `--profile ''` on the first install. The record then keeps no
+  profile.
 
-### Layer 2: the Justfile
-
-Write a Justfile by hand. These lines are enough:
-
-```just
-import? '.agents/install.just'
-
-[private]
-default:
-    @just --list --unsorted
-```
-
-**What works.** `just install`, `just uninstall` and `just install --help`.
-
-**What does not work.** The stack has no profile and no template for a
-project that has only prose. Each project writes these lines by hand.
-
-**Order the layers.** If the project will have code soon, skip this layer.
-Layer 4 writes the Justfile template of the profile, but only when the
-project has no Justfile.
-
-### Layer 3: the task tracker
+### Layer 2: the task tracker
 
 ```bash
 just install tasker
@@ -231,49 +252,36 @@ guard of the hooks lets `git commit` run.
   prints a warning when it is missing.
 - **The starter `AGENTS.md` has `<replace-me>` fields.** You fill them in.
 
-### Layer 4: a language profile
-
-A profile chooses the manifest, the Justfile template and the tools. Name it
-once. The installer saves it.
+### Layer 3: a language profile
 
 ```bash
 just install --profile python
 ```
 
-Use `--profile typescript` for TypeScript. If the project has a Justfile
-already, the installer keeps it. It adds no recipes to it.
+Use `--profile typescript` for TypeScript. Name a profile once. The installer
+saves it.
 
 **What you get with `python`:**
 
+- The package jnprofile-python, with its recipe files and its skill
+  `python-profile`.
 - `pyproject.toml` from `uv init --bare`, with `default-groups = "all"`, so
   that `uv run` has the tools.
-- The Justfile template `python-uv.just`, which you then own.
-- The default tools of the profile, `lint` and `test`. The next layers
-  describe them.
-- The default roles of the profile, `tasker` and `prose`, but only in a
-  project with no saved roles. A project keeps the roles that it saved. To
-  turn off a role, run `just uninstall`, for example `just uninstall tasker`.
+- A starter `.gitignore`, if the project has none.
+- The default tools `lint` and `test`, which the next layers describe, and the
+  recipe `just setup`.
 
 **What you get with `typescript`:**
 
-- `package.json` from `npm init --yes`. `uv` runs npm from the
+- The package jnprofile-typescript. `uv` runs npm and node from the
   `nodejs-wheel` package.
-- The Justfile template `typescript-npm.just`.
+- `package.json` from `npm init --yes`, and a starter `.gitignore`.
 - The default tools `lint` and `typecheck`.
 
-**What does not work:**
+A profile also turns on its default roles, `tasker` and `prose`, but only in a
+project with no saved roles.
 
-- **A Justfile from layer 2 gets no recipes.** So `just lint`, `just test`
-  and `just verify` are missing. Copy them from
-  `.agents/skills/just/assets/templates/python-uv.just`.
-- **No `.gitignore`.** The installer writes none. The Python folders
-  `.venv`, `.local`, `.pytest_cache` and `.ruff_cache` ignore themselves. But
-  in a TypeScript project, `git status` shows `.local`, `node_modules` and
-  `dist`.
-- **The template has recipes for every tool**, also for the tools that are not
-  installed. The section on mixins describes the effect.
-
-### Layer 5: lint and format
+### Layer 4: lint and format
 
 ```bash
 just install lint
@@ -284,17 +292,14 @@ just install lint
 | Packages | ruff, pre-commit, in the group `lint` | `@biomejs/biome@2` |
 | Config files | `ruff.toml`, `.pre-commit-config.yaml` | `biome.json` |
 | Recipes | `just fmt`, `just lint`, `just hook` | `just fmt`, `just lint` |
+| In `just verify` | `fmt --check`, `lint` | `lint` |
 
 `ruff.toml` and `biome.json` leave out `.agents`, `.claude` and `.codex`,
 because these folders hold copies from other packages.
-`.pre-commit-config.yaml` does not leave them out.
-
-**What works.** On an empty Python project, `just fmt --check` and `just lint`
-pass. `just hook` installs the pre-commit checks as a Git hook.
 
 **What does not work.** The TypeScript profile has no `just hook`.
 
-### Layer 6: tests
+### Layer 5: tests
 
 ```bash
 just install test
@@ -305,53 +310,29 @@ test` and `just cov` run pytest. With no arguments, a project with no tests
 yet passes. A selection that runs no test fails.
 
 **TypeScript.** The tool adds TypeScript and the Node types. `just test`
-compiles `src` into `dist`, and it runs the tests with `node --test`.
+compiles `src` into `dist`, and it runs the tests with `node --test`. With no
+`.ts` file in `src` yet, it passes.
 
-**What does not work.** On a TypeScript project with no files in `src`,
-`just test` fails. The compiler stops with "No inputs were found".
-
-### Layer 7: types
+### Layer 6: types
 
 ```bash
 just install typecheck
 ```
 
-**Python.** The tool adds ty to the group `lint`. `just typecheck` runs `ty
-check`. **TypeScript.** The tool adds TypeScript, and `just typecheck` runs
-`tsc --noEmit`.
+**Python.** The tool adds ty to the group `lint`, and a `ty.toml` that leaves
+out `.agents`, `.claude` and `.codex`. `just typecheck` runs `ty check`.
 
-**What does not work:**
+**TypeScript.** The tool adds TypeScript and `tsconfig.json`. `just
+typecheck` runs `tsc --noEmit`. With no `.ts` file in `src` yet, it passes.
 
-- **The TypeScript check fails with no code.** Like `just test`, `just
-  typecheck` fails when `src` has no files. So `just verify` fails on a new
-  TypeScript project.
-- **ty does not leave out `.agents`.** The stack ships no ty config. On this
-  machine, a ty on PATH found two errors in the copy of nossaifd's
-  `check.py`. The ty of the project, a newer version, found none.
+### Layer 7: one check before a commit
 
-### Layer 8: one check before a commit
+`just verify` runs the checks of each installed tool of each language, then
+`git diff --check`, which finds whitespace errors. On a new project with the
+default tools, `just verify` passes, for Python and for TypeScript.
 
-`just verify` runs every check that a commit must pass:
-
-| Profile | `just verify` runs |
-|---|---|
-| `python` | `fmt --check`, `lint`, `test`, `diff-check` |
-| `typescript` | `lint`, `typecheck`, `test`, `diff-check` |
-
-`diff-check` runs `git diff --check`, which finds whitespace errors.
-
-**What works.** On an empty Python project with the default tools, `just
-verify` passes. On a TypeScript project with one source file and one test,
-`just verify` passes.
-
-**What does not work:**
-
-- **The Python `verify` does not run `typecheck`**, also when the tool is
-  installed.
-- **cheesecracker has `just check` in place of `verify`.** It runs `fmt
-  --check`, `lint` and `test -q`, with no `diff-check`. The command contract
-  of the `just` skill names the recipe `verify`, and it lets a project map
-  the name.
+cheesecracker calls this recipe `just check`. The command contract of the
+`just` skill names it `verify`, and it lets a project map the name.
 
 ### Layers that the stack does not have yet
 
@@ -359,144 +340,76 @@ cheesecracker has these parts, and no profile or tool adds them:
 
 | Part | In cheesecracker |
 |---|---|
-| A locked setup | `just setup` runs `uv sync --locked`. The template runs `uv sync`. |
+| A locked setup | `just setup` runs `uv sync --locked`. The profile runs `uv sync`. |
 | A server | `just serve` and `just stop` start and stop uvicorn in the background. |
 | System tests | `just test-system` runs tests against the running server. |
 | Docker | `just docker-build`, `just docker-serve`, `just docker-stop`, `just docker-shell` and `just docker-test`, with a `.dockerignore`. |
 | Async tests | The group `test` has pytest-asyncio and httpx2. |
-| Ignore rules | A `.gitignore`. |
 | Coverage of one package | `just cov` names the package, `--cov=api`. |
 | Test paths | `pyproject.toml` sets `testpaths` and `pythonpath` for pytest. |
 | CI | The class repository cheese-app-ci-cd has a GitHub Actions workflow. No profile writes one. |
 
 ## How the mixins behave
 
-**Adding a mixin works.** `just install NAME` adds a role, a tool or a
-profile, and it saves the choice. A tool that fails runs again at the next
-install.
+**Adding a mixin.** `just install NAME` adds a role, a tool or a profile, and
+it saves the choice. A tool that fails runs again at the next install.
 
-**Removing a mixin works for the packages.** `just uninstall NAME` removes
-the files of a role. For a tool, it removes the packages that `just install`
-added. It keeps each file that you edited, and each package that the project
-had before.
+**Removing a mixin.** `just uninstall NAME` takes out a role, a tool or a
+profile:
+
+- **A role** loses its files. Each file that you edited stays.
+- **A tool** loses the packages that `just install` added, and its recipes.
+  Each package that the project had before stays. A dependency group that is
+  left empty goes too. The config files stay, because they are yours.
+- **A profile** loses each of its tools, its recipe files and its package.
+  The project keeps `pyproject.toml` or `package.json`. If a step fails, the
+  next `just install` goes on with the removal, unless you name the profile
+  again. `--profile` with a list that leaves out a saved profile also turns
+  that profile off.
 
 **Removing lint takes out the Git hook.** Before `just uninstall lint`
-removes pre-commit, it runs `uv run --group lint pre-commit uninstall`. It runs only when
-the project has a `pre-commit` Git hook, and when the removal takes out
-pre-commit. If the command fails, the removal stops, and the next `just
-install` tries it again.
-
-**Removing a tool breaks the Justfile.** The installer writes the Justfile
-once, and it never changes the Justfile again. So the recipes of a removed
-tool stay. Tests with `git`, `just` and `uv` as the only programs on PATH
-showed these results after `just uninstall lint` on a Python project:
-
-- `just verify` fails, because `just fmt` finds no ruff.
-- `ruff.toml` and `.pre-commit-config.yaml` stay, because they are yours.
-- `pyproject.toml` keeps an empty group, `lint = []`.
-
-**A profile cannot be removed.** `just uninstall python` fails with "Unknown
-name: python".
-
-**A recipe can run a program that is not in the project.** If a tool is not
-installed, `uv run ruff` runs a ruff from PATH, if one is there. That ruff can
-be another version, with other results.
+removes pre-commit, it runs `uv run --group lint pre-commit uninstall`. It
+runs only when the `pre-commit` Git hook runs the Python of the project. If
+the command fails, the removal stops, and the next `just install` tries it
+again.
 
 ## What works now
 
 | Mixin | Command | Works now | Does not work |
 |---|---|---|---|
-| Writing skill | `install_stack.py prose` | The skill and `check.py` | No Justfile, no recipe for the checker, no `AGENTS.md`. A manifest turns on tools |
-| Justfile | by hand | `just install` and `just uninstall` | No template for a project with no code |
+| Writing skill | `install_stack.py prose` | The skill, `check.py` and the starter Justfile | No recipe for the checker, no `AGENTS.md` |
 | Task tracker | `just install tasker` | The skills, the hooks, `AGENTS.md` | Needs `gest`, which `uv` does not give. Removal keeps `AGENTS.md` |
-| Python profile | `just install --profile python` | The manifest, the template, the defaults | No `.gitignore`. No recipes for a Justfile that exists |
-| TypeScript profile | `just install --profile typescript` | The manifest, the template, the defaults | No `.gitignore`. `verify` fails with no code |
+| Python profile | `just install --profile python` | The package, the manifest, `.gitignore`, the defaults | none |
+| TypeScript profile | `just install --profile typescript` | The package, the manifest, `.gitignore`, the defaults | Its repository is not on GitHub yet |
 | Lint | `just install lint` | ruff and pre-commit, or biome | No `just hook` for TypeScript |
-| Tests | `just install test` | pytest, or `node --test` | TypeScript fails with no code |
-| Types | `just install typecheck` | ty, or tsc | Not in the Python `verify`. No ty config |
-| Remove a tool | `just uninstall lint` | The packages and the Git hook go | The recipes stay, and they fail |
+| Tests | `just install test` | pytest, or `node --test` | none |
+| Types | `just install typecheck` | ty with `ty.toml`, or tsc | none |
+| Remove a tool or a profile | `just uninstall NAME` | The packages, the recipes, the Git hook and empty groups go | none |
 | Edit a skill | by hand | The edit stays, and the other files install | none |
 | Claude Code | any install | The `.claude/skills` links | none |
 | Server, Docker, CI | none | none | No mixin |
 
-## The plan: profile repositories
-
-The owner of the stack agreed on this design on 2026-10-29. Nothing in it is built yet.
-
-**Each language gets its own repository**, named `jnprofile-<language>`, for
-example `jnprofile-python`, `jnprofile-rust`, `jnprofile-go` and
-`jnprofile-pixi`. Pixi is a tool that sets up projects in more than one
-language. jnterfaces keeps the installer and the `just` skill, and its
-`stack.json` names each profile repository, as it names a package now.
-
-A profile repository holds these parts:
-
-- **A profile file.** It names the files that identify the project, the
-  manifest, and the commands that add and remove packages.
-- **One folder for each feature.** A feature is one unit of the setup, for
-  example `lint`, `fmt` or `test`. The folder holds the recipe file of the
-  feature, its config files, and the command that installs it.
-- **An `init` feature.** `just install init` installs the toolchain of the
-  language. For example, the Rust profile installs `cargo` and `rustc`. The
-  machine has `just` and `uv`, so the Python profile needs no toolchain.
-- **Skills**, if the language needs them.
-
-**How a feature arrives in a project:**
-
-1. `just install rust` clones the profile repository into the clone folder.
-2. `just install init` installs the toolchain.
-3. `just install lint` runs the install command of the feature, copies its
-   config files, and copies its recipe file into `.agents/just/`.
-4. The installer writes `.agents/just/index.just` again, with one `import?`
-   line for each installed feature.
-5. The Justfile of the project imports `index.just` once, and it does not
-   change after that. A removed feature takes its recipes with it.
-
-**A project in more than one language** gets the recipes of each profile, and
-the checks add up. `just lint` runs the lint of each installed language. `just
-verify` runs every installed check of each language. The plan is to use just
-modules, so that `just rust lint` also runs one language alone.
-
-The choices of a project stay in `.agents/stack.json`, for example
-`"profiles": ["python", "rust"]`.
-
 ## Gaps to close
 
-The profile repositories close the gaps of the recipes:
+The profile packages closed the gaps of the recipes. The recipes follow the
+tools, a project with no code has a Justfile, and `verify` runs only the
+checks that are installed. These gaps are open:
 
-- **The recipes follow the features.** A removed tool takes its recipes with
-  it, and `verify` runs only the checks that are installed.
-- **A project with no code has a Justfile** with `just install`, and a later
-  profile adds its recipes to it.
-
-These gaps need their own changes. A gap that a change closed says so.
-
-1. **Make the `.claude/skills` links** when the installer copies a skill, and
-   take them out on removal. Closed by the installer fixes.
-2. **Add a recipe for the writing checker** to the `prose` role.
-3. **Write a `.gitignore`** for each profile, when the project has none.
-4. **Let the TypeScript checks pass with no code**, as `just test` does for
-   Python.
-5. **Add features for the parts of cheesecracker**, for example `serve`,
+1. **Add a recipe for the writing checker** to the `prose` role, and an
+   `AGENTS.md` line for it.
+2. **Remove the lines of `tasker` from `AGENTS.md`** when the role goes.
+3. **Make the hooks of `tasker` say to use GitButler only when `but` is
+   installed.**
+4. **Add tools for the parts of cheesecracker**, for example `serve`,
    `docker` and `ci`.
-6. **Let an install go on past an edited skill file.** Closed by the
-   installer fixes. The installer keeps the edit, names the file, and installs
-   the other files.
-7. **Ask about the roles only when no role is named** on the command line.
-   Closed by the installer fixes.
-8. **Keep the choice of no profile.** `--profile ''` works for one install,
-   but the next install finds the profile from the files again.
-9. **Remove `AGENTS.md` with `tasker`**, or take out its lines about the
-   `g*` skills, when the file is not edited.
-10. **Let `just uninstall` remove a profile.**
-11. **Make the hooks of `tasker` say to use GitButler only when `but` is
-    installed.**
-12. **Write an `AGENTS.md` line for `prose`**, so that an agent knows to use
-    the writing skill.
-13. **Ship a ty config** that leaves out `.agents`, `.claude` and `.codex`.
-14. **Remove an empty dependency group**, such as `lint = []`, with its tool.
-15. **Print the clone folder, and let the installer script read
-    `SKILL_PACKAGES_DIR`.** Closed by the installer fixes. The project still
-    does not save the folder.
-16. **Take out the Git hook when the lint tool goes.** Closed by the installer
-    fixes.
+5. **Publish jnprofile-typescript on GitHub.**
+6. **Save the clone folder in the project.**
+
+The installer fixes closed these gaps:
+
+- **`.claude/skills` links** for each installed skill.
+- **An edited file** no longer stops an install.
+- **A named role** asks no questions.
+- **The installer script reads `SKILL_PACKAGES_DIR`**, and each run prints
+  the folder.
+- **Removing lint** takes out the Git hook.
