@@ -109,11 +109,17 @@ file that `just install` writes in `.agents/just`, and the installer changes
 only a file whose hash is the recorded one. With more than one language, a
 combined recipe gives the same arguments to each language.
 
-**The other files.** A tool can copy config files, such as `ruff.toml`, and a
-profile copies a starter `.gitignore`. The installer copies a file only when
-the project does not have it. After that, the file is yours. If the project has
-no Justfile, the installer writes a starter Justfile. Otherwise it names the
-line to add to your Justfile.
+**The other files.** A profile and its tools add lines to shared files, such
+as `.gitignore`. The lines of each owner go in a block, at the start of the
+file, and your own lines come after the blocks. A tool also writes its config
+files, such as `ruff.toml`, when the project has none. `just uninstall` takes
+the lines and the unchanged config files out again.
+
+`.agents/stack-log.jsonl` records each change, and the comment of each block
+names its entry. The "Shared files and the log" section of
+`docs/stack-guide.md` tells how. If the project has no Justfile, the
+installer writes a starter Justfile. Otherwise it names the line to add to
+your Justfile.
 
 If the project has no `pyproject.toml` or `package.json`, the installer makes
 one with `uv init --bare` or `npm init --yes`. For Python, it also sets
@@ -142,6 +148,8 @@ of a dependency group goes, the installer takes out the empty group.
 - **`--clean`** installs the last commit of each clone, without uncommitted
   changes. **`--dry-run`** checks everything and writes nothing in the
   project.
+- **`--check`** compares `.agents/stack-log.jsonl` with the shared files and
+  the config files, and changes nothing.
 
 ### Where the packages are
 

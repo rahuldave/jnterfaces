@@ -70,6 +70,10 @@ PROFILES = json.loads('''{
                     "ruff.toml": "profiles/python/ruff.toml",
                     ".pre-commit-config.yaml": "profiles/python/pre-commit-config.yaml"
                 },
+                "lines": {
+                    ".gitignore": [".ruff_cache/"],
+                    ".worktreedisposable": [".ruff_cache/"]
+                },
                 "skip_if": {
                     "ruff.toml": [
                         "pyproject.toml",
@@ -124,8 +128,9 @@ PROFILES = json.loads('''{
         "name": "python",
         "base": {
             "recipes": "base.just",
-            "files": {
-                ".gitignore": "profiles/python/gitignore"
+            "lines": {
+                ".gitignore": [".venv/", "dist/", ".local/"],
+                ".worktreedisposable": [".venv/", "__pycache__/"]
             }
         }
     },
@@ -213,8 +218,9 @@ PROFILES = json.loads('''{
         "name": "typescript",
         "base": {
             "recipes": "base.just",
-            "files": {
-                ".gitignore": "profiles/typescript/gitignore"
+            "lines": {
+                ".gitignore": ["node_modules/", "dist/", ".local/"],
+                ".worktreedisposable": ["node_modules/"]
             }
         }
     }
@@ -973,13 +979,74 @@ class StackTests(unittest.TestCase):
         self.assertNotIn('lint', data['dependency-groups'])
         self.assertEqual(data['dependency-groups']['test'], ['pytest', 'pytest-cov'])
 
-    def test_a_profile_writes_its_gitignore_once(self):
-        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+    def rules(self, path='.gitignore'):
+        return [line for line in (self.target / path).read_text().splitlines() if line and not line.startswith('#')]
+
+    def test_a_profile_may_not_name_a_line_twice_or_a_file_of_the_installer(self):
+        choices = install_stack.load_registry(REPO / 'stack.json')[1]
+        for change in (lambda p: p['base']['lines'].update({'.gitignore': ['.venv/', '.venv']}),
+                       lambda p: p['base']['lines'].update({'.agents/stack-log.jsonl': ['x']}),
+                       lambda p: p['base']['lines'].update({'.agents/just/x.just': ['x']}),
+                       lambda p: p['base']['lines'].update({'.gitignore': ['  ']})):
+            profile = json.loads(json.dumps(PROFILES['python']))
+            change(profile)
+            with self.assertRaises(install_stack.StackError):
+                install_stack.check_profile('python', profile, choices)
+
+    def test_a_profile_writes_its_lines_in_blocks_and_a_deleted_file_stays_deleted(self):
+        run = self.stack('--profile', 'python', '--defaults', env={'JNTERFACES_COMMAND': 'just install --profile python'})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.rules(), ['.venv/', 'dist/', '.local/', '.ruff_cache/'])
+        self.assertEqual(self.rules('.worktreedisposable'), ['.venv/', '__pycache__/', '.ruff_cache/'])
+        self.assertEqual(self.rules('.agents/.gitattributes'), ['stack-log.jsonl merge=union'])
+        text = (self.target / '.gitignore').read_text()
+        self.assertIn('# begin lines of python:lint, the lint tool of the python profile, from jnprofile-python at ', text)
+        self.assertIn('# Last written to .gitignore by `just install --profile python`, entry ', text)
+        self.assertIn('# end lines of python:lint. `just uninstall lint` removes them.', text)
+        log = [json.loads(line) for line in (self.target / '.agents/stack-log.jsonl').read_text().splitlines()]
+        self.assertEqual(log[1]['command'], 'just install --profile python')
+        self.assertEqual(self.stack('--check').returncode, 0)
         gitignore = self.target / '.gitignore'
-        self.assertEqual(gitignore.read_text(), '# profiles/python/gitignore\n')
         gitignore.unlink()
         self.assertEqual(self.stack().returncode, 0)
         self.assertFalse(gitignore.exists())
+
+    def test_two_profiles_share_a_file_and_each_takes_its_lines_out(self):
+        self.assertEqual(self.stack('--profile', 'python,typescript', '--defaults').returncode, 0)
+        self.assertEqual(self.rules(), ['.venv/', 'dist/', '.local/', '.ruff_cache/', 'node_modules/'])
+        self.assertEqual(self.rules('.worktreedisposable'), ['.venv/', '__pycache__/', '.ruff_cache/', 'node_modules/'])
+        dry = self.stack('--without', 'python', '--dry-run')
+        self.assertIn('Would change .gitignore: removes .ruff_cache, .venv', dry.stdout)
+        self.assertEqual(self.rules(), ['.venv/', 'dist/', '.local/', '.ruff_cache/', 'node_modules/'])
+        run = self.stack('--without', 'python')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.rules(), ['node_modules/', 'dist/', '.local/'])
+        self.assertIn('# begin lines of typescript, the typescript profile', (self.target / '.gitignore').read_text())
+        self.assertEqual(self.rules('.worktreedisposable'), ['node_modules/'])
+
+    def test_lint_takes_out_its_lines_and_an_unchanged_config_file(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        self.assertTrue((self.target / 'ruff.toml').is_file())
+        self.assertEqual(self.stack('--without', 'lint').returncode, 0)
+        self.assertEqual(self.rules(), ['.venv/', 'dist/', '.local/'])
+        self.assertFalse((self.target / 'ruff.toml').exists())
+        self.assertFalse((self.target / '.pre-commit-config.yaml').exists())
+
+    def test_a_whole_file_of_two_tools_stays_until_both_go(self):
+        self.assertEqual(self.stack('--profile', 'typescript', '--defaults', 'test').returncode, 0)
+        tsconfig = self.target / 'tsconfig.json'
+        self.assertTrue(tsconfig.is_file())
+        self.assertEqual(self.stack('--without', 'typecheck').returncode, 0)
+        self.assertTrue(tsconfig.is_file())
+        self.assertEqual(self.stack('--without', 'test').returncode, 0)
+        self.assertFalse(tsconfig.exists())
+
+    def test_a_failed_tool_changes_no_line_file(self):
+        run = self.stack('--profile', 'python', '--defaults', env={'FAIL_TOOL': 'test'})
+        self.assertNotEqual(run.returncode, 0)
+        self.assertFalse((self.target / '.gitignore').exists())
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertIn('.venv/', self.rules())
 
     def test_a_dry_run_names_the_recipes_and_writes_none(self):
         run = self.stack('--profile', 'python', '--defaults', '--dry-run')
@@ -1004,7 +1071,8 @@ class StackTests(unittest.TestCase):
         self.log.unlink()
         self.assertEqual(self.stack('--without', 'typecheck,test').returncode, 0)
         self.assertEqual(self.tools_run(), ['uvx --from nodejs-wheel==24.* npm uninstall typescript @types/node'])
-        self.assertTrue((self.target / 'tsconfig.json').is_file())
+        # Both owners of tsconfig.json went, and nobody changed it, so it goes too.
+        self.assertFalse((self.target / 'tsconfig.json').exists())
         # The recipes follow the tools: only the base and lint are left.
         self.assertIn("mod typescript 'typescript.just'", (self.target / '.agents/just/index.just').read_text())
         module = (self.target / '.agents/just/typescript.just').read_text()
@@ -1133,7 +1201,8 @@ class StackTests(unittest.TestCase):
         (self.target / 'sub').symlink_to(self.base)
         self.log.unlink()
         run = self.stack('typecheck', '--without', 'test')
-        self.assertNotEqual(run.returncode, 0)
+        # A file in a symlinked folder is left alone with a note, so the run finishes.
+        self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn('uv remove --group test pytest pytest-cov', self.tools_run())
         self.assertIn('sub is a symlink', run.stderr)
         self.assertNotIn('Traceback', run.stderr)
