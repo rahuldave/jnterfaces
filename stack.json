@@ -30,7 +30,20 @@
       "needs": [
         "jnterfaces"
       ],
-      "record": ".agents/gest-git-install.json"
+      "record": ".agents/gest-git-install.json",
+      "variants": {
+        "git": {
+          "about": "work on a branch in the main checkout"
+        },
+        "gitwt": {
+          "about": "work on each task in its own Git worktree, and keep the main checkout on main"
+        },
+        "jj": {
+          "about": "work with jj; the jj skills are not ready yet",
+          "ready": false
+        }
+      },
+      "default_variant": "git"
     },
     {
       "name": "nossaifd",

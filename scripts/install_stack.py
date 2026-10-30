@@ -127,6 +127,16 @@ def check_registry(registry):
             raise StackError(f'The record of {package["name"]} in stack.json must be a path inside the target')
         if not string_list(package.get('needs', [])):
             raise StackError(f'needs of {package["name"]} in stack.json must be a list of names')
+        variants = package.get('variants')
+        if variants is not None and not (
+                'choice' in package and isinstance(variants, dict) and variants
+                and all(re.fullmatch(r'[a-z][a-z0-9_-]*', key) and isinstance(value, dict)
+                        and isinstance(value.get('about'), str) and isinstance(value.get('ready', True), bool)
+                        for key, value in variants.items())
+                and package.get('default_variant') in variants
+                and variants[package['default_variant']].get('ready', True)):
+            raise StackError(f'The variants of {package["name"]} in stack.json need an about each, and a default '
+                             f'variant that is ready')
     aliases = registry.get('aliases', {})
     profiles = registry.get('profiles', {})
     if not isinstance(aliases, dict) or any(value not in choices for value in aliases.values()):
@@ -221,6 +231,9 @@ def read_record(target, choices, aliases):
     profiles, tools, pending = record.get('profiles', []), record.get('tools', []), record.get('pending_tools', [])
     removing = record.get('removing_tools', [])
     removing_profiles = record.get('removing_profiles', [])
+    variants = record.get('variants', {})
+    if not isinstance(variants, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in variants.items()):
+        raise StackError(f'{path} has variants that are not a map of roles to names')
     generated = record.get('generated', {})
     if not isinstance(generated, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in generated.items()):
         raise StackError(f'{path} has generated files that are not a map of paths to hashes')
@@ -235,7 +248,7 @@ def read_record(target, choices, aliases):
         renamed[aliases.get(name, name)] = value
     return {'profiles': profiles, 'choices': renamed, 'tools': tools, 'pending': pending, 'owned': owned,
             'added_old': added, 'removing': removing, 'removing_profiles': removing_profiles,
-            'generated': generated, 'started': record.get('started') is True}
+            'generated': generated, 'started': record.get('started') is True, 'variants': variants}
 
 
 def record_path(package):
@@ -345,9 +358,21 @@ def found_on(found):
 def sort_names(args, choices, aliases, profiles):
     """Split the names on the command line and in --with and --without into roles, profiles and tools. A name that
     is no role and no profile is a tool, which an active profile must have."""
-    split = {'roles_on': [], 'roles_off': [], 'tools_on': [], 'tools_off': [], 'profiles': [], 'profiles_off': []}
+    split = {'roles_on': [], 'roles_off': [], 'tools_on': [], 'tools_off': [], 'profiles': [], 'profiles_off': [],
+             'variants': {}}
     for raw, where in [(name, 'on') for name in args.names + names(args.with_)] + [(n, 'off') for n in names(args.without)]:
+        raw, sep, variant = raw.partition('=')
         name = aliases.get(raw, raw)
+        if sep:
+            # A role with a variant, such as tasker=gitwt
+            offered = choices.get(name, {}).get('variants')
+            if where == 'off' or not offered:
+                raise StackError(f'{raw}={variant}: only a role that has variants takes one, and only to turn it on. '
+                                 f'The roles with variants are: '
+                                 f'{", ".join(n for n, entry in choices.items() if entry.get("variants")) or "none"}.')
+            if variant not in offered:
+                raise StackError(f'{name} has no variant {variant}. Its variants are: {", ".join(offered)}.')
+            split['variants'][name] = variant
         if name in choices:
             split[f'roles_{where}'].append(name)
         elif name in profiles:
@@ -854,14 +879,16 @@ def just_dump(target, justfile):
         return None
 
 
-def index_text(modules, recipes, aggregate=True):
-    """The index: a module for each profile, and, for each recipe name of the profiles, a recipe that runs it in each
-    profile that has it. verify also runs git diff --check. A project that jnterfaces did not start gets the modules
-    only."""
-    lines = [HEADER, '# The recipes of the profiles of this project. .agents/install.just imports this file.', '']
+def index_text(modules, recipes, aggregate=True, roles=()):
+    """The index: a module for each profile, the recipe file of each role, and, for each recipe name of the profiles,
+    a recipe that runs it in each profile that has it. verify also runs git diff --check. A project that jnterfaces
+    did not start gets the modules only."""
+    lines = [HEADER, '# The recipes of the profiles and roles of this project. .agents/install.just imports this file.',
+             '']
     lines += [f"mod {name} '{name}.just'" for name in modules]
     if not aggregate:
         return '\n'.join(lines) + '\n'
+    lines += [f"import? '{role}'" for role in roles]
     names = sorted({recipe for name in modules for recipe in recipes.get(name, {})} - {'verify'})
     for recipe in names:
         having = [name for name in modules if recipe in recipes.get(name, {})]
@@ -882,7 +909,7 @@ def index_text(modules, recipes, aggregate=True):
     return '\n'.join(lines) + '\n'
 
 
-def write_recipes(target, profiles, active, tools, dry_run, generated, started, known=()):
+def write_recipes(target, profiles, active, tools, dry_run, generated, started, known=(), roles=()):
     """Write .agents/just: a module for each active profile with the recipes of its installed tools, and the index.
     A file that the user changed stays as it is. If the Justfile does not parse with the index, the index gets the
     modules only, then nothing."""
@@ -924,7 +951,8 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
     index = folder / 'index.just'
     justfile = justfile_of(target)
     started = started or justfile is None
-    texts = {index_text(kept, recipes, aggregate=True), index_text(kept, recipes, aggregate=False),
+    roles = [role for role in roles if (folder / role).is_file()]
+    texts = {index_text(kept, recipes, aggregate=True, roles=roles), index_text(kept, recipes, aggregate=False),
              index_text({}, recipes, aggregate=False)}
     same = index.is_file() and not index.is_symlink() and index.read_text(errors='replace') in texts
     if not same and not owned_by_install(target, index, generated):
@@ -936,21 +964,27 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
     if kept and not started:
         say(f'{justfile.name} was not started by jnterfaces, so just install adds the recipes of each profile as a '
             f'module only: just {next(iter(kept))} NAME.')
-    if not (kept or index.exists()):
+    if roles and not started:
+        say(f'{justfile.name} was not started by jnterfaces, so the recipes of the roles are not added. To add them, '
+            'put these lines in it: ' + '; '.join(f"import? '.agents/just/{role}'" for role in roles))
+        roles = []
+    if not (kept or roles or index.exists()):
         return
     folder.mkdir(parents=True, exist_ok=True)
     # The Justfile must still parse, so that just install keeps working. If a name of the project meets a name of
     # the index, the index gets the modules only, then nothing.
     tries = [('all', kept, started)] if started else []
+    if not started:
+        roles = []
     tries += [('modules', kept, False), ('none', {}, False)]
     first = None
     for kind, chosen, aggregate in tries:
-        write_generated(target, index, index_text(chosen, recipes, aggregate=aggregate), generated)
+        write_generated(target, index, index_text(chosen, recipes, aggregate=aggregate, roles=roles), generated)
         error = just_error(target, justfile) if justfile is not None else None
         if error is None:
             if first:
                 say(f'The Justfile does not parse with the {"combined recipes" if first[0] == "all" else "modules"} '
-                    f'of the profiles, so the index has {"the modules only" if kind == "modules" else "none of them"}. '
+                    f'of the profiles and roles, so the index has {"the modules only" if kind == "modules" else "none of them"}. '
                     f'Rename the recipe, alias or module of the project with that name. just said: {first[1]}')
             return
         first = first or (kind, error)
@@ -1021,6 +1055,20 @@ def main(argv=None):
     implied = bool(split['tools_on'] or split['profiles'] or args.profile)
     chosen = resolve(args, choices, record and record['choices'], sys.stdin.isatty(), installed(target, packages),
                      defaults, implied)
+    # The variant of each role that is on: named now, else saved, else the default of the role.
+    variants = {}
+    for name, entry in choices.items():
+        offered = entry.get('variants')
+        if offered and chosen.get(name):
+            saved = (record or {}).get('variants', {}).get(name)
+            if saved and saved not in offered and name not in split['variants']:
+                print(f'The saved variant {name}={saved} is gone from stack.json, so {name} takes '
+                      f'{entry["default_variant"]}.', file=sys.stderr)
+            variant = split['variants'].get(name) or (saved if saved in offered else None) or entry['default_variant']
+            if not offered[variant].get('ready', True):
+                raise StackError(f'{name}={variant} is not ready yet: {offered[variant]["about"]}. Name another '
+                                 f'variant, for example: just install {name}={entry["default_variant"]}')
+            variants[name] = variant
     available = {tool for name in active for tool in profiles[name]['tools']}
     wanted = set(split['tools_on']) | set(split['tools_off'])
     if wanted - available:
@@ -1153,6 +1201,8 @@ def main(argv=None):
         kept_profiles = [name for name in active if name not in leaving
                          or any(pair.partition(':')[0] == name for pair in tool_list)]
         record = {'version': 2, 'profiles': kept_profiles, 'choices': dict(sorted(chosen.items())), 'tools': tool_list}
+        if variants:
+            record['variants'] = dict(sorted(variants.items()))
         kept = {key: sorted(names) for key, names in sorted(owned.items()) if names}
         if kept:
             record['owned_packages'] = kept
@@ -1164,7 +1214,8 @@ def main(argv=None):
         if unfinished_profiles:
             record['removing_profiles'] = unfinished_profiles
         write_recipes(target, profiles, [name for name in kept_profiles if name not in leaving], tool_list, False,
-                      generated, state['started'], registry_profiles)
+                      generated, state['started'], registry_profiles,
+                      [f'roles/{package["name"]}.just' for package, _ in steps])
         if generated:
             record['generated'] = dict(sorted(generated.items()))
         if state['started']:
@@ -1261,6 +1312,8 @@ def main(argv=None):
         print(f'  {package["name"]} at {revision}')
     if tools:
         print(f'  tools: {", ".join(tools)}')
+    for name, variant in sorted(variants.items()):
+        print(f'  {name}: {variant} ({choices[name]["variants"][variant]["about"]})')
     print(f'Saved in {RECORD}. Run just install again without names to install the same set.')
     return 0
 

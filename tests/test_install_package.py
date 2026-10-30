@@ -740,10 +740,59 @@ class ExtrasTest(unittest.TestCase):
         result = self.install('--remove')
         self.assertIn('Removed hooky', result.stdout)
         self.assertEqual(self.settings(), mine)
-        for gone in ('.agents/skills/hk', '.claude/hooks', 'tools', '.agents/hooky-install.json'):
+        for gone in ('.agents/skills/hk', '.claude/hooks', 'tools', '.agents/hooky-install.json', 'AGENTS.md'):
             self.assertFalse((self.target / gone).exists(), gone)
-        self.assertTrue((self.target / 'AGENTS.md').exists())
         self.assertIn('not installed', self.install('--remove').stdout)
+
+    def test_a_starter_file_goes_only_when_nobody_changed_it(self):
+        self.install()
+        self.assertEqual(self.record()['seeds'], {'AGENTS.md': sha(self.target / 'AGENTS.md')})
+        (self.target / 'AGENTS.md').write_text('my agents\n')
+        result = self.install('--remove')
+        self.assertIn('Kept AGENTS.md: you edited this starter file of hooky', result.stderr)
+        self.assertEqual((self.target / 'AGENTS.md').read_text(), 'my agents\n')
+
+    def test_a_starter_file_that_the_project_had_stays(self):
+        (self.target / 'AGENTS.md').write_text('the project wrote this\n')
+        self.install()
+        self.assertEqual(self.record()['seeds'], {})
+        self.install('--remove')
+        self.assertEqual((self.target / 'AGENTS.md').read_text(), 'the project wrote this\n')
+
+    def test_a_starter_file_of_the_project_equal_to_the_template_stays(self):
+        (self.target / 'AGENTS.md').write_text('# Agents\n')
+        self.install()
+        result = self.install('--remove')
+        self.assertEqual((self.target / 'AGENTS.md').read_text(), '# Agents\n')
+        self.assertIn('0 files kept', result.stdout)
+
+    def test_a_kept_starter_file_counts_as_kept(self):
+        self.install()
+        (self.target / 'AGENTS.md').write_text('my agents\n')
+        self.assertIn('1 files kept', self.install('--remove').stdout)
+
+    def test_an_old_record_without_seeds_removes_a_starter_file_equal_to_the_source(self):
+        self.install()
+        record = self.record()
+        del record['seeds']
+        (self.target / '.agents/hooky-install.json').write_text(json.dumps(record))
+        self.install('--remove')
+        self.assertFalse((self.target / 'AGENTS.md').exists())
+
+    def test_a_starter_file_whose_source_changed_still_goes_by_the_recorded_hash(self):
+        self.install()
+        (self.source / 'AGENTS.template.md').write_text('# Agents, new\n')
+        self.commit()
+        self.install()
+        self.install('--remove')
+        self.assertFalse((self.target / 'AGENTS.md').exists())
+
+    def test_odd_paths_in_recorded_seeds_are_refused(self):
+        self.install()
+        record = self.record()
+        record['seeds'] = {'../outside.md': 'x'}
+        (self.target / '.agents/hooky-install.json').write_text(json.dumps(record))
+        self.assertNotEqual(self.install('--remove', check=False).returncode, 0)
 
     def test_remove_keeps_an_edited_file_and_marks_the_record(self):
         self.install()

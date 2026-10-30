@@ -105,6 +105,10 @@ these files, all in `.agents/just`:
   `git diff --check`. A recipe of the same name in the
   Justfile takes its place. Another project gets the modules only.
 
+A role package can also ship a recipe file in `.agents/just/roles`, such as
+the `just prose` of the `prose` role. The index imports it in a project that
+jnterfaces started.
+
 Do not edit the files in `.agents/just`. Put the recipes of the project in
 the Justfile.
 
