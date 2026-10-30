@@ -109,21 +109,29 @@ file that `just install` writes in `.agents/just`, and the installer changes
 only a file whose hash is the recorded one. With more than one language, a
 combined recipe gives the same arguments to each language.
 
-**The other files.** A profile and its tools add lines to shared files, such
-as `.gitignore`. The lines of each owner go in a block, at the start of the
-file, and your own lines come after the blocks. A tool also writes its config
-files, such as `ruff.toml`, when the project has none. `just uninstall` takes
-the lines and the unchanged config files out again.
+**The other files.** A profile, a tool or a role adds a part to each shared
+file that it needs, and takes out only its part. A part is one of three kinds:
 
-`.agents/stack-log.jsonl` records each change, and the comment of each block
-names its entry. The "Shared files and the log" section of
-`docs/stack-guide.md` tells how. If the project has no Justfile, the
-installer writes a starter Justfile. Otherwise it names the line to add to
+- a block of lines, as in `.gitignore`;
+- an include that reads an own file, as the `extend` of `ruff.toml`;
+- units, such as the items of `.pre-commit-config.yaml`.
+
+`scripts/formats.json` lists the shared files and the format of each. A
+package names its parts with the key `parts`. A profile and its tools have it
+in `profile.json`, and a role has it in `install_extras.parts` of
+`skill-package.json`. A role names a starter file, written once, with
+`install_extras.starter`.
+
+The key `parts` in `.agents/stack.json` records each part. `just uninstall`
+reads it to take the parts out again. The "Shared files and the record"
+section of `docs/stack-guide.md` tells how. If the project has no Justfile,
+the installer writes a starter Justfile. Otherwise it names the line to add to
 your Justfile.
 
 If the project has no `pyproject.toml` or `package.json`, the installer makes
-one with `uv init --bare` or `npm init --yes`. For Python, it also sets
-`default-groups = "all"` in `pyproject.toml`, so that `uv run` has the tools.
+one with `uv init --bare` or `npm init --yes`. For Python, the profile also
+adds `default-groups = "all"` to `pyproject.toml` as a part, so that `uv run`
+has the tools.
 If a tool fails, a later `just install` tries it again. When the last package
 of a dependency group goes, the installer takes out the empty group.
 
@@ -148,8 +156,8 @@ of a dependency group goes, the installer takes out the empty group.
 - **`--clean`** installs the last commit of each clone, without uncommitted
   changes. **`--dry-run`** checks everything and writes nothing in the
   project.
-- **`--check`** compares `.agents/stack-log.jsonl` with the shared files and
-  the config files, and changes nothing.
+- **`--check`** compares the record in `.agents/stack.json` with the shared
+  files, and changes nothing.
 
 ### Where the packages are
 

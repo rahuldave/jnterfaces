@@ -1,10 +1,16 @@
-"""The line files and the whole files that the owners of a project share, with the log of each change.
+"""The parts that the owners of a project add to its shared files, and the record of each part in .agents/stack.json.
 
-docs/plan-shared-files.md gives the decisions, D1 to D14. An owner is jnterfaces, a profile such as python, or a tool of
-a profile such as python:lint. A line file, such as .gitignore, holds one block of lines for each owner, at the start of
-the file, and the lines of the user after the blocks. A whole file, such as ruff.toml, has a list of owners and the
-hash of what the installer wrote. .agents/stack-log.jsonl records each change, and the log decides which lines and
-files an owner may remove.
+docs/plan-shared-files.md and docs/plan-snippets.md give the decisions. An owner is jnterfaces, a profile such as
+python, a tool of a profile such as python:lint, or a role such as tasker. Each owner adds its part to a shared file
+and takes out only its part:
+
+- A line file, such as .gitignore, holds one block of lines for each owner, at the start of the file.
+- A file with an include, such as ruff.toml, gets one include, such as extend = "...", and the installer writes the
+  settings of the owner in an own file under .agents/config/.
+- A file without an include, such as ty.toml, gets the units of the owner: keys, items of a list, or hooks.
+
+The key parts in .agents/stack.json records each unit: its state, the owner that holds it and each owner that needs
+it. A removal reads the record, never the log. .agents/stack-log.jsonl is a history for people.
 """
 import hashlib
 import json
@@ -13,24 +19,29 @@ from pathlib import Path
 import re
 import secrets
 import shutil
+import subprocess
 import time
 
+import edit_toml
+import edit_yaml
+
 LOG = Path('.agents/stack-log.jsonl')
-ATTRIBUTES = '.agents/.gitattributes'
-# The log only grows, so a union merge of two branches keeps the entries of both.
-JNTERFACES_LINES = {ATTRIBUTES: ['stack-log.jsonl merge=union']}
-# The files of the installer itself, which no owner may name.
-RESERVED = ('.agents/stack-log.jsonl', '.agents/stack.json')
-RESERVED_FOLDERS = ('.agents/just/',)
+PENDING = Path('.agents/stack-pending.json')
+RECORD = '.agents/stack.json'
+FORMATS = json.loads((Path(__file__).resolve().parent / 'formats.json').read_text())
+# The history and the file of a run that stopped describe one clone, so git does not keep them.
+JNTERFACES_LINES = {'.gitignore': [LOG.as_posix(), PENDING.as_posix()]}
+# The files and folders of the installer itself, which no owner may name.
+RESERVED = (LOG.as_posix(), RECORD, PENDING.as_posix())
+RESERVED_FOLDERS = ('.agents/just/', '.agents/config/', '.agents/instructions/')
 OWNER = r'[a-z][a-z0-9_-]*(?::[a-z][a-z0-9_-]*)?'
-BEGIN = re.compile(rf'^# begin lines of ({OWNER}),')
-WRITTEN = re.compile(r'^# Last written to ')
-END = re.compile(rf'^# end lines of ({OWNER})\.')
-# The whole begin and end comments, as the installer writes them. A comment that lost its partner is dropped only
-# when it has this form, so that a comment of yours that starts in the same way stays.
-OWN_BEGIN = re.compile(rf'^# begin lines of ({OWNER}), .+, from \S+ at \S+\.$')
-OWN_END = re.compile(rf'^# end lines of ({OWNER})\. (`just uninstall \S+` removes them|They stay while .+)\.$')
 STATES = ('added', 'present', 'declined', 'released')
+UNIT_STATES = ('added', 'present', 'declined', 'kept', 'seeded')
+# The keys of the record that are not units of the file.
+WHOLE, FILE, STARTER, SEED = '(whole file)', '(file)', '(starter)', '(seed)'
+OWN = '(own file)'
+EXTENDS_STRING = '(extends string)'
+MARK = re.compile(r'^.+ is a part of .+\. The record is parts\..+$')
 
 
 class SharedError(Exception):
@@ -38,12 +49,53 @@ class SharedError(Exception):
 
 
 class Owner:
-    """One owner, in the order of the run: jnterfaces, then each profile followed by its tools."""
+    """One owner, in the order of the run: jnterfaces, then each profile followed by its tools, then each role."""
 
-    def __init__(self, key, about, package, commit, removal, lines=None, files=None):
+    def __init__(self, key, about, package, commit, removal, lines=None, files=None, parts=None, units=None,
+                 starter=None, skipped=None):
         self.key, self.about, self.package, self.commit, self.removal = key, about, package, commit, removal
-        # lines: {path: [line, ...]}. files: {path: (source file, skip_if guard or None)}.
-        self.lines, self.files = lines or {}, files or {}
+        # lines: {path: [line, ...]}. files: {path: (source file, skip_if guard or None)}, the whole files of a
+        # package from before the parts. parts: {shared file: source file}. units: {shared file: {unit: value}}, the
+        # units that the installer adds without a source file. starter: {path: source file}. skipped: {shared file:
+        # skip_if guard}.
+        self.lines, self.files, self.parts = lines or {}, files or {}, parts or {}
+        self.units, self.starter, self.skipped = units or {}, starter or {}, skipped or {}
+
+
+class Style:
+    """The comments of the blocks in a line file: # in .gitignore, <!-- --> in Markdown."""
+
+    def __init__(self, open_, close):
+        self.open, self.close = open_, close
+        o, c = re.escape(open_), re.escape(close)
+        self.begin = re.compile(rf'^{o}begin lines of ({OWNER}),')
+        self.written = re.compile(rf'^{o}Last written to ')
+        self.end = re.compile(rf'^{o}end lines of ({OWNER})\.')
+        # The whole begin and end comments, as the installer writes them. A comment that lost its partner is dropped
+        # only when it has this form, so that a comment of yours that starts in the same way stays.
+        self.own_begin = re.compile(rf'^{o}begin lines of ({OWNER}), .+, from \S+ at \S+\.{c}$')
+        self.own_end = re.compile(rf'^{o}end lines of ({OWNER})\. (`just uninstall \S+` removes them|They stay while .+)\.{c}$')
+
+    def is_rule(self, line):
+        """True for a line that the file reads: not blank and not a comment."""
+        stripped = line.strip()
+        return bool(stripped) and not stripped.startswith(self.open.strip())
+
+    def comment(self, text):
+        return f'{self.open}{text}{self.close}'
+
+
+HASH = Style('# ', '')
+HTML = Style('<!-- ', ' -->')
+BEGIN, WRITTEN, END = HASH.begin, HASH.written, HASH.end
+
+
+def style_of(path):
+    return HTML if FORMATS.get(path, {}).get('comments') == 'html' else HASH
+
+
+def is_rule(line):
+    return HASH.is_rule(line)
 
 
 def normal(line):
@@ -58,11 +110,6 @@ def wide(line):
     while line.startswith(('/', '**/')):
         line = line[1:] if line.startswith('/') else line[3:]
     return line
-
-
-def is_rule(line):
-    """True for a line that git reads as a pattern: not blank and not a comment."""
-    return bool(line.strip()) and not line.lstrip().startswith('#')
 
 
 def rows_of(text):
@@ -102,7 +149,56 @@ def linked(target, path):
     return None
 
 
-# The log.
+def one_line(text):
+    return ' '.join(str(text).split())
+
+
+def write(file, data):
+    """Write a file through a file next to it and a rename, so that a run that stops leaves the old file whole."""
+    file.parent.mkdir(parents=True, exist_ok=True)
+    temporary = file.with_name(f'.{file.name}.{secrets.token_hex(4)}.tmp')
+    temporary.write_bytes(data)
+    if file.exists():
+        shutil.copymode(file, temporary)
+    os.replace(temporary, file)
+
+
+def read_text(target, path):
+    file = target / path
+    return file.read_bytes().decode('utf-8', errors='surrogateescape') if file.exists() else None
+
+
+def own_path(owner, path, source):
+    """The own file of a part: .agents/instructions/ROLE.md for the instructions of a role, else
+    .agents/config/OWNER/SOURCE. Two tools of one profile that ship one source file share one own file."""
+    if FORMATS[path].get('include') == 'pointer':
+        return f'.agents/instructions/{owner.key.replace(":", "-")}.md'
+    return f'.agents/config/{owner.key.partition(":")[0]}/{source.name}'
+
+
+def include_value(path, own):
+    include = FORMATS[path]['include']
+    if include == 'extends':
+        return './' + own
+    if include == 'pointer':
+        return f'Read and follow `{own}`.'
+    return own
+
+
+def include_unit(path, own):
+    include = FORMATS[path]['include']
+    if include == 'extends':
+        return f'extends[{json.dumps(include_value(path, own))}]'
+    return include
+
+
+def target_of(target, path):
+    """The file that a part of path goes to: biome.jsonc instead of biome.json when it exists."""
+    instead = FORMATS.get(path, {}).get('instead')
+    return instead if instead and (target / instead).exists() and not (target / path).exists() else path
+
+
+# The log of the installer from before the record, which the first run replays once.
 
 def strings(value):
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
@@ -125,7 +221,8 @@ def entry_ok(entry):
 
 
 def read_log(target):
-    """The entries of the log, in the order of the file. A missing log has no entries."""
+    """The entries of the log of the old installer, in the order of the file. An entry of the history that this
+    installer writes has no status, so it is left out."""
     found = linked(target, LOG)
     if found:
         raise SharedError(f'{found} is a symlink; make it a folder or a file')
@@ -140,6 +237,8 @@ def read_log(target):
             entry = json.loads(text)
         except ValueError as exc:
             raise SharedError(f'{LOG} line {number} is not JSON: {exc}')
+        if isinstance(entry, dict) and 'status' not in entry and entry.get('kind') == 'history':
+            continue
         if not entry_ok(entry):
             raise SharedError(f'{LOG} line {number} is not an entry of the log')
         entries.append(entry)
@@ -147,19 +246,14 @@ def read_log(target):
 
 
 def replay(entries):
-    """The claims of the log: lines {path: {owner: {normal line: state}}}, files {path: claim}, the unsure claims
-    and the entries that started and did not finish.
-
-    A claim is unsure while the entry that made it has not finished: the run may have stopped before it wrote the
-    file. An unsure claim never declines a line or a file."""
+    """The claims of the old log: lines {path: {owner: {normal line: state}}}, files {path: claim}, and the paths
+    with an unsure claim. A claim is unsure while the entry that made it has not finished."""
     finished = {entry['id'] for entry in entries if entry.get('status') == 'finished'}
-    lines, files, unsure, started = {}, {}, set(), {}
+    lines, files, unsure = {}, {}, set()
     for entry in entries:
         if entry.get('status') == 'finished':
             continue
         sure = entry['id'] in finished
-        if not sure:
-            started[entry['id']] = entry.get('command', '')
         for path, owners in entry.get('lines', {}).items():
             for owner, change in owners.items():
                 claims = lines.setdefault(path, {}).setdefault(owner, {})
@@ -170,44 +264,93 @@ def replay(entries):
                             claims.pop(key, None)
                         else:
                             claims[key] = state
-                        (unsure.discard if sure else unsure.add)((path, owner, key))
+            if not sure:
+                unsure.add(path)
         for path, change in entry.get('files', {}).items():
             if change.get('owners') or change.get('declined'):
                 files[path] = {'owners': list(change.get('owners', [])), 'hash': change.get('hash'),
                                'declined': bool(change.get('declined'))}
             else:
                 files.pop(path, None)
-            (unsure.discard if sure else unsure.add)((path, None, None))
-    return lines, files, unsure, started
+            if not sure:
+                unsure.add(path)
+    return lines, files, unsure
 
 
-def new_id():
-    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()) + '-' + secrets.token_hex(2)
+def from_log(target, package_records):
+    """The record of the parts from the old log and from the records of the role packages: the parts, the paths
+    with an unsure claim, and the id of the last entry of the log. package_records is {role: record}."""
+    entries = read_log(target)
+    lines, files, unsure = replay(entries)
+    parts = {}
+    for path, owners in lines.items():
+        parts[path] = entries_of_claims(owners)
+    for path, claim in files.items():
+        parts.setdefault(path, {})[WHOLE] = {
+            'state': 'declined' if claim['declined'] else 'added', 'needs': claim['owners'], 'hash': claim['hash']}
+    for role, record in package_records.items():
+        seeds = record.get('seeds') if isinstance(record.get('seeds'), dict) else {}
+        for path, value in seeds.items():
+            if plain(path) and isinstance(value, str):
+                parts.setdefault(path, {})[SEED] = {'state': 'seeded', 'holder': role, 'needs': [role], 'hash': value}
+        merged = record.get('merged_hooks') if isinstance(record.get('merged_hooks'), dict) else {}
+        for path, ours in merged.items():
+            if not plain(path) or not isinstance(ours, dict):
+                continue
+            for unit, value in hook_units(ours).items():
+                parts.setdefault(path, {})[unit] = {'state': 'added', 'holder': role, 'needs': [role], 'value': value}
+    last = entries[-1]['id'] if entries else None
+    return parts, unsure, last
 
 
-def append(target, entry):
+def entries_of_claims(owners):
+    """The units of a line file from the claims of each owner {owner: {normal line: state}}. At most one owner
+    added a line; the other owners that need it have it as present."""
+    units = {}
+    for owner, claims in owners.items():
+        for key, state in claims.items():
+            if state == 'released':
+                continue
+            entry = units.setdefault(key, {'state': None, 'needs': []})
+            entry['needs'].append(owner)
+            if state == 'added':
+                entry['state'], entry['holder'] = 'added', owner
+            elif entry['state'] is None or (entry['state'] == 'declined' and state == 'present'):
+                entry['state'] = state
+    return units
+
+
+def claims_of_entries(units):
+    """The claims of each owner {owner: {normal line: state}} from the units of a line file."""
+    owners = {}
+    for key, entry in units.items():
+        if key.startswith('('):
+            continue
+        for owner in entry.get('needs', []):
+            state = entry['state']
+            if state == 'added' and entry.get('holder') != owner:
+                state = 'present'
+            if state in STATES:
+                owners.setdefault(owner, {})[key] = state
+    return owners
+
+
+def history(target, command, sources, changes):
+    """Add an entry to the history of the runs. Nothing reads it to decide what to do."""
     found = linked(target, LOG)
     if found:
-        raise SharedError(f'{found} is a symlink; make it a folder or a file')
+        return
     path = target / LOG
     path.parent.mkdir(exist_ok=True)
+    entry = {'kind': 'history', 'id': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()) + '-' + secrets.token_hex(2),
+             'command': one_line(command), 'sources': sources, 'changes': changes}
     with path.open('a') as handle:
         handle.write(json.dumps(entry, sort_keys=True) + '\n')
 
 
-def write(file, data):
-    """Write a file through a file next to it and a rename, so that a run that stops leaves the old file whole."""
-    file.parent.mkdir(parents=True, exist_ok=True)
-    temporary = file.with_name(f'.{file.name}.{secrets.token_hex(4)}.tmp')
-    temporary.write_bytes(data)
-    if file.exists():
-        shutil.copymode(file, temporary)
-    os.replace(temporary, file)
-
-
 # Line files.
 
-def parse(text, owners):
+def parse(text, owners, style=HASH):
     """Split a line file into its blocks {owner: [row, ...]}, the rows of the user in order, and the owners whose
     block lacks its begin or end comment. Only the comments of the owners in owners mark a block, so a comment of
     yours that looks like one stays yours. The rows of a broken block are the user's, and its comments go."""
@@ -219,18 +362,18 @@ def parse(text, owners):
         return match.group(1) if match and match.group(1) in owners else None
     index = 0
     while index < len(rows):
-        owner = mark(BEGIN, rows[index])
+        owner = mark(style.begin, rows[index])
         if owner:
             close = None
             for later in range(index + 1, len(rows)):
-                if mark(BEGIN, rows[later]) or mark(END, rows[later]):
-                    close = later if mark(END, rows[later]) == owner else None
+                if mark(style.begin, rows[later]) or mark(style.end, rows[later]):
+                    close = later if mark(style.end, rows[later]) == owner else None
                     break
             first = index + 1
-            if first < len(rows) and WRITTEN.match(bare(rows[first])):
+            if first < len(rows) and style.written.match(bare(rows[first])):
                 first += 1
             if close is None:
-                if OWN_BEGIN.match(bare(rows[index])):
+                if style.own_begin.match(bare(rows[index])):
                     broken.append(owner)
                     index = first
                 else:
@@ -240,39 +383,50 @@ def parse(text, owners):
             blocks.setdefault(owner, []).extend(rows[first:close])
             index = close + 1
             continue
-        if mark(END, rows[index]) and OWN_END.match(bare(rows[index])):
-            broken.append(mark(END, rows[index]))
+        if mark(style.end, rows[index]) and style.own_end.match(bare(rows[index])):
+            broken.append(mark(style.end, rows[index]))
         else:
             user.append(rows[index])
         index += 1
     return blocks, user, broken
 
 
-def one_line(text):
-    return ' '.join(str(text).split())
+def header(owner, path, command, style=HASH):
+    return [style.comment(f'begin lines of {owner.key}, {owner.about}, from {owner.package} at {owner.commit[:7]}.'),
+            style.comment(f'Last written to {path} by `{one_line(command)}`. The record is parts."{path}" in '
+                          f'{RECORD}.')]
 
 
-def header(owner, path, command, entry_id):
-    return [f'# begin lines of {owner.key}, {owner.about}, from {owner.package} at {owner.commit[:7]}.',
-            f'# Last written to {path} by `{one_line(command)}`, entry {entry_id} of {LOG.as_posix()}.']
+def footer(owner, style=HASH):
+    return style.comment(f'end lines of {owner.key}. {owner.removal}')
 
 
-def footer(owner):
-    return f'# end lines of {owner.key}. {owner.removal}'
+def plan_line_file(path, text, active, known, claims, unsure, style=HASH):
+    """Work out one line file for the active owners, in order, with the claims of the record for this file. known
+    holds every owner of the run, also the ones that go, so that their own comments go with them.
 
-
-def plan_line_file(path, text, active, known, claims, unsure):
-    """Work out one line file for the active owners, in order, with the claims of the log for this file. known holds
-    every owner of the run, also the ones that go, so that their own comments go with them.
-
-    Returns the blocks [(owner, lines, same)], the rows of the user, the changes of the claims {owner: {state:
-    [line]}}, the notes, and whether a row of the user went. same is True when a block keeps its lines."""
+    Returns the blocks [(owner, lines, same)], the rows of the user, the new claims {owner: {normal line: state}},
+    the notes, and whether a row of the user went. same is True when a block keeps its lines."""
     keys = {owner.key for owner in known} | set(claims)
-    blocks, user, _ = parse(text or '', keys)
+    blocks, user, _ = parse(text or '', keys, style)
     comments = {(owner.key, line.strip()) for owner in known for line in owner.lines.get(path, [])
-                if not is_rule(line)}
-    # D4 step 5: a row in a block that the owner of the block did not add, a line or a comment, is the user's. It moves to the start of the
-    # user part before the owners look for their lines, so that an owner counts it as present.
+                if not style.is_rule(line)}
+    notes = []
+    claimed = {key for owner_claims in claims.values() for key in owner_claims}
+    # A block of a known owner with lines that the record does not know, after a merge that kept the blocks of both
+    # sides and the record of one side: the installer takes them into the record from the file.
+    for owner_key, rows in blocks.items():
+        lines_of = {normal(line) for owner in known if owner.key == owner_key
+                    for line in owner.lines.get(path, []) if style.is_rule(line)}
+        for row in rows:
+            key = normal(bare(row))
+            if style.is_rule(bare(row)) and key in lines_of and key not in claimed:
+                claims.setdefault(owner_key, {})[key] = 'added'
+                claimed.add(key)
+                notes.append(f'{path}: {key} is in the block of {owner_key} and not in the record, so the installer '
+                             f'takes it into the record.')
+    # D4 step 5: a row in a block that the owner of the block did not add, a line or a comment, is the user's. It
+    # moves to the start of the user part before the owners look for their lines, so that an owner counts it as present.
     moved_out = []
     for owner_key in list(blocks):
         kept = []
@@ -281,7 +435,7 @@ def plan_line_file(path, text, active, known, claims, unsure):
             if not line.strip():
                 continue
             mine = claims.get(owner_key, {}).get(normal(line)) == 'added'
-            if is_rule(line) and mine or not is_rule(line) and (owner_key, line.strip()) in comments:
+            if style.is_rule(line) and mine or not style.is_rule(line) and (owner_key, line.strip()) in comments:
                 kept.append(row)
             else:
                 moved_out.append(row)
@@ -289,21 +443,21 @@ def plan_line_file(path, text, active, known, claims, unsure):
     user = moved_out + user
     user_rules = {}
     for row in user:
-        if is_rule(bare(row)):
+        if style.is_rule(bare(row)):
             user_rules.setdefault(normal(bare(row)), []).append(row)
-    in_blocks = {normal(bare(row)) for body in blocks.values() for row in body if is_rule(bare(row))}
+    in_blocks = {normal(bare(row)) for body in blocks.values() for row in body if style.is_rule(bare(row))}
     anywhere = in_blocks | set(user_rules)
 
     def sure(owner_key, key):
         return (path, owner_key, key) not in unsure
-    # D4 step 3: a line that the log knows, from a run that finished, and that the file lacks, was deleted by you.
+    # D4 step 3: a line that the record knows, from a run that finished, and that the file lacks, was deleted by you.
     deleted = {key for owner_key, owner_claims in claims.items() for key in owner_claims
                if key not in anywhere and sure(owner_key, key)}
-    homed, wanted, new_claims, notes = {}, set(), {}, []
+    homed, wanted, new_claims = {}, set(), {}
     for owner in active:
         mine = claims.get(owner.key, {})
         for line in owner.lines.get(path, []):
-            if not is_rule(line):
+            if not style.is_rule(line):
                 continue
             key = normal(line)
             wanted.add(key)
@@ -323,7 +477,7 @@ def plan_line_file(path, text, active, known, claims, unsure):
             else:
                 homed[key] = (owner.key, line)
                 state = 'added'
-            new_claims.setdefault(owner.key, {})[key] = (state, line)
+            new_claims.setdefault(owner.key, {})[key] = state
     # D5: a line that an owner added, that no active owner needs, and that is outside the blocks.
     removed = set()
     for owner_key, owner_claims in claims.items():
@@ -337,46 +491,37 @@ def plan_line_file(path, text, active, known, claims, unsure):
                 notes.append(f'{path}: {key} of {owner_key} is in the file {len(copies)} times, so it stays. Remove '
                              f'it by hand if no one needs it.')
             else:
-                maybe = [bare(row).strip() for row in user if is_rule(bare(row)) and wide(bare(row)) == wide(key)]
+                maybe = [bare(row).strip() for row in user if style.is_rule(bare(row))
+                         and wide(bare(row)) == wide(key)]
                 if maybe:
                     notes.append(f'{path}: {owner_key} added {key}, and the file has {maybe[0]}, which may be the '
                                  f'same line. It stays; remove it by hand if no one needs it.')
-    states = {}
-    for owner_key, owner_claims in new_claims.items():
-        before = claims.get(owner_key, {})
-        for key, (state, line) in owner_claims.items():
-            if before.get(key) != state or not sure(owner_key, key):
-                states.setdefault(owner_key, {}).setdefault(state, []).append(line)
-    for owner_key, owner_claims in claims.items():
-        for key in owner_claims:
-            if key not in new_claims.get(owner_key, {}):
-                states.setdefault(owner_key, {}).setdefault('released', []).append(key)
     out = []
     for owner in active:
-        body = [line for line in owner.lines.get(path, []) if is_rule(line)
+        body = [line for line in owner.lines.get(path, []) if style.is_rule(line)
                 and homed.get(normal(line), (None,))[0] == owner.key]
         if not body:
             continue
-        body = [line for line in owner.lines.get(path, []) if not is_rule(line)] + body
+        body = [line for line in owner.lines.get(path, []) if not style.is_rule(line)] + body
         old = blocks.get(owner.key)
         same = old is not None and [bare(r).strip() for r in old if bare(r).strip()] == [line.strip() for line in body]
         out.append((owner, body, same))
     rest = []
     took = False
     for row in user:
-        if is_rule(bare(row)) and normal(bare(row)) in removed:
+        if style.is_rule(bare(row)) and normal(bare(row)) in removed:
             removed.discard(normal(bare(row)))
             took = True
             continue
         rest.append(row)
-    return out, rest, states, notes, took
+    return out, rest, new_claims, notes, took
 
 
-def render(path, out, rest, old_text, command, entry_id, owners, took):
+def render(path, out, rest, old_text, command, owners, took, style=HASH):
     """The text of a line file from its blocks and the rows of the user. A run that changes no block and no row of the
     user returns the old text as it is. A block whose lines did not change keeps its old comments. Each row of the
     user keeps its own line ending, and the new rows take the ending that most rows of the file have."""
-    old_blocks, old_user, broken = parse(old_text or '', owners)
+    old_blocks, old_user, broken = parse(old_text or '', owners, style)
     if (old_text is not None and not broken and rest == old_user and [o.key for o, _, _ in out] == list(old_blocks)
             and all(same for _, _, same in out)):
         return old_text
@@ -387,12 +532,14 @@ def render(path, out, rest, old_text, command, entry_id, owners, took):
     rows = []
     for owner, body, same in out:
         start = next((index for index, row in enumerate(old_rows)
-                      if BEGIN.match(bare(row)) and BEGIN.match(bare(row)).group(1) == owner.key), None)
-        if same and start is not None and start + 1 < len(old_rows) and WRITTEN.match(bare(old_rows[start + 1])):
+                      if style.begin.match(bare(row)) and style.begin.match(bare(row)).group(1) == owner.key), None)
+        written = start is not None and start + 1 < len(old_rows) and style.written.match(bare(old_rows[start + 1]))
+        # A block keeps its comments while its lines stay, unless they name an entry of the old log.
+        if same and written and 'stack-log.jsonl' not in old_rows[start + 1]:
             rows += [bare(row) + newline for row in old_rows[start:start + 2]]
         else:
-            rows += [line + newline for line in header(owner, path, command, entry_id)]
-        rows += [line + newline for line in body] + [footer(owner) + newline]
+            rows += [line + newline for line in header(owner, path, command, style)]
+        rows += [line + newline for line in body] + [footer(owner, style) + newline]
     if rows:
         if rest and bare(rest[0]).strip():
             rows.append(newline)
@@ -408,9 +555,9 @@ def render(path, out, rest, old_text, command, entry_id, owners, took):
     return ''.join(rows)
 
 
-# Whole files.
+# Whole files, from the packages that ship the old key files.
 
-def plan_whole_file(target, path, active, claim, unsure):
+def plan_whole_file(target, path, active, claim, sure):
     """Work out one whole file. Returns (action, owners, source, notes): action is write, own, remove, release,
     decline or None."""
     needers, source, notes = [], None, []
@@ -427,7 +574,6 @@ def plan_whole_file(target, path, active, claim, unsure):
                 continue
         needers.append(owner.key)
         source = source or origin
-    sure = (path, None, None) not in unsure
     if claim and claim.get('declined'):
         # You deleted the file. It stays out while it is gone; a file that you put back is yours.
         return ('release' if file.exists() or not needers else None), [], None, notes
@@ -450,96 +596,660 @@ def plan_whole_file(target, path, active, claim, unsure):
     return 'release', [], None, notes
 
 
+# Files of units: TOML, YAML and JSON.
+
+def hook_units(settings):
+    """The units of a hooks file: one for each hook, named by its event, the keys of its group and its command."""
+    found = {}
+    hooks = settings.get('hooks') if isinstance(settings, dict) else None
+    for event, groups in (hooks.items() if isinstance(hooks, dict) else []):
+        for group in groups if isinstance(groups, list) else []:
+            if not isinstance(group, dict) or not isinstance(group.get('hooks'), list):
+                continue
+            selector = {key: value for key, value in group.items() if key != 'hooks'}
+            for hook in group['hooks']:
+                if isinstance(hook, dict) and isinstance(hook.get('command'), str):
+                    unit = f'hooks.{event} {json.dumps(selector, sort_keys=True)} {hook["command"]}'
+                    found[unit] = {'event': event, 'group': selector, 'hook': hook}
+    return found
+
+
+def json_load(text):
+    try:
+        data = json.loads(text) if text and text.strip() else {}
+    except ValueError as exc:
+        raise SharedError(f'it is not plain JSON ({exc})')
+    if not isinstance(data, dict):
+        raise SharedError('it is not a JSON object')
+    return data
+
+
+def json_dump(data, old):
+    """JSON text with the indent of the old text, two spaces when there is none."""
+    indent = 2
+    for line in (old or '').splitlines()[1:]:
+        if line.strip():
+            indent = (len(line) - len(line.lstrip())) or 2
+            break
+    return json.dumps(data, indent=indent, ensure_ascii=False) + '\n'
+
+
+def read_units(kind, text, names, spec):
+    """The value of each named unit that the text has."""
+    if text is None:
+        return {}
+    if kind == 'toml':
+        try:
+            return edit_toml.read(text, names)
+        except edit_toml.EditError as exc:
+            raise SharedError(str(exc))
+    if kind == 'yaml':
+        try:
+            return edit_yaml.read(text, names)
+        except edit_yaml.EditError as exc:
+            raise SharedError(str(exc))
+    data = json_load(text)
+    if kind == 'hooks':
+        found = hook_units(data)
+        return {unit: found[unit] for unit in names if unit in found}
+    found = {}
+    listed = data.get('extends')
+    listed = [listed] if isinstance(listed, str) else listed if isinstance(listed, list) else []
+    for unit in names:
+        item = json.loads(unit[len('extends['):-1]) if unit.startswith('extends[') else None
+        if item is not None and item in listed:
+            found[unit] = item
+    return found
+
+
+def apply_units(kind, text, adds, removes, spec):
+    """The new text after the change, and what each added unit made. adds: [(unit, value, mark, rows)]. removes:
+    [(unit, entry)]."""
+    if kind == 'toml':
+        try:
+            return edit_toml.plan(text or '', [(u, v, m) for u, v, m, _ in adds],
+                                  [(u, e.get('made', [])) for u, e in removes])
+        except edit_toml.EditError as exc:
+            raise SharedError(str(exc))
+    if kind == 'yaml':
+        try:
+            return edit_yaml.plan(text or '', [(u, rows, m) for u, _, m, rows in adds], [u for u, _ in removes],
+                                  MARK), {}
+        except edit_yaml.EditError as exc:
+            raise SharedError(str(exc))
+    data = json_load(text)
+    made = {}
+    if kind == 'hooks':
+        hooks = data.get('hooks', {})
+        if not isinstance(hooks, dict):
+            raise SharedError('its hooks key is not an object')
+        for unit, entry in removes:
+            value = entry['value']
+            groups = hooks.get(value['event'])
+            if not isinstance(groups, list):
+                continue
+            for group in groups:
+                if (isinstance(group, dict) and isinstance(group.get('hooks'), list)
+                        and {k: v for k, v in group.items() if k != 'hooks'} == value['group']):
+                    group['hooks'] = [hook for hook in group['hooks']
+                                      if not (isinstance(hook, dict) and hook.get('command') == value['hook']['command'])]
+            groups[:] = [group for group in groups if not (isinstance(group, dict) and group.get('hooks') == [])]
+            if not groups:
+                del hooks[value['event']]
+        for unit, value, _, _ in adds:
+            groups = hooks.setdefault(value['event'], [])
+            if not isinstance(groups, list):
+                raise SharedError(f'the hooks of {value["event"]} are not a list')
+            group = next((group for group in groups if isinstance(group, dict) and isinstance(group.get('hooks'), list)
+                          and {k: v for k, v in group.items() if k != 'hooks'} == value['group']), None)
+            if group is None:
+                group = dict(value['group'], hooks=[])
+                groups.append(group)
+            group['hooks'].append(value['hook'])
+        if hooks:
+            data['hooks'] = hooks
+        else:
+            data.pop('hooks', None)
+        return json_dump(data, text) if data or text else '', made
+    listed = data.get('extends')
+    was_string = isinstance(listed, str)
+    listed = [listed] if was_string else list(listed) if isinstance(listed, list) else None
+    if listed is None and 'extends' in data:
+        raise SharedError('its extends key is not a list or a string')
+    gone = {json.loads(unit[len('extends['):-1]) for unit, _ in removes}
+    if listed is not None:
+        listed = [item for item in listed if item not in gone]
+    new = [value for _, value, _, _ in adds]
+    if new:
+        if listed is None:
+            made = {unit: ['extends'] for unit, _, _, _ in adds}
+        elif was_string:
+            # Your extends was one string. It becomes a list, and a string again when the part goes.
+            made = {unit: [EXTENDS_STRING] for unit, _, _, _ in adds}
+        # The parts come first, so that a later extends of yours wins over them.
+        listed = new + [item for item in (listed or []) if item not in new]
+    if listed and not new and len(listed) == 1 and any(
+            EXTENDS_STRING in entry.get('made', []) for _, entry in removes):
+        data['extends'] = listed[0]
+    elif listed:
+        data['extends'] = listed
+    elif listed is not None and any('extends' in entry.get('made', []) for _, entry in removes):
+        del data['extends']
+    elif listed is not None:
+        data['extends'] = []
+    return (json_dump(data, text) if data else ''), made
+
+
+def empty_units(kind, text):
+    """True when nothing is left in the text: no data and no comment."""
+    if text is None or not text.strip():
+        return True
+    if kind in ('toml', 'yaml'):
+        rows = [row.strip() for row in text.splitlines() if row.strip()]
+        if any(not row.startswith('#') for row in rows):
+            return False
+        return not rows
+    try:
+        return json.loads(text) == {}
+    except ValueError:
+        return False
+
+
+def mark_of(owner, unit, path):
+    return (f'{unit} is a part of {owner.key}, {owner.about}, from {owner.package} at {owner.commit[:7]}. The record '
+            f'is parts."{path}" in {RECORD}.')
+
+
+def desired_units(target, path, active, notes):
+    """The units that the active owners need in path, in order: {unit: {value, needs, owner, rows, own, source}}.
+    Two owners that need one unit with two values stop the run."""
+    spec = FORMATS[path]
+    want = {}
+    for owner in active:
+        found = {}
+        if path in owner.parts and path not in owner.skipped:
+            source = owner.parts[path]
+            text = source.read_bytes().decode('utf-8', errors='surrogateescape')
+            if spec.get('include'):
+                own = own_path(owner, path, source)
+                found[include_unit(path, own)] = {'value': include_value(path, own), 'own': own, 'data': source.read_bytes()}
+            elif spec['format'] == 'toml':
+                try:
+                    found = {unit: {'value': value} for unit, value in edit_toml.units(text).items()}
+                except edit_toml.EditError as exc:
+                    raise SharedError(f'The source {source} of {owner.key} for {path}: {exc}')
+            elif spec['format'] == 'yaml':
+                try:
+                    found = {unit: {'value': value, 'rows': rows} for unit, (value, rows)
+                             in edit_yaml.units(text, spec['list'], spec['key']).items()}
+                except edit_yaml.EditError as exc:
+                    raise SharedError(f'The source {source} of {owner.key} for {path}: {exc}')
+            elif spec['format'] == 'hooks':
+                try:
+                    found = {unit: {'value': value} for unit, value in hook_units(json.loads(text)).items()}
+                except ValueError as exc:
+                    raise SharedError(f'The source {source} of {owner.key} for {path} is not JSON: {exc}')
+        elif path in owner.skipped:
+            guard = owner.skipped[path]
+            notes.append(f'Left out the part of {owner.key} in {path}: {guard[0]} already has {guard[1]}')
+        for unit, value in owner.units.get(path, {}).items():
+            found[unit] = {'value': value}
+        for unit, item in found.items():
+            if unit in want:
+                if want[unit]['value'] != item['value'] or want[unit].get('data') != item.get('data'):
+                    raise SharedError(f'{path}: {want[unit]["owner"]} and {owner.key} need {unit} with two values. '
+                                      f'Turn one of them off.')
+                want[unit]['needs'].append(owner.key)
+            else:
+                want[unit] = dict(item, needs=[owner.key], owner=owner.key, about=owner)
+    return want
+
+
+def plan_unit_file(path, kind, text, want, old, unsure, migrating, notes):
+    """Work out one file of units. Returns the new text, the new entries, and the own files that the includes need
+    {own path: (data, needs)}."""
+    names = list(dict.fromkeys(list(want) + [unit for unit in old if not unit.startswith('(')]))
+    current = read_units(kind, text, names, FORMATS[path])
+    adds, removes, entries, owns, adopted_made = [], [], {}, {}, {}
+    for unit, item in want.items():
+        entry = old.get(unit)
+        value = item['value']
+        here = unit in current
+        state = None
+        if entry and entry['state'] == 'added':
+            if here and current[unit] == entry.get('value'):
+                state = 'added'
+                if value != entry.get('value'):
+                    removes.append((unit, entry))
+                    adds.append(unit)
+            elif here:
+                state = 'present'
+                notes.append(f'{path}: you changed {unit}, so it is yours now and stays as you set it.')
+            elif unit in unsure:
+                state = 'added'
+                adds.append(unit)
+            else:
+                state = 'declined'
+                notes.append(f'{path}: {unit} of {item["owner"]} is gone, so the installer records it as declined and '
+                             f'does not add it again.')
+        elif entry and entry['state'] in ('present', 'declined'):
+            state = 'present' if here else 'declined'
+        elif here:
+            marked = re.search(rf'^\s*# {re.escape(unit)} is a part of {re.escape(item["owner"])},', text or '', re.M)
+            state = 'added' if (marked or (migrating and adopt(path, unit, text))) and current[unit] == value else 'present'
+            if state == 'added' and kind == 'toml':
+                # The tables on the way go with the unit when they are empty, as when the installer made them.
+                path_of = edit_toml.parse_name(unit)[0]
+                adopted_made[unit] = [edit_toml.key_text(path_of[:depth]) for depth in range(1, len(path_of))]
+            if current[unit] != value:
+                loud = 'Note: ' if unit == 'tool.uv.default-groups' else ''
+                notes.append(f'{loud}{path}: {unit} is already set to {json.dumps(current[unit])}, which is yours and '
+                             f'stays. {item["owner"]} would set {json.dumps(value)}.'
+                             + (' uv sync will not install the groups of the tools.' if loud else '')
+                             + (' The installer does not write the own file of the include.' if 'own' in item else ''))
+        else:
+            state = 'added'
+            adds.append(unit)
+        new = {'state': state, 'needs': list(item['needs'])}
+        if state == 'added':
+            new['holder'] = item['needs'][0]
+            new['value'] = value
+            if entry and entry.get('made') and unit not in adds:
+                new['made'] = entry['made']
+            if adopted_made.get(unit):
+                new['made'] = adopted_made[unit]
+        entries[unit] = new
+        if 'own' in item and (state == 'added' or (state == 'present' and current.get(unit) == value)):
+            owns[item['own']] = (item['data'], item['needs'])
+    for unit, entry in old.items():
+        if unit in want or unit.startswith('('):
+            continue
+        if entry['state'] == 'added':
+            if unit in current and current[unit] == entry.get('value'):
+                removes.append((unit, entry))
+            elif unit in current:
+                notes.append(f'{path}: you changed {unit}, so it stays when its owners go. Remove it by hand if no one '
+                             f'needs it.')
+    if not adds and not removes:
+        return text, entries, owns
+    add_rows = [(unit, want[unit]['value'], mark_of(want[unit]['about'], unit, path) if kind in ('toml', 'yaml')
+                 and not unit.startswith('extends[') else None, want[unit].get('rows')) for unit in adds]
+    new_text, made = apply_units(kind, text, add_rows, removes, FORMATS[path])
+    for unit, things in made.items():
+        if things:
+            entries[unit]['made'] = things
+    # What a unit that goes made, such as a table or the extends key, passes to each unit that stays inside it.
+    # Then the last unit to go takes it out. The same holds for the note that your extends was one string.
+    gone = {unit for unit, _ in removes}
+    for _, entry in removes:
+        for thing in entry.get('made', []):
+            for unit, kept in entries.items():
+                if unit in gone or unit.startswith('(') or kept.get('state') != 'added' \
+                        or thing in kept.get('made', []) or not inside(kind, thing, unit):
+                    continue
+                kept['made'] = kept.get('made', []) + [thing]
+    return new_text, entries, owns
+
+
+def inside(kind, thing, unit):
+    """True when the thing that an add made holds the unit: a table above a TOML key, or the extends key of JSON."""
+    if kind == 'toml':
+        table = edit_toml.parse_name(thing)[0]
+        return edit_toml.parse_name(unit)[0][:len(table)] == table
+    return thing in ('extends', EXTENDS_STRING) and unit.startswith('extends[')
+
+
+def adopt(path, unit, text):
+    """The first run after the old installer: a key that the old installer wrote, with its own comment."""
+    return (path == 'pyproject.toml' and unit == 'tool.uv.default-groups'
+            and '# uv sync and uv run install these dependency groups, the groups of the tools of just install' in
+            (text or ''))
+
+
 # A run.
 
-def sync(target, active, known, command, sources, dry_run=False):
-    """Bring the line files and the whole files of the target to the active owners. Return the notes, and write an
-    entry of the log for each change, unless dry_run."""
-    entries = read_log(target)
-    claims, file_claims, unsure, stopped = replay(entries)
-    paths = list(dict.fromkeys([p for owner in active for p in owner.lines] + list(claims)))
-    whole = list(dict.fromkeys([p for owner in active for p in owner.files] + list(file_claims)))
-    for path in paths + whole:
+def read_pending(target):
+    """The files that a run that stopped was changing: {path: {'old': entries, 'new': entries}}."""
+    path = target / PENDING
+    if linked(target, PENDING) or not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+        files = data['files']
+        if not isinstance(files, dict):
+            raise ValueError
+        return files
+    except (OSError, ValueError, KeyError, TypeError):
+        raise SharedError(f'{PENDING} is not a file that the installer wrote. Delete it, then run just install --check.')
+
+
+def merged_entries(old, new):
+    """The entries of a file that a stopped run was changing: each unit as the new entries have it, else as the old
+    ones have it."""
+    merged = {unit: dict(entry) for unit, entry in (old or {}).items()}
+    for unit, entry in (new or {}).items():
+        merged[unit] = dict(entry)
+    return merged
+
+
+def ignored(target, paths):
+    """The paths that git ignores, each with the rule that ignores it. An empty answer when the target is no Git
+    repository."""
+    if not paths:
+        return {}
+    run = subprocess.run(['git', '-C', str(target), 'check-ignore', '-v', '--no-index', '--', *paths],
+                         capture_output=True, text=True)
+    found = {}
+    for line in run.stdout.splitlines():
+        rule, _, name = line.partition('\t')
+        found[name] = rule
+    return found
+
+
+def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_run=False, migrating=False):
+    """Bring the shared files of the target to the active owners. parts is the record of the parts in
+    .agents/stack.json. Return the notes, the new parts and the files that changed. Unless dry_run, write the files,
+    with .agents/stack-pending.json while they change. The caller saves the parts, then calls finish."""
+    pending = read_pending(target)
+    parts = {path: {unit: dict(entry) for unit, entry in units.items()} for path, units in (parts or {}).items()}
+    unsure_files = set(unsure_paths)
+    for path, change in pending.items():
+        if plain(path):
+            parts[path] = merged_entries(change.get('old'), change.get('new'))
+            unsure_files.add(path)
+    # The record before this run, for the old record of each file in .agents/stack-pending.json.
+    recorded = {path: {unit: dict(entry) for unit, entry in units.items()} for path, units in parts.items()}
+    # The include of AGENTS.md is a line in a block, which points to the own file.
+    for owner in known:
+        for path, source in owner.parts.items():
+            if FORMATS.get(path, {}).get('include') == 'pointer':
+                owner.lines[path] = [include_value(path, own_path(owner, path, source))]
+    texts, writes = {}, {}
+    # Each file that this run decides from the file alone: a whole file of the old installer that a part replaces,
+    # and a starter of a new file.
+    replaced, messages = set(), []
+    for path in list(parts):
+        units = parts[path]
+        takers = [owner for owner in active if path in owner.parts or path in owner.starter]
+        if not takers:
+            continue
+        old_whole = units.get(WHOLE) or units.get(SEED)
+        if old_whole is not None and not linked(target, path):
+            file = target / path
+            if old_whole['state'] == 'declined' or not file.exists():
+                parts[path] = {FILE: {'state': 'declined', 'needs': old_whole.get('needs', [])}}
+            elif digest(file.read_bytes()) == old_whole.get('hash'):
+                parts[path] = {}
+                texts[path] = None
+                writes[path] = None
+                replaced.add(path)
+                messages.append(f'{path}: the installer writes its part in place of the whole file that it wrote '
+                                f'before.')
+            else:
+                parts[path] = {FILE: {'state': 'kept', 'needs': old_whole.get('needs', [])}}
+                messages.append(f'{path}: you changed the file that the installer wrote, so it stays yours, with no '
+                                f'part. To have the part, delete the file and run just install again.')
+    line_paths = list(dict.fromkeys([p for owner in active for p in owner.lines] + [
+        path for path, units in parts.items() if FORMATS.get(path, {}).get('format', 'lines') == 'lines'
+        and WHOLE not in units and OWN not in units and any(not unit.startswith('(') for unit in units)]))
+    unit_paths = list(dict.fromkeys(
+        [p for owner in active for p in list(owner.parts) + list(owner.units) + list(owner.skipped)
+         if FORMATS[p]['format'] != 'lines'] + [
+            path for path, units in parts.items() if path in FORMATS and FORMATS[path]['format'] != 'lines'
+            and any(not unit.startswith('(') for unit in units)]))
+    whole = list(dict.fromkeys([p for owner in active for p in owner.files] + [
+        path for path, units in parts.items() if WHOLE in units]))
+    for path in line_paths + unit_paths + whole:
         if not plain(path):
             raise SharedError(f'{path} is not a path inside the project')
         if reserved(path):
-            raise SharedError(f'{path} belongs to the installer, so no profile may name it')
-    clash = set(paths) & ({p for owner in known for p in owner.files} | set(file_claims))
-    if clash:
-        raise SharedError(f'{", ".join(sorted(clash))} is both a line file and a whole file of the owners')
-    entry_id = new_id()
-    writes, entry_lines, entry_files, messages, skipped = {}, {}, {}, [], set()
-    for path in paths:
-        found = linked(target, path)
-        if found:
-            messages.append(f'{path}: {found} is a symlink, so the installer leaves {path} alone')
-            skipped.add(path)
+            raise SharedError(f'{path} belongs to the installer, so no owner may name it')
+    new_parts, changes = {}, {}
+
+    def text_of(path):
+        if path not in texts:
+            texts[path] = read_text(target, path)
+        return texts[path]
+
+    def put(path, text):
+        texts[path] = text
+        writes[path] = text
+
+    # A kept file that you deleted is no longer yours alone: the parts go to it again, after a starter.
+    for path in list(parts):
+        units = parts[path]
+        held = units.get(FILE)
+        if held and held['state'] == 'kept' and not (target / path).exists():
+            del units[FILE]
+        elif held and held['state'] == 'declined' and (target / path).exists():
+            units[FILE] = dict(held, state='kept')
+    # The record of a starter names each owner that is on since it wrote the starter. An owner that went drops out,
+    # so that a new install of it writes the starter again.
+    keys = {owner.key for owner in active}
+    for units in parts.values():
+        if STARTER in units:
+            units[STARTER] = dict(units[STARTER], needs=[key for key in units[STARTER].get('needs', []) if key in keys])
+    starters, seeded = {}, set()
+    for owner in active:
+        for path, source in owner.starter.items():
+            if not plain(path) or reserved(path):
+                raise SharedError(f'{path} is not a path that a starter may name')
+            starters.setdefault(path, []).append((owner, source))
+    for path, takers in starters.items():
+        # A starter is written once. While any owner with a starter for the file stays on, a file that you delete
+        # stays deleted. Each such owner joins the record, so the file waits until all of them went.
+        held = parts.get(path, {})
+        if linked(target, path) or held.get(FILE):
             continue
-        file = target / path
-        old = file.read_bytes().decode('utf-8', errors='surrogateescape') if file.exists() else None
+        keys = [owner.key for owner, _ in takers]
+        # A run that stopped while it wrote a starter marks the file in .agents/stack-pending.json. If the file is
+        # missing, the starter was never written, so this run writes it.
+        stopped = pending.get(path, {}).get('starter') and text_of(path) is None
+        if held.get(STARTER, {}).get('needs') and not stopped:
+            held[STARTER]['needs'] = list(dict.fromkeys(held[STARTER]['needs'] + keys))
+            continue
+        if text_of(path) is None:
+            owner, source = takers[0]
+            put(path, source.read_bytes().decode('utf-8', errors='surrogateescape'))
+            parts.setdefault(path, {})[STARTER] = {'state': 'seeded', 'holder': owner.key, 'needs': keys}
+            seeded.add(path)
+            messages.append(f'{"Would write" if dry_run else "Wrote"} {path} from the starter of {owner.key}; it '
+                            f'is yours now.')
+    own_files, keep_own = {}, set()
+    # The own file of a pointer is written for each active owner, also when the pointer is not in AGENTS.md: a hook
+    # of the role prints the own file.
+    for owner in active:
+        for path, source in owner.parts.items():
+            if FORMATS[path].get('include') == 'pointer':
+                own_files[own_path(owner, path, source)] = (source.read_bytes(), [owner.key])
+    for path in line_paths:
+        style = style_of(path)
+        found = linked(target, path)
+        units = parts.get(path, {})
+        if found or FILE in units:
+            if found:
+                messages.append(f'{path}: {found} is a symlink, so the installer leaves {path} alone')
+                keep_own.update(own_path(owner, path, owner.parts[path]) for owner in active if path in owner.parts)
+            new_parts[path] = units
+            continue
+        old = text_of(path)
         # git skips a byte-order mark only at the very start, so the mark stays there, before the blocks.
-        mark = '\ufeff' if old and old.startswith('\ufeff') else ''
+        mark = '﻿' if old and old.startswith('﻿') else ''
         old = old[len(mark):] if old is not None else None
-        out, rest, states, notes, took = plan_line_file(path, old, active, known, claims.get(path, {}), unsure)
+        claims = claims_of_entries(units)
+        unsure = {(path, owner, key) for owner, owner_claims in claims.items() for key in owner_claims} \
+            if path in unsure_files else set()
+        out, rest, new_claims, notes, took = plan_line_file(path, old, active, known, claims, unsure, style)
         messages += notes
-        owners = {owner.key for owner in known} | set(claims.get(path, {}))
-        text = render(path, out, rest, old, command, entry_id, owners, took)
+        owners = {owner.key for owner in known} | set(claims)
+        text = render(path, out, rest, old, command, owners, took, style)
         if text != old:
-            writes[path] = mark + text if text is not None else None
-            report(messages, path, old, text, dry_run)
-        if states:
-            entry_lines[path] = states
+            put(path, mark + text if text is not None else None)
+            report(messages, path, old, text, dry_run, style)
+            changes[path] = 'lines'
+        entries = entries_of_claims(new_claims)
+        for key in (STARTER,):
+            if key in units:
+                entries[key] = units[key]
+        if entries:
+            new_parts[path] = entries
+    for path in unit_paths:
+        spec = FORMATS[path]
+        file_path = target_of(target, path)
+        found = linked(target, file_path)
+        units = parts.get(path, {})
+        if found or FILE in units:
+            if found:
+                messages.append(f'{path}: {found} is a symlink, so the installer leaves {path} alone')
+            new_parts[path] = units
+            continue
+        notes = []
+        want = desired_units(target, path, active, notes)
+        old = {unit: entry for unit, entry in units.items() if not unit.startswith('(')}
+        unsure = set(old) if path in unsure_files else set()
+        text = text_of(file_path)
+        try:
+            if text is None and not spec.get('create', True):
+                raise SharedError(f'there is no {path} yet')
+            new_text, entries, owns = plan_unit_file(path, spec['format'], text, want, old, unsure,
+                                                     migrating or path in replaced, notes)
+        except SharedError as exc:
+            include = [item['value'] for item in want.values() if 'own' in item]
+            # The output names the include to add by hand, so the own file that it reads must be there.
+            own_files.update({item['own']: (item['data'], item['needs']) for item in want.values() if 'own' in item})
+            messages.append(f'{file_path}: the installer leaves the file alone: {exc}.'
+                            + (f' Add the include yourself: {spec["include"]} {include[0]}' if include else ''))
+            new_parts[path] = units
+            continue
+        messages += notes
+        for key in (STARTER,):
+            if key in units:
+                entries[key] = units[key]
+        if new_text != text:
+            if not empty_units(spec['format'], new_text):
+                put(file_path, new_text)
+            elif text is not None:
+                put(file_path, None)
+            report_units(messages, file_path, text, writes.get(file_path), dry_run)
+            changes[file_path] = 'units'
+        if entries:
+            new_parts[path] = entries
+        own_files.update(owns)
     for path in whole:
         found = linked(target, path)
+        units = parts.get(path, {})
         if found:
-            if any(path in owner.files for owner in active) or path in file_claims:
+            if any(path in owner.files for owner in active) or WHOLE in units:
                 messages.append(f'{path}: {found} is a symlink, so the installer leaves {path} alone')
-            skipped.add(path)
+            if units:
+                new_parts[path] = units
             continue
-        action, owners, source, notes = plan_whole_file(target, path, active, file_claims.get(path), unsure)
+        old = units.get(WHOLE)
+        claim = {'owners': old.get('needs', []), 'hash': old.get('hash'), 'declined': old['state'] == 'declined'} \
+            if old else None
+        action, owners, source, notes = plan_whole_file(target, path, active, claim, path not in unsure_files)
         messages += notes
         if action == 'write':
             data = source.read_bytes()
             writes[path] = data
-            entry_files[path] = {'owners': owners, 'hash': digest(data)}
+            new_parts[path] = {WHOLE: {'state': 'added', 'needs': owners, 'hash': digest(data)}}
             messages.append(f'{"Would write" if dry_run else "Wrote"} {path} for {", ".join(owners)}')
-        elif action == 'own':
-            entry_files[path] = {'owners': owners, 'hash': file_claims[path]['hash']}
+            changes[path] = 'whole'
+        elif action == 'own' or (action is None and owners and old):
+            new_parts[path] = {WHOLE: {'state': 'added', 'needs': owners, 'hash': old['hash']}}
         elif action == 'remove':
             writes[path] = None
-            entry_files[path] = {'removed': True}
             messages.append(f'{"Would remove" if dry_run else "Removed"} {path}: no owner needs it, and nobody '
                             f'changed it')
+            changes[path] = 'whole'
         elif action == 'decline':
-            entry_files[path] = {'declined': True}
-        elif action == 'release':
-            entry_files[path] = {'released': True}
-    if dry_run or not (writes or entry_lines or entry_files or stopped):
-        return messages
-    if not entries:
-        append(target, {'id': new_id(), 'status': 'finished', 'command': 'baseline',
-                        'note': 'The lines and the files before this entry are yours. No removal takes them out.'})
-    append(target, {'id': entry_id, 'status': 'started', 'command': one_line(command), 'sources': sources,
-                    'lines': entry_lines, 'files': entry_files})
-    for path, data in writes.items():
-        file = target / path
-        if data is None:
-            file.unlink(missing_ok=True)
-        else:
-            write(file, data if isinstance(data, bytes) else data.encode('utf-8', errors='surrogateescape'))
-    append(target, {'id': entry_id, 'status': 'finished'})
-    # This run recorded each unsure claim again, so the entries that stopped are settled. An entry with a path that
-    # this run left alone stays unsettled, so that its claims stay unsure.
-    touched = {entry['id']: set(entry.get('lines', {})) | set(entry.get('files', {})) for entry in entries}
-    for old in stopped:
-        if not touched.get(old, set()) & skipped:
-            append(target, {'id': old, 'status': 'finished', 'note': f'Settled by entry {entry_id}.'})
-    return messages
+            new_parts[path] = {WHOLE: {'state': 'declined', 'needs': []}}
+        elif action is None and old and old['state'] == 'declined' and not (target / path).exists():
+            new_parts[path] = units
+    # The own files: each one that an include needs is written again; each one that no include needs goes.
+    old_own = [path for path, units in parts.items() if OWN in units]
+    # A dry run checks this too, so that a run stops before its package commands change the project.
+    blocked = ignored(target, list(own_files))
+    if blocked:
+        raise SharedError('git ignores the own file ' + ', '.join(f'{own} (by {rule})' for own, rule in blocked.items())
+                          + '. A fresh clone needs it, so change that rule and run just install again.')
+    for own, (data, needs) in own_files.items():
+        if linked(target, own):
+            raise SharedError(f'{own}: a folder on its way is a symlink, so the installer cannot write it')
+        new_parts[own] = {OWN: {'state': 'added', 'holder': needs[0], 'needs': needs, 'hash': digest(data)}}
+        file = target / own
+        if not file.exists() or file.read_bytes() != data:
+            writes[own] = data
+            messages.append(f'{"Would write" if dry_run else "Wrote"} {own} for {", ".join(needs)}')
+            changes[own] = 'own'
+    for own in old_own:
+        if own in keep_own and own not in own_files:
+            new_parts[own] = parts[own]
+        if own in own_files or own in keep_own or linked(target, own):
+            continue
+        if (target / own).exists():
+            writes[own] = None
+            messages.append(f'{"Would remove" if dry_run else "Removed"} {own}: no include needs it')
+            changes[own] = 'own'
+    for path, units in parts.items():
+        for key in (FILE, STARTER, SEED):
+            if path not in new_parts and key in units:
+                new_parts[path] = {key: units[key]}
+    if dry_run:
+        return messages, new_parts, changes
+    if writes or pending:
+        # Each file of a run that stopped before stays in the pending file with its first old record, also when
+        # this run writes nothing to it, so that two runs that stop in a row lose no record.
+        paths = list(dict.fromkeys(list(pending) + list(writes)))
+        save_pending(target, {path: dict({'old': pending[path].get('old', {}) if path in pending
+                                          else recorded.get(path, {}), 'new': new_parts.get(path, {})},
+                                         **({'starter': True} if path in seeded or pending.get(path, {}).get('starter')
+                                            else {}))
+                              for path in paths})
+        for path, data in writes.items():
+            file = target / path
+            if data is None:
+                file.unlink(missing_ok=True)
+                remove_empty_folders(target, file)
+            else:
+                write(file, data if isinstance(data, bytes) else data.encode('utf-8', errors='surrogateescape'))
+        if changes:
+            history(target, command, sources, changes)
+    return messages, new_parts, changes
 
 
-def report(messages, path, old, new, dry_run):
-    before = {normal(bare(row)) for row in rows_of(old or '') if is_rule(bare(row))}
-    after = {normal(bare(row)) for row in rows_of(new or '') if is_rule(bare(row))}
+def remove_empty_folders(target, file):
+    """Take out the folders of an own file that are now empty, up to .agents/config or .agents/instructions."""
+    folder = file.parent
+    while folder != target and folder.relative_to(target).as_posix() not in ('.agents/config', '.agents/instructions',
+                                                                              '.agents'):
+        try:
+            folder.rmdir()
+        except OSError:
+            return
+        folder = folder.parent
+    for stop in ('.agents/config', '.agents/instructions'):
+        try:
+            (target / stop).rmdir()
+        except OSError:
+            pass
+
+
+def save_pending(target, files):
+    path = target / PENDING
+    path.parent.mkdir(exist_ok=True)
+    write(path, (json.dumps({'files': files}, indent=2, sort_keys=True) + '\n').encode())
+
+
+def finish(target):
+    """After the record of the parts is saved, the run is whole, so the file of a run that stopped goes."""
+    if not linked(target, PENDING):
+        (target / PENDING).unlink(missing_ok=True)
+
+
+def report(messages, path, old, new, dry_run, style=HASH):
+    before = {normal(bare(row)) for row in rows_of(old or '') if style.is_rule(bare(row))}
+    after = {normal(bare(row)) for row in rows_of(new or '') if style.is_rule(bare(row))}
     parts = []
     if after - before:
         parts.append('adds ' + ', '.join(sorted(after - before)))
@@ -547,70 +1257,99 @@ def report(messages, path, old, new, dry_run):
         parts.append('removes ' + ', '.join(sorted(before - after)))
     if not parts:
         parts.append('moves lines between blocks')
+    messages.append(f'{verb(old, new, dry_run)} {path}: {"; ".join(parts)}')
+
+
+def report_units(messages, path, old, new, dry_run):
+    messages.append(f'{verb(old, new, dry_run)} {path}')
+
+
+def verb(old, new, dry_run):
     if old is None:
-        verb = 'Would write' if dry_run else 'Wrote'
-    elif new is None:
-        verb = 'Would remove' if dry_run else 'Removed'
-    else:
-        verb = 'Would change' if dry_run else 'Changed'
-    messages.append(f'{verb} {path}: {"; ".join(parts)}')
+        return 'Would write' if dry_run else 'Wrote'
+    if new is None:
+        return 'Would remove' if dry_run else 'Removed'
+    return 'Would change' if dry_run else 'Changed'
 
 
-def check(target):
-    """Compare the log with the files. Print each difference. Return 1 for a broken block, an unfinished entry or a
-    log that cannot be read, else 0."""
+def check(target, parts):
+    """Compare the record of the parts with the files. Print each difference. Return 1 for a broken block, a run that
+    stopped or a file that cannot be read, else 0."""
+    failed = False
     try:
-        entries = read_log(target)
+        pending = read_pending(target)
     except SharedError as exc:
         print(f'just install --check: {exc}')
         return 1
-    if not entries:
-        print(f'just install --check: no {LOG.as_posix()}, so there is nothing to compare')
-        return 0
-    claims, file_claims, _, started = replay(entries)
-    failed = False
-    for entry_id, command in started.items():
-        print(f'Entry {entry_id} ({command}) started and did not finish. Run just install again.')
+    if pending:
+        print(f'A run stopped while it changed {", ".join(sorted(pending))}. Run just install again.')
         failed = True
-    for path, owners in claims.items():
+    if parts is None:
+        print(f'just install --check: {RECORD} has no record of the parts yet. The next just install makes it.')
+        return 1 if failed else 0
+    for path, units in sorted(parts.items()):
         found = linked(target, path)
         if found:
             print(f'{path}: {found} is a symlink, so the installer leaves {path} alone.')
             continue
         file = target / path
-        if not file.exists():
-            if any(state == 'added' for c in owners.values() for state in c.values()):
-                print(f'{path} is gone. The next just install records its lines as declined.')
+        if OWN in units or WHOLE in units:
+            entry = units.get(OWN) or units[WHOLE]
+            if entry['state'] != 'added':
+                continue
+            if not file.exists():
+                print(f'{path} of {", ".join(entry["needs"])} is gone. The next just install writes it again.'
+                      if OWN in units else f'{path} of {", ".join(entry["needs"])} is gone.')
+            elif digest(file.read_bytes()) != entry.get('hash'):
+                print(f'{path} of {", ".join(entry["needs"])} is edited. '
+                      + ('The next just install writes it again.' if OWN in units else 'It stays when its owners go.'))
             continue
-        text = file.read_bytes().decode('utf-8', errors='surrogateescape')
-        blocks, user, broken = parse(text[1:] if text.startswith('\ufeff') else text, set(owners) | {'jnterfaces'})
-        for owner in broken:
-            print(f'{path}: the block of {owner} lacks its begin or end comment.')
-            failed = True
-        here = {normal(bare(row)) for row in user if is_rule(bare(row))} | {
-            normal(bare(row)) for body in blocks.values() for row in body if is_rule(bare(row))}
-        for owner, owner_claims in owners.items():
-            for key, state in owner_claims.items():
-                if state == 'added' and key not in here:
-                    print(f'{path}: {key} of {owner} is gone. The next just install records it as declined.')
-            for row in blocks.get(owner, []):
-                if is_rule(bare(row)) and owner_claims.get(normal(bare(row))) != 'added':
-                    print(f'{path}: {bare(row).strip()} is inside the block of {owner}, but {owner} did not add it. '
-                          f'The next just install moves it to your part.')
-        for owner in blocks:
-            if owner not in owners:
-                print(f'{path}: the log has no lines of {owner}, which has a block. The next just install moves its '
-                      f'lines to your part.')
-    for path, claim in file_claims.items():
-        if claim.get('declined'):
+        if FILE in units:
             continue
-        file = target / path
-        if linked(target, path):
-            print(f'{path} is a symlink, or is in a folder that is one.')
-        elif not file.exists():
-            print(f'{path} of {", ".join(claim["owners"])} is gone.')
-        elif digest(file.read_bytes()) != claim.get('hash'):
-            print(f'{path} of {", ".join(claim["owners"])} is edited. It stays when its owners go.')
+        spec = FORMATS.get(path, {'format': 'lines'})
+        if spec['format'] == 'lines':
+            if not file.exists():
+                if any(entry.get('state') == 'added' for unit, entry in units.items() if not unit.startswith('(')):
+                    print(f'{path} is gone. The next just install records its lines as declined.')
+                continue
+            style = style_of(path)
+            text = file.read_bytes().decode('utf-8', errors='surrogateescape')
+            claims = claims_of_entries(units)
+            blocks, user, broken = parse(text[1:] if text.startswith('﻿') else text,
+                                         set(claims) | {'jnterfaces'}, style)
+            for owner in broken:
+                print(f'{path}: the block of {owner} lacks its begin or end comment.')
+                failed = True
+            here = {normal(bare(row)) for row in user if style.is_rule(bare(row))} | {
+                normal(bare(row)) for body in blocks.values() for row in body if style.is_rule(bare(row))}
+            for owner, owner_claims in claims.items():
+                for key, state in owner_claims.items():
+                    if state == 'added' and key not in here:
+                        print(f'{path}: {key} of {owner} is gone. The next just install records it as declined.')
+                for row in blocks.get(owner, []):
+                    if style.is_rule(bare(row)) and owner_claims.get(normal(bare(row))) != 'added':
+                        print(f'{path}: {bare(row).strip()} is inside the block of {owner}, but {owner} did not add '
+                              f'it. The next just install moves it to your part.')
+            for owner in blocks:
+                if owner not in claims:
+                    print(f'{path}: the record has no lines of {owner}, which has a block. The next just install '
+                          f'takes the lines that {owner} needs into the record.')
+            continue
+        file_path = target_of(target, path)
+        try:
+            current = read_units(spec['format'], read_text(target, file_path),
+                                 [unit for unit in units if not unit.startswith('(')], spec)
+        except SharedError as exc:
+            print(f'{file_path}: cannot read it: {exc}.')
+            continue
+        for unit, entry in units.items():
+            if unit.startswith('(') or entry['state'] != 'added':
+                continue
+            if unit not in current:
+                print(f'{file_path}: {unit} of {entry.get("holder")} is gone. The next just install records it as '
+                      f'declined.')
+            elif current[unit] != entry.get('value'):
+                print(f'{file_path}: {unit} of {entry.get("holder")} is changed. It is yours now.')
     if not failed:
-        print('just install --check: the log and the files agree, apart from the notes above')
+        print(f'just install --check: the record in {RECORD} and the files agree, apart from the notes above')
     return 1 if failed else 0

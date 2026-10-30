@@ -10,6 +10,9 @@ The key install_extras of skill-package.json names the extras:
 - files: files or folders outside .agents/skills that the installer manages like the files of a skill
 - merge_hooks: JSON settings files whose "hooks" entries are merged into the file of the same name in the target
 - seed: {"target file": "source file"} pairs that are written only when the target file is absent
+- parts and starter: the parts that the role adds to shared files, and its starter files. install_stack.py writes
+  them and records them in .agents/stack.json, so this installer leaves alone each file that they name, also in
+  merge_hooks and seed, which a package keeps for one release for the installers from before the parts
 
 A file that the user edited after an install is never overwritten or removed. --remove takes the package out.
 """
@@ -240,9 +243,25 @@ def package_extras(tree):
     if not isinstance(files, list) or not isinstance(hooks, list) or not isinstance(seed, dict):
         fail('install_extras needs a list of files, a list of merge_hooks and a seed object')
     files = [clean_relative(item, 'An install_extras file') for item in files]
-    hooks = [clean_relative(item, 'A merge_hooks file') for item in hooks]
-    seed = {clean_relative(key, 'A seed target'): clean_relative(value, 'A seed source') for key, value in seed.items()}
+    taken = taken_paths(extras)
+    hooks = [path for path in (clean_relative(item, 'A merge_hooks file') for item in hooks) if path.as_posix() not in taken]
+    seed = {clean_relative(key, 'A seed target'): clean_relative(value, 'A seed source') for key, value in seed.items()
+            if key not in taken}
     return files, hooks, seed
+
+
+def taken_paths(extras):
+    """The files that the parts and the starter of a role name. install_stack.py writes them, not this installer."""
+    parts, starter = extras.get('parts', {}), extras.get('starter', {})
+    if not isinstance(parts, dict) or not isinstance(starter, dict):
+        fail('install_extras.parts and install_extras.starter must be objects')
+    return {clean_relative(path, 'A part or a starter').as_posix() for path in list(parts) + list(starter)}
+
+
+def taken_of(tree):
+    manifest = json.loads(tree.read(Path('skill-package.json')))
+    extras = manifest.get('install_extras', {}) if isinstance(manifest, dict) else {}
+    return taken_paths(extras) if isinstance(extras, dict) else set()
 
 
 def under(name, folders):
@@ -549,6 +568,7 @@ def hook_settings(tree, target, hooks, old_hooks, created, removing=False, legac
     A settings file that the package created goes again when it ends up empty. Any other file stays.
     """
     then = merged_then(tree.source, revision) if legacy and revision else set()
+    then = {path for path in then if path.as_posix() not in taken_of(tree)}
     planned = {}
     for relative in sorted(set(hooks) | {Path(name) for name in old_hooks} | then, key=str):
         reject_symlinks(target, relative)
@@ -653,6 +673,7 @@ def commands_left(planned):
 def remove(args, target, tree, package, provenance, hooks):
     """Take the package out of the target. An edited file stays, and the record then lists only the kept files."""
     old, old_hashes, old_skills, old_extras, old_hooks, created = read_record(target, provenance)
+    old_hooks = {name: value for name, value in old_hooks.items() if name not in taken_of(tree)}
     if not (target / provenance).exists():
         print(f'{package} is not installed in {target}; nothing to remove')
         return
@@ -702,7 +723,7 @@ def remove(args, target, tree, package, provenance, hooks):
     # ships counts as the install's. A newer record names its starter files.
     shipped_seeds = {} if 'seeds' in old else {
         relative.as_posix(): digest(tree.read(origin)) for relative, origin in package_extras(tree)[2].items()}
-    for name in sorted(set(recorded_seeds(old)) | set(shipped_seeds)):
+    for name in sorted((set(recorded_seeds(old)) | set(shipped_seeds)) - taken_of(tree)):
         reject_symlinks(target, Path(name))
         path = target / name
         if not path.is_file():
@@ -775,6 +796,7 @@ def main():
     if args.remove:
         return remove(args, target, tree, package, provenance, hooks)
     old, old_hashes, old_skills, old_extras, old_hooks, created = read_record(target, provenance)
+    old_hooks = {name: value for name, value in old_hooks.items() if name not in taken_of(tree)}
     extra_names = [path.as_posix() for path in extras]
     for name in old_hashes:
         if scope_of(name, extra_names + old_extras) is None:
@@ -825,7 +847,8 @@ def main():
             seeds[relative] = tree.read(origin)
     # The starter files that an install wrote, with the hash of what it wrote, so that a removal can take out one that
     # nobody changed. A starter file that is gone leaves the record.
-    seed_hashes = {name: value for name, value in recorded_seeds(old).items() if (target / name).is_file()}
+    seed_hashes = {name: value for name, value in recorded_seeds(old).items() if (target / name).is_file()
+                   and name not in taken_of(tree)}
     seed_hashes.update({relative.as_posix(): digest(data) for relative, data in seeds.items()})
     legacy = bool(old) and 'merged_hooks' not in old
     revision_then = old_revision(tree.source, old) if legacy else None

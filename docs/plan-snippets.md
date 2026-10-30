@@ -1,7 +1,8 @@
 # Plan for the parts that packages add to shared files
 
-Status: plan. Nothing is built. Three adversarial reviews changed this
-plan. The third review checked the record against the built code. The
+Status: built. The section "What the build changed" lists each place where
+the code differs from the first text of this plan. Three adversarial
+reviews changed this plan. The third review checked the record against the built code. The
 second review ran ruff, ty, tsc, biome, tomlkit and ruamel.yaml to
 check how each tool reads an include.
 
@@ -52,7 +53,7 @@ The terms of `docs/plan-shared-files.md` hold here. These terms are new:
 - **Shared file.** A file that a person or a second owner can also change,
   such as `ruff.toml` at the top of the project.
 - **Include.** A line or a key in a shared file that makes the tool read an
-  own file, such as `extend = ".agents/config/python-lint/ruff.toml"`.
+  own file, such as `extend = ".agents/config/python/ruff.toml"`.
 - **Unit.** The smallest thing that the installer adds or takes out. A unit
   is a key, such as `tool.uv.default-groups`, an item of a list, or a line
   of a line file.
@@ -75,8 +76,10 @@ each shared file:
 "parts_version": 1,
 "parts": {
   "ruff.toml": {
-    "include": {"line": "extend", "owners": ["python:lint"]},
-    "own": {".agents/config/python-lint/ruff.toml": {"hash": "<hash>", "owners": ["python:lint"]}}
+    "extend": {"state": "added", "holder": "python:lint", "needs": ["python:lint"], "value": ".agents/config/python/ruff.toml"}
+  },
+  ".agents/config/python/ruff.toml": {
+    "(own file)": {"state": "added", "holder": "python:lint", "needs": ["python:lint"], "hash": "<hash>"}
   },
   ".gitignore": {
     ".venv/": {"state": "added", "holder": "python", "needs": ["python"]},
@@ -85,7 +88,7 @@ each shared file:
     "build/": {"state": "declined", "needs": ["python"]}
   },
   "pyproject.toml": {
-    "tool.uv.default-groups": {"state": "added", "holder": "python", "needs": ["python"], "value": "all"}
+    "tool.uv.default-groups": {"state": "added", "holder": "python", "needs": ["python"], "value": "all", "made": []}
   }
 }
 ```
@@ -182,8 +185,8 @@ in the shared file, never in the own file.
 |---|---|---|---|
 | `justfile` | `import? '.agents/just/…'`, as today | `.agents/just/…` | None |
 | `tsconfig.json` | `"extends": ["./.agents/config/typescript/tsconfig.json"]` | One for each source file, not for each tool | The path starts with `./`. The source writes `${configDir}/src` and `${configDir}/dist`, so the paths stay at the top of the project. This needs TypeScript 5.5 or later. |
-| `biome.json`, or `biome.jsonc` when it exists | `"extends": ["./.agents/config/typescript-lint/lint.json"]` | `lint.json` | The own file is not named `biome.json`, because biome stops at a second `biome.json`. A `files.includes` of yours replaces the list of the own file. |
-| `ruff.toml`, or `[tool.ruff]` in `pyproject.toml` | `extend = ".agents/config/python-lint/ruff.toml"` | One, for one owner | ruff reads a path in the own file from the folder of the own file. So a source may use names such as `.agents`, but not paths such as `legacy/x.py`. |
+| `biome.json`, or `biome.jsonc` when it exists | `"extends": ["./.agents/config/typescript/lint.json"]` | `lint.json` | The own file is not named `biome.json`, because biome stops at a second `biome.json`. A `files.includes` of yours replaces the list of the own file. |
+| `ruff.toml`, or `[tool.ruff]` in `pyproject.toml` | `extend = ".agents/config/python/ruff.toml"` | One, for one owner | ruff reads a path in the own file from the folder of the own file. So a source may use names such as `.agents`, but not paths such as `legacy/x.py`. |
 | `AGENTS.md` | The line "Read and follow `.agents/instructions/tasker.md`." in a block | `.agents/instructions/<role>.md` | See P12 |
 
 `ruff.toml` takes one `extend`, so it has one owner. A second owner of
@@ -449,6 +452,51 @@ let two installers share one project. An old installer records hooks in
 `merged_hooks`, and the new installer records them in `parts`. So each
 person on a project moves to the new installer at the same time. The docs
 say so.
+
+## What the build changed
+
+The code differs from the first text of this plan in these places:
+
+- **Unit keys.** The key of a unit is its name in the file. An include of
+  `ruff.toml` is the unit `extend`. An include of a JSON file is the unit
+  `extends["./.agents/config/typescript/tsconfig.json"]`. A TOML unit also
+  records `made`, the tables that its add made, so that its removal takes
+  out only those tables.
+- **Own files.** An own file has an entry of its own in `parts`, under its
+  path, with the key `(own file)`. Its path is
+  `.agents/config/<profile>/<source name>`. So two tools of one profile that
+  ship one source file share one own file.
+- **Special keys.** `(whole file)` is a whole file of an older installer.
+  `(file)` is a whole file that you kept or deleted, with the state `kept` or
+  `declined`. `(starter)` is a starter. `(seed)` is an `AGENTS.md` that an
+  older role seeded.
+- **The end of the old log.** The move records `parts_log_end`, the last
+  entry of the old log that it read. A later entry of an old installer stops
+  the run.
+- **The old hook merge.** `install_package.py` still merges hooks and seeds
+  for an old package. It skips each path that `install_extras.parts` or
+  `starter` names, at install and at removal.
+- **The output of the hook.** Claude Code shows at most 10,000 characters
+  of the output of a hook, and Codex about 2,500 tokens. Each shows a
+  longer output as a preview and a file. The rules of `tasker` are longer.
+  So the first line of the output asks the agent to read
+  `.agents/instructions/tasker.md` in full.
+- **A starter, once.** The record keeps `(starter)` after the first write.
+  If you delete the file while a role with a starter for it is installed,
+  the starter does not come back. When each such role went, a new install
+  writes it again.
+- **A guard and a part that is there.** `skip_if` stops a new part only. A
+  part in the record stays when the text of the guard comes later.
+- **A dry pass first.** Before the package commands, the run works out each
+  shared file in memory. A conflict or an own file that git ignores stops
+  the run there. So no package command runs, and the move from the old log
+  is not saved.
+- **TOML that the installer leaves alone.** An inline table with dotted
+  keys, as `{a.b = 1}`, is left alone with a message, because tomlkit edits
+  it wrongly. Each change is also read with `tomllib`, so the file stays
+  TOML 1.0.
+- **Hooks of an old record with no `merged_hooks`.** The move does not adopt
+  them. They become `present`, so a removal of the role leaves them.
 
 ## The build, in order
 

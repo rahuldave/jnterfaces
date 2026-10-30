@@ -339,6 +339,13 @@ def commit(path):
     git(path, 'commit', '-q', '-m', 'change')
 
 
+# The text of a source file of a part, by its suffix.
+SOURCES = {'.toml': 'line-length = 120\n', '.json': '{}\n',
+           '.yaml': 'repos:\n  - repo: https://r\n    rev: v1\n    hooks: []\n'}
+# The lines of the installer at the top of .gitignore: the history and the file of a run that stopped.
+JN = ['.agents/stack-log.jsonl', '.agents/stack-pending.json']
+
+
 class StackTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
@@ -403,6 +410,10 @@ class StackTests(unittest.TestCase):
             for origin in entry.get('files', {}).values():
                 (root / origin).parent.mkdir(parents=True, exist_ok=True)
                 (root / origin).write_text(f'# {origin}\n')
+            for origin in entry.get('parts', {}).values():
+                (root / origin).parent.mkdir(parents=True, exist_ok=True)
+                if not (root / origin).exists():
+                    (root / origin).write_text(SOURCES.get(Path(origin).suffix, '# rules\n'))
         (root / 'profile.json').write_text(json.dumps(profile))
         (root / 'skill-package.json').write_text(json.dumps({
             'repository': {'name': f'jnprofile-{name}'},
@@ -453,7 +464,7 @@ class StackTests(unittest.TestCase):
         saved = self.saved()
         # The prose role ships a recipe file, so the index exists, and the record holds its hash.
         self.assertEqual(list(saved.pop('generated')), ['.agents/just/index.just'])
-        self.assertEqual(saved, {'version': 2, 'profiles': [], 'tools': [], 'started': True,
+        self.assertEqual(saved, {'version': 2, 'profiles': [], 'tools': [], 'started': True, 'parts': {}, 'parts_version': 1,
                                         'variants': {'tasker': 'git'}, 'choices': {
             'cx': False, 'jagt-protocol': False, 'prose': True, 'reporter': False, 'tasker': True}})
         # With no profile, the project still gets the starter Justfile, which imports the recipe file.
@@ -996,15 +1007,17 @@ class StackTests(unittest.TestCase):
     def test_a_profile_writes_its_lines_in_blocks_and_a_deleted_file_stays_deleted(self):
         run = self.stack('--profile', 'python', '--defaults', env={'JNTERFACES_COMMAND': 'just install --profile python'})
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual(self.rules(), ['.venv/', 'dist/', '.local/', '.ruff_cache/'])
+        self.assertEqual(self.rules(), JN + ['.venv/', 'dist/', '.local/', '.ruff_cache/'])
         self.assertEqual(self.rules('.worktreedisposable'), ['.venv/', '__pycache__/', '.ruff_cache/'])
-        self.assertEqual(self.rules('.agents/.gitattributes'), ['stack-log.jsonl merge=union'])
+        self.assertFalse((self.target / '.agents/.gitattributes').exists())
         text = (self.target / '.gitignore').read_text()
         self.assertIn('# begin lines of python:lint, the lint tool of the python profile, from jnprofile-python at ', text)
-        self.assertIn('# Last written to .gitignore by `just install --profile python`, entry ', text)
+        self.assertIn('# Last written to .gitignore by `just install --profile python`. The record is parts.".gitignore" '
+                      'in .agents/stack.json.', text)
         self.assertIn('# end lines of python:lint. `just uninstall lint` removes them.', text)
+        self.assertEqual(self.saved()['parts']['.gitignore']['.ruff_cache']['holder'], 'python:lint')
         log = [json.loads(line) for line in (self.target / '.agents/stack-log.jsonl').read_text().splitlines()]
-        self.assertEqual(log[1]['command'], 'just install --profile python')
+        self.assertEqual(log[0]['command'], 'just install --profile python')
         self.assertEqual(self.stack('--check').returncode, 0)
         gitignore = self.target / '.gitignore'
         gitignore.unlink()
@@ -1013,14 +1026,14 @@ class StackTests(unittest.TestCase):
 
     def test_two_profiles_share_a_file_and_each_takes_its_lines_out(self):
         self.assertEqual(self.stack('--profile', 'python,typescript', '--defaults').returncode, 0)
-        self.assertEqual(self.rules(), ['.venv/', 'dist/', '.local/', '.ruff_cache/', 'node_modules/'])
+        self.assertEqual(self.rules(), JN + ['.venv/', 'dist/', '.local/', '.ruff_cache/', 'node_modules/'])
         self.assertEqual(self.rules('.worktreedisposable'), ['.venv/', '__pycache__/', '.ruff_cache/', 'node_modules/'])
         dry = self.stack('--without', 'python', '--dry-run')
         self.assertIn('Would change .gitignore: removes .ruff_cache, .venv', dry.stdout)
-        self.assertEqual(self.rules(), ['.venv/', 'dist/', '.local/', '.ruff_cache/', 'node_modules/'])
+        self.assertEqual(self.rules(), JN + ['.venv/', 'dist/', '.local/', '.ruff_cache/', 'node_modules/'])
         run = self.stack('--without', 'python')
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual(self.rules(), ['node_modules/', 'dist/', '.local/'])
+        self.assertEqual(self.rules(), JN + ['node_modules/', 'dist/', '.local/'])
         self.assertIn('# begin lines of typescript, the typescript profile', (self.target / '.gitignore').read_text())
         self.assertEqual(self.rules('.worktreedisposable'), ['node_modules/'])
 
@@ -1028,7 +1041,7 @@ class StackTests(unittest.TestCase):
         self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
         self.assertTrue((self.target / 'ruff.toml').is_file())
         self.assertEqual(self.stack('--without', 'lint').returncode, 0)
-        self.assertEqual(self.rules(), ['.venv/', 'dist/', '.local/'])
+        self.assertEqual(self.rules(), JN + ['.venv/', 'dist/', '.local/'])
         self.assertFalse((self.target / 'ruff.toml').exists())
         self.assertFalse((self.target / '.pre-commit-config.yaml').exists())
 
@@ -1115,29 +1128,30 @@ class StackTests(unittest.TestCase):
         self.assertEqual(self.stack('--profile', 'python').returncode, 0)
         text = (self.target / 'pyproject.toml').read_text()
         self.assertEqual(text.count('[tool.uv]'), 1)
-        self.assertIn('default-groups = "all"\npackage = false', text)
+        self.assertIn('package = false\n# tool.uv.default-groups is a part of python, the python profile', text)
+        self.assertIn('\ndefault-groups = "all"\n', text)
         (self.target / 'pyproject.toml').write_text('[tool.uv]\ndefault-groups = ["dev"]\n')
         self.assertEqual(self.stack('lint').returncode, 0)
         data = install_stack.tomllib.loads((self.target / 'pyproject.toml').read_text())
         self.assertEqual(data['tool']['uv']['default-groups'], ['dev'])
 
     def test_default_groups_are_set_only_where_the_toml_stays_the_same(self):
+        # Each text either gets the key with the rest of its data the same, or stays as it is: the installer then
+        # leaves the file alone and says so.
+        unit = 'tool.uv.default-groups'
         for text in ('[tool.uv]  # mine\npackage = false\n', '[ tool.uv ]\npackage = false\n',
                      '[tool]\nuv.package = false\n', '["tool".uv]\npackage = false\n', 'not = [toml\n',
-                     'x = """\n[tool.uv]\n"""\n'):
-            path = self.base / 'pyproject.toml'
-            path.write_text(text)
-            with mock.patch('sys.stderr', io.StringIO()) as err:
-                install_stack.set_default_groups(path, 'all')
-            after = path.read_text()
-            if after != text:
-                data = install_stack.tomllib.loads(after)
-                self.assertEqual(data['tool']['uv']['default-groups'], 'all', text)
-            else:
-                self.assertIn('add this line under [tool.uv] yourself', err.getvalue(), text)
-        path.write_text('[project]\nname = "a"\n')
-        install_stack.set_default_groups(path, 'all')
-        self.assertEqual(install_stack.tomllib.loads(path.read_text())['tool']['uv']['default-groups'], 'all')
+                     'x = """\n[tool.uv]\n"""\n', '[tool.x]\nreleased = 2024-01-01\n', 'tool = 1\n', '[tool]\nuv = 3\n',
+                     '[project]\nname = "a"\n'):
+            try:
+                after, _ = install_stack.shared_files.edit_toml.plan(text, [(unit, 'all', None)], [])
+            except install_stack.shared_files.edit_toml.EditError:
+                continue
+            data = install_stack.tomllib.loads(after)
+            self.assertEqual(data['tool']['uv'].pop('default-groups'), 'all', text)
+            before = install_stack.tomllib.loads(text)
+            before.setdefault('tool', {}).setdefault('uv', {})
+            self.assertEqual(data, before, text)
 
     def test_a_symlinked_project_file_stops_the_init(self):
         outside = self.base / 'outside.toml'
@@ -1491,19 +1505,6 @@ class StackTests(unittest.TestCase):
         self.assertIn('lint', self.tool_names('tools'))
         self.assertNotIn('removing_tools', self.saved())
 
-    def test_default_groups_never_crash_on_dates_or_odd_tables(self):
-        for text in ('[tool.x]\nreleased = 2024-01-01\n', 'tool = 1\n', '[tool]\nuv = 3\n'):
-            path = self.base / 'pyproject.toml'
-            path.write_text(text)
-            with mock.patch('sys.stderr', io.StringIO()):
-                install_stack.set_default_groups(path, 'all')
-            after = path.read_text()
-            if after != text:
-                self.assertEqual(install_stack.tomllib.loads(after)['tool']['uv']['default-groups'], 'all')
-        path.write_text('[tool.x]\nreleased = 2024-01-01\n')
-        install_stack.set_default_groups(path, 'all')
-        self.assertIn('default-groups = "all"', path.read_text())
-
     def test_a_dry_run_also_stops_on_a_symlinked_project_file(self):
         (self.target / 'pyproject.toml').symlink_to(self.base / 'outside.toml')
         run = self.stack('--profile', 'python', '--defaults', '--dry-run')
@@ -1807,6 +1808,191 @@ class RecipeTests(unittest.TestCase):
         self.assertEqual(record['source_revision'], git(self.jn, 'rev-parse', 'HEAD'))
         self.assertFalse((self.base / 'home/.local/share/skill-packages').exists())
 
+
+class PartsTests(StackTests):
+    """The parts of profiles and roles, and the record of them in .agents/stack.json."""
+
+    def role_with_parts(self):
+        root = self.packages / 'agent_gest_git_skills'
+        manifest = json.loads((root / 'skill-package.json').read_text())
+        (root / 'rules.md').write_text('# Rules\n')
+        (root / 'starter.md').write_text('# Project\n')
+        manifest['install_extras'].update({'parts': {'AGENTS.md': 'rules.md', '.claude/settings.json': '.claude/settings.json'},
+                                           'starter': {'AGENTS.md': 'starter.md'}})
+        (root / 'skill-package.json').write_text(json.dumps(manifest))
+        commit(root)
+
+    def test_a_profile_part_adds_an_include_and_goes_with_its_tool(self):
+        self.edit_profile('python', lambda p: p['tools']['lint'].update({'parts': {'ruff.toml': 'files/lint.toml'}}))
+        run = self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('extend = ".agents/config/python/lint.toml"', (self.target / 'ruff.toml').read_text())
+        self.assertEqual((self.target / '.agents/config/python/lint.toml').read_text(), 'line-length = 120\n')
+        parts = self.saved()['parts']
+        self.assertEqual(parts['ruff.toml']['extend']['holder'], 'python:lint')
+        self.assertEqual(self.stack('--check').returncode, 0)
+        run = self.stack('--without', 'lint')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertFalse((self.target / 'ruff.toml').exists())
+        self.assertFalse((self.target / '.agents/config').exists())
+        self.assertNotIn('ruff.toml', self.saved()['parts'])
+
+    def test_a_skip_if_guard_leaves_the_part_out(self):
+        self.edit_profile('python', lambda p: p['tools']['lint'].update({'parts': {'ruff.toml': 'files/lint.toml'}}))
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n\n[tool.ruff]\nline-length = 99\n')
+        run = self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertFalse((self.target / 'ruff.toml').exists())
+        self.assertIn('Left out the part of python:lint in ruff.toml', run.stderr)
+
+    def test_a_skip_if_guard_does_not_take_out_a_part_that_is_there(self):
+        self.edit_profile('python', lambda p: p['tools']['lint'].update({'parts': {'ruff.toml': 'files/lint.toml'}}))
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n# no [tool.ruff here yet\n')
+        run = self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('extend =', (self.target / 'ruff.toml').read_text())
+        with (self.target / 'pyproject.toml').open('a') as file:
+            file.write('\n[tool.ruff]\nline-length = 100\n')
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('extend =', (self.target / 'ruff.toml').read_text())
+        self.assertTrue((self.target / '.agents/config/python/lint.toml').exists())
+
+    def test_an_own_file_that_git_ignores_stops_the_run_before_the_package_commands(self):
+        self.edit_profile('python', lambda p: p['tools']['lint'].update({'parts': {'ruff.toml': 'files/lint.toml'}}))
+        (self.target / '.gitignore').write_text('.agents/config/\n')
+        run = self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('git ignores the own file', run.stderr)
+        self.assertFalse((self.target / 'pyproject.toml').exists())
+        self.assertEqual((self.target / '.gitignore').read_text(), '.agents/config/\n')
+
+    def test_a_guard_counts_its_text_only_at_the_start_of_a_line(self):
+        guard = ('pyproject.toml', '[tool.ruff')
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n# no [tool.ruff here yet\n')
+        self.assertFalse(install_stack.guard_applies(self.target, guard))
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "a"\n  [tool.ruff.lint]\n')
+        self.assertTrue(install_stack.guard_applies(self.target, guard))
+        for mine in ('[ tool.ruff ]\n', '[tool]\nruff.line-length = 99\n', 'tool.ruff.x = 1\n',
+                     '["tool".ruff]\n'):
+            (self.target / 'pyproject.toml').write_text(mine)
+            self.assertTrue(install_stack.guard_applies(self.target, guard), mine)
+        (self.target / 'pyproject.toml').write_text('[tool.ruff-x]\na = 1\n')
+        self.assertFalse(install_stack.guard_applies(self.target, guard))
+
+    def test_a_role_adds_its_parts_and_a_starter_and_takes_them_out(self):
+        self.role_with_parts()
+        settings = self.target / '.claude/settings.json'
+        settings.parent.mkdir()
+        settings.write_text(json.dumps({'hooks': {'Stop': [{'hooks': [{'type': 'command', 'command': 'mine.sh'}]}]}}))
+        run = self.stack('tasker', '--without', 'prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        agents = (self.target / 'AGENTS.md').read_text()
+        self.assertIn('Read and follow `.agents/instructions/tasker.md`.', agents)
+        self.assertTrue(agents.endswith('\n\n# Project\n'))
+        self.assertEqual((self.target / '.agents/instructions/tasker.md').read_text(), '# Rules\n')
+        data = json.loads(settings.read_text())
+        self.assertEqual(data['hooks']['SessionStart'][0]['hooks'][0]['command'], 'start.sh')
+        self.assertEqual(len(data['hooks']['SessionStart']), 1)
+        record = json.loads((self.target / '.agents/gest-git-install.json').read_text())
+        self.assertFalse(record.get('merged_hooks'))
+        run = self.stack('--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual((self.target / 'AGENTS.md').read_text(), '# Project\n')
+        self.assertEqual(json.loads(settings.read_text()),
+                         {'hooks': {'Stop': [{'hooks': [{'type': 'command', 'command': 'mine.sh'}]}]}})
+        self.assertFalse((self.target / '.agents/instructions').exists())
+
+    def test_the_first_run_moves_the_old_log_and_the_hooks_of_a_role(self):
+        # An install of the old installer: a log with the claims of python, and hooks that the role merged.
+        self.assertEqual(self.stack('tasker', '--without', 'prose').returncode, 0)
+        old = json.loads((self.target / '.agents/gest-git-install.json').read_text())
+        self.assertTrue(old.get('merged_hooks'))
+        record = self.saved()
+        del record['parts'], record['parts_version']
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        (self.target / '.agents/stack-log.jsonl').write_text(
+            json.dumps({'id': 'a', 'status': 'started', 'lines': {'.gitignore': {'jnterfaces': {'added': ['x/']}}}})
+            + '\n' + json.dumps({'id': 'a', 'status': 'finished'}) + '\n')
+        (self.target / '.gitignore').write_text('# begin lines of jnterfaces, the installer, from jnterfaces at abc.\n'
+                                                'x/\n# end lines of jnterfaces. They stay while x.\n')
+        self.role_with_parts()
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('Moved the record of the shared files', run.stderr)
+        saved = self.saved()
+        self.assertEqual(saved['parts_log_end'], 'a')
+        self.assertNotIn('x', saved['parts']['.gitignore'])
+        self.assertNotIn('x/', self.rules())
+        units = saved['parts']['.claude/settings.json']
+        self.assertEqual([entry['holder'] for entry in units.values()], ['tasker'])
+        record = json.loads((self.target / '.agents/gest-git-install.json').read_text())
+        self.assertFalse(record.get('merged_hooks'))
+        # A second run reads the finished entry of the last id as part of the move, not as a newer entry.
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        # An old installer on another branch adds an entry to the log after the move: the run stops.
+        with (self.target / '.agents/stack-log.jsonl').open('a') as log:
+            log.write(json.dumps({'id': 'b', 'status': 'started', 'lines': {}}) + '\n')
+        run = self.stack()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('an entry from an old installer after the move', run.stderr)
+
+    def test_a_first_run_that_stops_in_the_dry_pass_does_not_save_the_move(self):
+        self.edit_profile('python', lambda p: p['tools']['lint'].update({'parts': {'ruff.toml': 'files/lint.toml'}}))
+        self.assertEqual(self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose').returncode, 0)
+        record = self.saved()
+        del record['parts'], record['parts_version']
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        (self.target / '.agents/stack-log.jsonl').write_text(
+            json.dumps({'id': 'a', 'status': 'started', 'lines': {}}) + '\n'
+            + json.dumps({'id': 'a', 'status': 'finished'}) + '\n')
+        with (self.target / '.gitignore').open('a') as file:
+            file.write('.agents/config/\n')
+        run = self.stack()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('git ignores the own file', run.stderr)
+        # The next run is still the first run after the old installer.
+        self.assertNotIn('parts_version', self.saved())
+
+    def test_save_keeps_the_keys_that_it_does_not_own(self):
+        self.assertEqual(self.stack('tasker', '--without', 'prose').returncode, 0)
+        record = self.saved()
+        record['mine'] = {'kept': True}
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertEqual(self.saved()['mine'], {'kept': True})
+
+    def test_a_source_with_a_folder_path_or_a_plain_tsconfig_path_stops_the_run(self):
+        def ruff(p):
+            p['tools']['lint']['parts'] = {'ruff.toml': 'files/lint.toml'}
+        self.edit_profile('python', ruff)
+        (self.packages / 'jnprofile-python/files/lint.toml').write_text('extend-exclude = ["legacy/x.py"]\n')
+        commit(self.packages / 'jnprofile-python')
+        run = self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('names the path legacy/x.py', run.stderr)
+
+        def ts(p):
+            p['tools']['typecheck'] = {'packages': ['typescript'], 'parts': {'tsconfig.json': 'files/tsconfig.json'}}
+        self.edit_profile('typescript', ts)
+        (self.packages / 'jnprofile-typescript/files/tsconfig.json').write_text('{"include": ["src"]}\n')
+        commit(self.packages / 'jnprofile-typescript')
+        run = self.stack('--profile', 'typescript', '--defaults', '--without', 'tasker,prose', 'typecheck')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('does not start with ${configDir}', run.stderr)
+
+    def test_a_part_of_an_unknown_file_is_rejected(self):
+        self.edit_profile('python', lambda p: p['tools']['lint'].update({'parts': {'setup.cfg': 'files/x.toml'}}))
+        run = self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('profile.json of the python profile is malformed', run.stderr)
+
+
+
+# PartsTests uses the fixtures of StackTests, and runs only its own tests.
+for _name in [name for name in dir(StackTests) if name.startswith('test_') and name not in PartsTests.__dict__]:
+    setattr(PartsTests, _name, None)
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,6 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
+# dependencies = ["tomlkit==0.15.2", "ruamel.yaml==0.19.1"]
 # ///
 """Install skill roles and project tools into one repository, and save them: just install lint, just install tasker.
 
@@ -174,6 +175,7 @@ def check_profile(name, profile, choices):
           and (profile.get('uv_default_groups') is None or isinstance(profile['uv_default_groups'], str)
                or string_list(profile['uv_default_groups']))
           and isinstance(base, dict) and recipe_file_ok(base.get('recipes'))
+          and parts_ok(base)
           and isinstance(base.get('files', {}), dict)
           and all(plain_path(k) and plain_path(v) for k, v in base.get('files', {}).items())
           and lines_ok(base)
@@ -181,7 +183,7 @@ def check_profile(name, profile, choices):
           and all(isinstance(tool, dict) and string_list(tool.get('packages')) and tool['packages']
                   and isinstance(tool.get('files', {}), dict)
                   and all(plain_path(k) and plain_path(v) for k, v in tool.get('files', {}).items())
-                  and lines_ok(tool)
+                  and lines_ok(tool) and parts_ok(tool)
                   and isinstance(tool.get('group', ''), str)
                   and isinstance(tool.get('skip_if', {}), dict)
                   and all(string_list(v) and len(v) == 2 and plain_path(v[0]) for v in tool.get('skip_if', {}).values())
@@ -193,6 +195,64 @@ def check_profile(name, profile, choices):
     if not ok:
         raise StackError(f'The profile.json of the {name} profile is malformed')
     return profile
+
+
+def parts_ok(part):
+    """The parts of a base, a tool or a role: {shared file: source file}. scripts/formats.json must name each shared
+    file, and a shared file is in lines or in parts, not in both."""
+    parts = part.get('parts', {})
+    return (isinstance(parts, dict) and all(isinstance(path, str) and path in shared_files.FORMATS and plain_path(source)
+                                            for path, source in parts.items())
+            and not set(parts) & set(part.get('lines', {})))
+
+
+def check_sources(what, root, parts):
+    """Check each source file of the parts: its parser reads it, a ruff source names no folder path, and each path
+    of a tsconfig source starts with ${configDir}, so that it stays at the top of the project."""
+    for path, origin in parts.items():
+        source = root / origin
+        if not source.is_file() or source.is_symlink():
+            raise StackError(f'The source {origin} of {what} for {path} is not a file in {root}')
+        text = source.read_text(errors='replace')
+        kind = shared_files.FORMATS[path]
+        try:
+            if kind.get('include') == 'pointer':
+                continue
+            if kind['format'] == 'toml':
+                data = shared_files.edit_toml.plain(shared_files.edit_toml.load(text))
+            elif kind['format'] == 'yaml':
+                shared_files.edit_yaml.load(text)
+                data = None
+            else:
+                data = json.loads(text)
+        except (ValueError, shared_files.edit_toml.EditError, shared_files.edit_yaml.EditError) as exc:
+            raise StackError(f'The source {origin} of {what} for {path} does not parse: {exc}')
+        if path == 'ruff.toml':
+            folders = [value for value in leaves(data) if isinstance(value, str) and '/' in value]
+            if folders:
+                raise StackError(f'The source {origin} of {what} names the path {folders[0]}. ruff reads a path of '
+                                 f'the own file from .agents/config, so name a folder, such as .agents, not a path.')
+        if path == 'tsconfig.json':
+            options = data.get('compilerOptions', {}) if isinstance(data, dict) else {}
+            paths = [data.get(key, []) for key in ('include', 'exclude', 'files')] if isinstance(data, dict) else []
+            paths = [item for listed in paths if isinstance(listed, list) for item in listed]
+            paths += [options.get(key) for key in ('outDir', 'rootDir', 'baseUrl', 'declarationDir', 'tsBuildInfoFile')
+                      if isinstance(options, dict) and isinstance(options.get(key), str)]
+            wrong = [item for item in paths if isinstance(item, str) and not item.startswith('${configDir}')]
+            if wrong:
+                raise StackError(f'The source {origin} of {what} has the path {wrong[0]}, which does not start with '
+                                 f'${{configDir}}. tsc reads it from .agents/config, so write ${{configDir}}/{wrong[0]}.')
+
+
+def leaves(data):
+    if isinstance(data, dict):
+        for value in data.values():
+            yield from leaves(value)
+    elif isinstance(data, list):
+        for value in data:
+            yield from leaves(value)
+    else:
+        yield data
 
 
 def lines_ok(part):
@@ -218,47 +278,129 @@ def commit_of(clone):
     return run.stdout.strip() if run.returncode == 0 and run.stdout.strip() else '?'
 
 
-def owners_of(profiles, names, pairs, commits):
-    """The owners of the line files and the whole files, in order: each profile in names, followed by each of its
-    tools in pairs, in the order of its profile.json."""
+def owners_of(profiles, names, pairs, commits, target=None, record=None):
+    """The owners of the shared files, in order: each profile in names, followed by each of its tools in pairs, in
+    the order of its profile.json. A package that has parts for a file leaves out its old whole file of that name,
+    and a skip_if guard that applies leaves out a new part. A part that the record already holds stays: a guard
+    stops a new part only, as it stopped a new whole file before."""
     found = []
     for name in names:
         profile = profiles[name]
         package, root = profile['package']['name'], profile['root']
         base = profile.get('base', {})
+        units = {}
+        if profile.get('uv_default_groups'):
+            units['pyproject.toml'] = {'tool.uv.default-groups': profile['uv_default_groups']}
+        parts = base.get('parts', {})
         found.append(shared_files.Owner(
             name, f'the {name} profile', package, commits[name], f'`just uninstall {name}` removes them.',
-            base.get('lines', {}), {path: (root / origin, None) for path, origin in base.get('files', {}).items()}))
+            copy.deepcopy(base.get('lines', {})),
+            {path: (root / origin, None) for path, origin in base.get('files', {}).items() if path not in parts},
+            {path: root / origin for path, origin in parts.items()}, units))
         for tool, entry in profile['tools'].items():
             if f'{name}:{tool}' in pairs:
                 guards = entry.get('skip_if', {})
+                parts = entry.get('parts', {})
+                key = f'{name}:{tool}'
+                skipped = {path: guards[path] for path in parts if path in guards and target is not None
+                           and guard_applies(target, guards[path]) and not any(
+                               entry.get('state') == 'added' and key in entry.get('needs', [])
+                               for entry in (record or {}).get(path, {}).values())}
                 found.append(shared_files.Owner(
                     f'{name}:{tool}', f'the {tool} tool of the {name} profile', package, commits[name],
-                    f'`just uninstall {tool}` removes them.', entry.get('lines', {}),
-                    {path: (root / origin, guards.get(path)) for path, origin in entry.get('files', {}).items()}))
+                    f'`just uninstall {tool}` removes them.', copy.deepcopy(entry.get('lines', {})),
+                    {path: (root / origin, guards.get(path)) for path, origin in entry.get('files', {}).items()
+                     if path not in parts},
+                    {path: root / origin for path, origin in parts.items()}, skipped=skipped))
     return found
 
 
-def sync_files(target, profiles, kept, kept_tools, every, dry_run):
-    """Bring the line files and the whole files to the owners that stay: kept profiles and kept_tools. every holds
-    each profile of the run, also the ones that go."""
+def guard_applies(target, guard):
+    """True when the file of a skip_if guard has its text, such as [tool.ruff in pyproject.toml. In a TOML file a
+    guard of the form [a.b means that the table a.b is there, in any form: [tool.ruff], [ tool.ruff.lint ],
+    tool.ruff.x = 1 or ruff.x = 1 under [tool]."""
+    file = target / guard[0]
+    if shared_files.linked(target, guard[0]) or not file.is_file():
+        return False
+    text = file.read_text(errors='replace')
+    table = re.fullmatch(r'\[([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)', guard[1])
+    if guard[0].endswith('.toml') and table:
+        try:
+            data = tomllib.loads(text)
+        except tomllib.TOMLDecodeError:
+            data = None
+        if data is not None:
+            for part in table.group(1).split('.'):
+                if not isinstance(data, dict) or part not in data:
+                    return False
+                data = data[part]
+            return True
+    # The text must start a line, so that a comment that names it does not count.
+    return any(line.lstrip().startswith(guard[1]) for line in text.splitlines())
+
+
+def role_extras(clone):
+    """The parts and the starter of a role package: install_extras.parts and install_extras.starter."""
+    try:
+        extras = json.loads((clone / 'skill-package.json').read_text()).get('install_extras', {})
+    except (OSError, ValueError, AttributeError) as exc:
+        raise StackError(f'Cannot read skill-package.json in {clone}: {exc}')
+    extras = extras if isinstance(extras, dict) else {}
+    parts, starter = extras.get('parts', {}), extras.get('starter', {})
+    if not parts_ok({'parts': parts}) or not (isinstance(starter, dict) and all(
+            plain_path(path) and plain_path(origin) and not shared_files.reserved(path)
+            for path, origin in starter.items())):
+        raise StackError(f'install_extras.parts and install_extras.starter in {clone}/skill-package.json must map '
+                         f'files that scripts/formats.json names, and plain paths, to source files')
+    return parts, starter
+
+
+def role_owners(packages, clones):
+    """The owner of each role package that has parts or a starter, in the order of stack.json."""
+    found = []
+    for package in packages:
+        clone = clones.get(package['name'])
+        if 'choice' not in package or clone is None:
+            continue
+        parts, starter = role_extras(clone)
+        if not parts and not starter:
+            continue
+        check_sources(f'the {package["choice"]} role', clone, parts)
+        found.append(shared_files.Owner(
+            package['choice'], f'the {package["choice"]} role', package['name'], commit_of(clone),
+            f'`just uninstall {package["choice"]}` removes them.',
+            parts={path: clone / origin for path, origin in parts.items()},
+            starter={path: clone / origin for path, origin in starter.items()}))
+    return found
+
+
+def sync_files(target, profiles, kept, kept_tools, every, dry_run, parts, roles=(), gone_roles=(), unsure=(),
+               migrating=False, quiet=False):
+    """Bring the shared files to the owners that stay: kept profiles, kept_tools and roles. every holds each profile
+    of the run, also the ones that go, and gone_roles each role that goes. Return the new parts. quiet prints no
+    notes, for the dry pass that checks the files before the package commands run."""
     commits = {name: commit_of(profiles[name]['root']) for name in every}
-    known = owners_of(profiles, every, {f'{n}:{t}' for n in every for t in profiles[n]['tools']}, commits)
-    active = owners_of(profiles, kept, set(kept_tools), commits)
-    if any(owner.lines or owner.files for owner in known) or (target / shared_files.LOG).exists():
+    known = owners_of(profiles, every, {f'{n}:{t}' for n in every for t in profiles[n]['tools']}, commits, target,
+                      parts)
+    active = owners_of(profiles, kept, set(kept_tools), commits, target, parts) + list(roles)
+    known += list(roles) + list(gone_roles)
+    if any(owner.lines or owner.files or owner.parts or owner.units or owner.starter for owner in known) or parts:
         installer = shared_files.Owner('jnterfaces', 'the installer', 'jnterfaces', commit_of(ROOT),
-                                       'They stay while the project keeps .agents/stack-log.jsonl.',
-                                       shared_files.JNTERFACES_LINES)
+                                       'They stay while the project keeps .agents/stack.json.',
+                                       copy.deepcopy(shared_files.JNTERFACES_LINES))
         active, known = [installer] + active, [installer] + known
     command = os.environ.get('JNTERFACES_COMMAND') or shlex.join(['install_stack.py', *sys.argv[1:]])
     sources = {profiles[name]['package']['name']: commits[name] for name in every}
+    sources.update({owner.package: owner.commit for owner in roles})
     sources['jnterfaces'] = commit_of(ROOT)
     try:
-        notes = shared_files.sync(target, active, known, command, sources, dry_run)
+        notes, new_parts, _ = shared_files.sync(target, active, known, command, sources, parts, unsure, dry_run,
+                                                migrating)
     except (OSError, shared_files.SharedError) as exc:
         raise StackError(f'Cannot update the shared files: {exc}')
-    for note in notes:
+    for note in [] if quiet else notes:
         print(note, file=sys.stdout if dry_run else sys.stderr)
+    return new_parts
 
 
 def recipe_file_ok(value):
@@ -279,6 +421,9 @@ def load_profiles(names, registry_profiles, choices, overrides):
         except (OSError, ValueError) as exc:
             raise StackError(f'Cannot read profile.json of the {name} profile in {root}: {exc}')
         profile = check_profile(name, profile, choices)
+        check_sources(f'the {name} profile', root, profile.get('base', {}).get('parts', {}))
+        for tool, entry in profile['tools'].items():
+            check_sources(f'the {tool} tool of the {name} profile', root, entry.get('parts', {}))
         profile['root'], profile['package'] = root, package
         loaded[name] = profile
     return loaded
@@ -316,9 +461,118 @@ def read_record(target, choices, aliases):
     renamed = {}
     for name, value in chosen.items():
         renamed[aliases.get(name, name)] = value
+    parts = record.get('parts') if 'parts_version' in record else None
+    if parts is not None and not parts_record_ok(parts):
+        raise StackError(f'{path} has parts that are not a map of files to units. Fix it, or take the key parts and '
+                         f'parts_version out to make the record again from the old log.')
     return {'profiles': profiles, 'choices': renamed, 'tools': tools, 'pending': pending, 'owned': owned,
             'added_old': added, 'removing': removing, 'removing_profiles': removing_profiles,
-            'generated': generated, 'started': record.get('started') is True, 'variants': variants}
+            'generated': generated, 'started': record.get('started') is True, 'variants': variants,
+            'parts': parts, 'parts_log_end': record.get('parts_log_end'), 'raw': record}
+
+
+def parts_record_ok(parts):
+    """True when the parts of the record have the shape that the installer writes."""
+    return isinstance(parts, dict) and all(
+        shared_files.plain(path) and isinstance(units, dict) and all(
+            isinstance(unit, str) and isinstance(entry, dict) and entry.get('state') in shared_files.UNIT_STATES
+            and string_list(entry.get('needs', [])) for unit, entry in units.items())
+        for path, units in parts.items())
+
+
+def read_parts(target):
+    """The parts of the record, or None when the record has none yet."""
+    path = target / RECORD
+    try:
+        record = json.loads(path.read_text()) if path.is_file() and not path.is_symlink() else {}
+    except (OSError, ValueError) as exc:
+        raise StackError(f'Cannot read {path}: {exc}')
+    parts = record.get('parts') if isinstance(record, dict) and 'parts_version' in record else None
+    if parts is not None and not parts_record_ok(parts):
+        raise StackError(f'{path} has parts that are not a map of files to units')
+    return parts
+
+
+def write_record(target, record):
+    """Write .agents/stack.json through a file next to it and a rename, so that a run that stops leaves it whole."""
+    path = target / RECORD
+    if path.is_symlink():
+        raise StackError(f'{path} must not be a symlink')
+    shared_files.write(path, (json.dumps(record, indent=2) + '\n').encode())
+
+
+def move_from_log(target, record, packages, clones, dry_run):
+    """The first run after the old installer: the record of the parts from the old log and from the records of the
+    role packages. Return the parts, the files with an unsure claim, and whether this run moved them.
+
+    The run saves the parts first, then takes the keys seeds and merged_hooks out of the record of each package, so
+    that a run that stops between the two saves loses no hook."""
+    if record is not None and record['parts'] is not None:
+        last = record.get('parts_log_end')
+        try:
+            entries = shared_files.read_log(target)
+        except shared_files.SharedError as exc:
+            raise StackError(str(exc))
+        ids = [entry['id'] for entry in entries]
+        # The old log writes a started and a finished entry with one id, so the move ends at the last of them.
+        newer = ids[len(ids) - ids[::-1].index(last):] if last in ids else ids
+        if newer:
+            raise StackError(f'{shared_files.LOG} has an entry from an old installer after the move to the record: '
+                             f'{newer[0]}. Run the new installer on the branch that wrote it first, or delete that '
+                             f'entry, and run just install again.')
+        return record['parts'], set(), False
+    # The starter files and hooks of a role move to the record only when its package now ships them as parts. A
+    # package from before the parts still merges its hooks itself.
+    package_records, taken = {}, {}
+    for package in packages:
+        if 'choice' not in package or package['name'] not in clones:
+            continue
+        parts_of, starter = role_extras(clones[package['name']])
+        taken[package['name']] = set(parts_of) | set(starter)
+        own = target / record_path(package)
+        try:
+            data = json.loads(own.read_text()) if own.is_file() and not own.is_symlink() else {}
+        except (OSError, ValueError):
+            data = {}
+        if isinstance(data, dict) and not data.get('removed'):
+            package_records[package['choice']] = {
+                key: {path: value for path, value in data.get(key, {}).items() if path in taken[package['name']]}
+                for key in ('seeds', 'merged_hooks') if isinstance(data.get(key), dict)}
+    try:
+        parts, unsure, last = shared_files.from_log(target, package_records)
+    except shared_files.SharedError as exc:
+        raise StackError(str(exc))
+    if dry_run:
+        return parts, unsure, True
+    raw = dict(record['raw']) if record is not None else {'version': 2, 'choices': {}}
+    raw['parts'], raw['parts_version'] = parts, 1
+    if last:
+        raw['parts_log_end'] = last
+    if record is not None or parts:
+        write_record(target, raw)
+    for package in packages:
+        own = target / record_path(package)
+        if not taken.get(package['name']) or not own.is_file() or own.is_symlink():
+            continue
+        try:
+            data = json.loads(own.read_text())
+        except (OSError, ValueError):
+            continue
+        changed = False
+        for key in ('seeds', 'merged_hooks'):
+            if isinstance(data.get(key), dict) and set(data[key]) & taken[package['name']]:
+                data[key] = {path: value for path, value in data[key].items() if path not in taken[package['name']]}
+                changed = True
+        if changed:
+            shared_files.write(own, (json.dumps(data, indent=2) + '\n').encode())
+    tracked = subprocess.run(['git', '-C', str(target), 'ls-files', '--error-unmatch', str(shared_files.LOG)],
+                             capture_output=True)
+    if tracked.returncode == 0:
+        print(f'{shared_files.LOG} is now a history that git does not keep. Take it out of git once: '
+              f'git rm --cached {shared_files.LOG}', file=sys.stderr)
+    if parts:
+        print(f'Moved the record of the shared files from {shared_files.LOG} to parts in {RECORD}.', file=sys.stderr)
+    return parts, unsure, True
 
 
 def record_path(package):
@@ -743,50 +997,6 @@ def prepare(target, profile, steps):
         if failed or not (target / init['file']).exists():
             raise StackError(f'{" ".join(init["command"])} did not make {init["file"]}. The roles are installed; '
                              f'make {init["file"]} and run just install again.')
-    groups = profile.get('uv_default_groups')
-    if groups:
-        set_default_groups(target / 'pyproject.toml', groups)
-
-
-def set_default_groups(pyproject, groups):
-    """Set [tool.uv] default-groups, so that uv sync and uv run install the groups of the tools.
-
-    The file changes only when the result parses as TOML and holds the same data plus the one new value. Otherwise
-    the installer names the line to add.
-    """
-    if not pyproject.is_file() or pyproject.is_symlink():
-        return
-    text = pyproject.read_text()
-    line = f'default-groups = {json.dumps(groups)}'
-    try:
-        data = tomllib.loads(text)
-    except tomllib.TOMLDecodeError:
-        print(f'pyproject.toml does not parse, so add this line under [tool.uv] yourself: {line}', file=sys.stderr)
-        return
-    uv = data.get('tool', {}).get('uv', {}) if isinstance(data.get('tool', {}), dict) else None
-    if not isinstance(uv, dict):
-        print(f'pyproject.toml has an unusual tool table, so add this line under [tool.uv] yourself: {line}',
-              file=sys.stderr)
-        return
-    if 'default-groups' in uv:
-        return
-    note = '# uv sync and uv run install these dependency groups, the groups of the tools of just install\n'
-    if re.search(r'^\[tool\.uv\]\s*$', text, re.M):
-        new = re.sub(r'^\[tool\.uv\]\s*$\n?', lambda m: '[tool.uv]\n' + note + line + '\n', text, count=1, flags=re.M)
-    else:
-        new = text.rstrip('\n') + '\n\n[tool.uv]\n' + note + line + '\n'
-    expected = copy.deepcopy(data)
-    expected.setdefault('tool', {}).setdefault('uv', {})['default-groups'] = groups
-    try:
-        good = tomllib.loads(new) == expected
-    except tomllib.TOMLDecodeError:
-        good = False
-    if not good:
-        print(f'The installer cannot place the setting safely, so add this line under [tool.uv] yourself: {line}',
-              file=sys.stderr)
-        return
-    pyproject.write_text(new)
-    print(f'Set {line} in pyproject.toml, so that uv run has the tools.', file=sys.stderr)
 
 
 def drop_empty_group(target, group):
@@ -1075,7 +1285,7 @@ def main(argv=None):
     if target == ROOT:
         raise StackError('The target must not be this jnterfaces clone')
     if args.check:
-        return shared_files.check(target)
+        return shared_files.check(target, read_parts(target))
     overrides = {}
     for item in args.clone:
         name, sep, path = item.partition('=')
@@ -1192,6 +1402,10 @@ def main(argv=None):
         options = ['--record', str(record_path(package)), '--remove']
         if run_installer(clones[package['name']], options, target, None, True, quiet=not args.dry_run):
             raise StackError(f'The dry run of the removal of {package["name"]} failed; nothing was written')
+    # The move from the old log is worked out here, and saved only after the dry pass below found no problem.
+    parts, unsure, migrating = move_from_log(target, record, packages, clones, True)
+    roles = role_owners([p for p, _ in steps], clones)
+    gone_roles = role_owners(removals, clones)
     owned = {key: list(names) for key, names in (record or {}).get('owned', {}).items()}
     # The added_packages of a record from earlier, keyed profile:tool, move to their owner keys.
     for key, names in (record or {}).get('added_old', {}).items():
@@ -1225,7 +1439,8 @@ def main(argv=None):
             for first in entry.get('before', []):
                 print('Would run: ' + ' '.join(first))
             print('Would run: ' + ' '.join(command) if command else f'The project already has the packages of {tool}')
-        sync_files(target, profiles, [n for n in active if n not in leaving], tools, active, True)
+        sync_files(target, profiles, [n for n in active if n not in leaving], tools, active, True, parts, roles,
+                   gone_roles, unsure, migrating)
         write_justfile(target, True)
         write_recipes(target, profiles, [n for n in active if n not in leaving], tools, True, {}, False)
         if any(step[7] for step in commands):
@@ -1234,6 +1449,11 @@ def main(argv=None):
         print('Dry run: ' + ', '.join(p['name'] for p, _ in steps) + f' would be installed in {target}'
               + (', and ' + ', '.join(p['name'] for p in removals) + ' removed' if removals else ''))
         return 0
+    # A dry pass over the shared files first: a conflict of two owners or an own file that git ignores stops the run
+    # here, before a package command changes the project.
+    sync_files(target, profiles, [n for n in active if n not in leaving], tools, active, True, parts, roles,
+               gone_roles, unsure, migrating, quiet=True)
+    parts, unsure, migrating = move_from_log(target, record, packages, clones, False)
     for package, options in steps:
         if run_installer(clones[package['name']], options, target, heads.get(package['name']), False):
             raise StackError(f'The install of {package["name"]} failed. The packages before it are installed.')
@@ -1246,10 +1466,19 @@ def main(argv=None):
     # The files that just install writes in .agents/just, with their hashes, and whether it wrote the Justfile. A
     # file is the installer's to change only while its hash is the recorded one.
     generated = dict((record or {}).get('generated', {}))
-    state = {'started': bool((record or {}).get('started'))}
+    state = {'started': bool((record or {}).get('started')), 'parts': parts}
+    # The keys that save writes. It keeps each other key of the record, so that it never drops one.
+    managed = {'version', 'profiles', 'choices', 'tools', 'variants', 'owned_packages', 'added_packages',
+               'pending_tools', 'removing_tools', 'removing_profiles', 'generated', 'started', 'parts',
+               'parts_version'}
 
     def save(tool_list, waiting, going=()):
         record_file.parent.mkdir(exist_ok=True)
+        try:
+            old = json.loads(record_file.read_text()) if record_file.is_file() else {}
+        except (OSError, ValueError):
+            old = {}
+        old = old if isinstance(old, dict) else {}
         # A profile that is turned off leaves the record once none of its tools is left.
         kept_profiles = [name for name in active if name not in leaving
                          or any(pair.partition(':')[0] == name for pair in tool_list)]
@@ -1273,7 +1502,11 @@ def main(argv=None):
             record['generated'] = dict(sorted(generated.items()))
         if state['started']:
             record['started'] = True
-        record_file.write_text(json.dumps(record, indent=2) + '\n')
+        record['parts'], record['parts_version'] = state['parts'], 1
+        for key, value in old.items():
+            if key not in managed:
+                record[key] = value
+        write_record(target, record)
 
     # Save the roles before the tools run, so that a failed tool keeps the roles that were installed.
     save(saved_tools, [t for t in tools_add if t not in saved_tools], tools_remove)
@@ -1355,8 +1588,10 @@ def main(argv=None):
         progress()
     # The line files and the whole files change after the package commands succeeded, as D12 of
     # docs/plan-shared-files.md says.
-    sync_files(target, profiles, [name for name in active if name not in leaving], tools, active, False)
+    state['parts'] = sync_files(target, profiles, [name for name in active if name not in leaving], tools, active,
+                                False, parts, roles, gone_roles, unsure, migrating)
     save(tools, [])
+    shared_files.finish(target)
     print(f'Installed in {target}:')
     for package, _ in steps:
         own = target / record_path(package)

@@ -1,0 +1,11 @@
+{
+  "AGENTS.md": {"format": "lines", "comments": "html", "include": "pointer"},
+  "ruff.toml": {"format": "toml", "include": "extend"},
+  "ty.toml": {"format": "toml"},
+  "pyproject.toml": {"format": "toml", "create": false},
+  "tsconfig.json": {"format": "json", "include": "extends"},
+  "biome.json": {"format": "json", "include": "extends", "instead": "biome.jsonc"},
+  ".pre-commit-config.yaml": {"format": "yaml", "list": "repos", "key": "repo"},
+  ".claude/settings.json": {"format": "hooks"},
+  ".codex/hooks.json": {"format": "hooks"}
+}
