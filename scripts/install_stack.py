@@ -32,6 +32,8 @@ import subprocess
 import sys
 import tomllib
 
+import shared_files
+
 ROOT = Path(__file__).resolve().parents[1]
 RECORD = Path('.agents/stack.json')
 JUSTFILES = ('justfile', 'Justfile', '.justfile', 'JUSTFILE')
@@ -174,10 +176,12 @@ def check_profile(name, profile, choices):
           and isinstance(base, dict) and recipe_file_ok(base.get('recipes'))
           and isinstance(base.get('files', {}), dict)
           and all(plain_path(k) and plain_path(v) for k, v in base.get('files', {}).items())
+          and lines_ok(base)
           and all(re.fullmatch(r'[a-z][a-z0-9_-]*', tool_name) for tool_name in tools)
           and all(isinstance(tool, dict) and string_list(tool.get('packages')) and tool['packages']
                   and isinstance(tool.get('files', {}), dict)
                   and all(plain_path(k) and plain_path(v) for k, v in tool.get('files', {}).items())
+                  and lines_ok(tool)
                   and isinstance(tool.get('group', ''), str)
                   and isinstance(tool.get('skip_if', {}), dict)
                   and all(string_list(v) and len(v) == 2 and plain_path(v[0]) for v in tool.get('skip_if', {}).values())
@@ -189,6 +193,72 @@ def check_profile(name, profile, choices):
     if not ok:
         raise StackError(f'The profile.json of the {name} profile is malformed')
     return profile
+
+
+def lines_ok(part):
+    """The lines of a base or a tool: {line file: [line, ...]}. A line has no line break and is not a comment of the
+    blocks. A path is in lines or in files, not in both."""
+    lines = part.get('lines', {})
+    return (isinstance(lines, dict) and not set(lines) & set(part.get('files', {}))
+            and not any(shared_files.reserved(path) for path in list(lines) + list(part.get('files', {})))
+            and all(isinstance(rows, list) and len({shared_files.normal(r) for r in rows if isinstance(r, str)
+                                                    and shared_files.is_rule(r)})
+                    == len([r for r in rows if isinstance(r, str) and shared_files.is_rule(r)])
+                    for rows in lines.values())
+            and all(plain_path(path) and string_list(rows)
+                    and all(row.strip() and '\n' not in row and '\r' not in row and not shared_files.BEGIN.match(row)
+                            and not shared_files.END.match(row) and not shared_files.WRITTEN.match(row)
+                            for row in rows)
+                    for path, rows in lines.items()))
+
+
+def commit_of(clone):
+    """The commit of a clone, or ? when it is not a Git clone."""
+    run = subprocess.run(['git', '-C', str(clone), 'rev-parse', 'HEAD'], capture_output=True, text=True)
+    return run.stdout.strip() if run.returncode == 0 and run.stdout.strip() else '?'
+
+
+def owners_of(profiles, names, pairs, commits):
+    """The owners of the line files and the whole files, in order: each profile in names, followed by each of its
+    tools in pairs, in the order of its profile.json."""
+    found = []
+    for name in names:
+        profile = profiles[name]
+        package, root = profile['package']['name'], profile['root']
+        base = profile.get('base', {})
+        found.append(shared_files.Owner(
+            name, f'the {name} profile', package, commits[name], f'`just uninstall {name}` removes them.',
+            base.get('lines', {}), {path: (root / origin, None) for path, origin in base.get('files', {}).items()}))
+        for tool, entry in profile['tools'].items():
+            if f'{name}:{tool}' in pairs:
+                guards = entry.get('skip_if', {})
+                found.append(shared_files.Owner(
+                    f'{name}:{tool}', f'the {tool} tool of the {name} profile', package, commits[name],
+                    f'`just uninstall {tool}` removes them.', entry.get('lines', {}),
+                    {path: (root / origin, guards.get(path)) for path, origin in entry.get('files', {}).items()}))
+    return found
+
+
+def sync_files(target, profiles, kept, kept_tools, every, dry_run):
+    """Bring the line files and the whole files to the owners that stay: kept profiles and kept_tools. every holds
+    each profile of the run, also the ones that go."""
+    commits = {name: commit_of(profiles[name]['root']) for name in every}
+    known = owners_of(profiles, every, {f'{n}:{t}' for n in every for t in profiles[n]['tools']}, commits)
+    active = owners_of(profiles, kept, set(kept_tools), commits)
+    if any(owner.lines or owner.files for owner in known) or (target / shared_files.LOG).exists():
+        installer = shared_files.Owner('jnterfaces', 'the installer', 'jnterfaces', commit_of(ROOT),
+                                       'They stay while the project keeps .agents/stack-log.jsonl.',
+                                       shared_files.JNTERFACES_LINES)
+        active, known = [installer] + active, [installer] + known
+    command = os.environ.get('JNTERFACES_COMMAND') or shlex.join(['install_stack.py', *sys.argv[1:]])
+    sources = {profiles[name]['package']['name']: commits[name] for name in every}
+    sources['jnterfaces'] = commit_of(ROOT)
+    try:
+        notes = shared_files.sync(target, active, known, command, sources, dry_run)
+    except (OSError, shared_files.SharedError) as exc:
+        raise StackError(f'Cannot update the shared files: {exc}')
+    for note in notes:
+        print(note, file=sys.stdout if dry_run else sys.stderr)
 
 
 def recipe_file_ok(value):
@@ -640,24 +710,6 @@ def tool_steps(target, profiles, active, tools_add, tools_remove, keep, owned, d
     return steps
 
 
-def copy_tool_files(target, files, entry, dry_run, root):
-    """Copy the config files of a tool from its profile package, each only when the target does not have it."""
-    skip_if = entry.get('skip_if', {})
-    for destination, origin in files.items():
-        path = target / destination
-        guard = skip_if.get(destination)
-        if guard and (target / guard[0]).is_file() and guard[1] in (target / guard[0]).read_text(errors='replace'):
-            print(f'Left out {destination}: {guard[0]} already has {guard[1]}', file=sys.stderr)
-            continue
-        if path.exists() or path.is_symlink():
-            continue
-        if dry_run:
-            print(f'Would write {destination}')
-            continue
-        write_new(target, Path(destination), (root / origin).read_bytes())
-        print(f'Wrote {destination}; it is yours now, and later installs leave it alone.')
-
-
 def write_new(target, relative, data):
     """Write a new file in the target. Never through a symlink, and never over a file that is there."""
     current = target
@@ -1009,6 +1061,8 @@ def main(argv=None):
     parser.add_argument('--update', action='store_true', help='git pull --ff-only each clone of a package first')
     parser.add_argument('--clean', action='store_true', help='install the committed HEAD of each clone')
     parser.add_argument('--dry-run', action='store_true', help='check everything and write nothing in the target')
+    parser.add_argument('--check', action='store_true',
+                        help='compare .agents/stack-log.jsonl with the line files and the whole files, and change nothing')
     parser.add_argument('--registry', type=Path, default=ROOT / 'stack.json', help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.all and args.defaults:
@@ -1020,6 +1074,8 @@ def main(argv=None):
         raise StackError(f'Target does not exist: {target}')
     if target == ROOT:
         raise StackError('The target must not be this jnterfaces clone')
+    if args.check:
+        return shared_files.check(target)
     overrides = {}
     for item in args.clone:
         name, sep, path = item.partition('=')
@@ -1166,13 +1222,10 @@ def main(argv=None):
             if problem:
                 print(f'Would fail: {problem}')
                 continue
-            copy_tool_files(target, files, entry, True, profiles[profile]['root'])
             for first in entry.get('before', []):
                 print('Would run: ' + ' '.join(first))
             print('Would run: ' + ' '.join(command) if command else f'The project already has the packages of {tool}')
-        for name in active:
-            if name not in saved_profiles and name not in leaving:
-                copy_tool_files(target, profiles[name].get('base', {}).get('files', {}), {}, True, profiles[name]['root'])
+        sync_files(target, profiles, [n for n in active if n not in leaving], tools, active, True)
         write_justfile(target, True)
         write_recipes(target, profiles, [n for n in active if n not in leaving], tools, True, {}, False)
         if any(step[7] for step in commands):
@@ -1227,9 +1280,6 @@ def main(argv=None):
     if write_justfile(target, False):
         state['started'] = True
     for name in active:
-        if name not in saved_profiles and name not in leaving:
-            copy_tool_files(target, profiles[name].get('base', {}).get('files', {}), {}, False, profiles[name]['root'])
-    for name in active:
         prepare(target, profiles[name], [step for step in commands if step[1] == name])
     done = list(saved_tools)
     # The add steps of each tool, by index. A tool is installed only when all of them succeeded.
@@ -1263,7 +1313,6 @@ def main(argv=None):
         failed = problem
         try:
             if not problem:
-                copy_tool_files(target, files, entry, False, profiles[profile]['root'])
                 for first in entry.get('before', []):
                     print(f'Before removing {tool} for {profile}: {" ".join(first)}', file=sys.stderr)
                     code = subprocess.run(first, cwd=target).returncode
@@ -1304,6 +1353,9 @@ def main(argv=None):
             steps_left.discard(index)
         # Save after each step, so that an interrupted run keeps what it added and removed.
         progress()
+    # The line files and the whole files change after the package commands succeeded, as D12 of
+    # docs/plan-shared-files.md says.
+    sync_files(target, profiles, [name for name in active if name not in leaving], tools, active, False)
     save(tools, [])
     print(f'Installed in {target}:')
     for package, _ in steps:

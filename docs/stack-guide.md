@@ -88,16 +88,20 @@ The installer runs these steps:
 6. If a tool of a profile is to be added and the project has no manifest, it
    makes one, with `uv init --bare` or `npm init --yes`.
 7. It adds the packages of each tool, with `uv add --group` or `npm install
-   --save-dev`, and it copies the config files of the tool.
-8. It writes the recipes of the installed tools in `.agents/just`. After each
+   --save-dev`.
+8. After the package commands succeed, it writes the shared files, such as
+   `.gitignore`, and the config files of the tools. "Shared files and the
+   log" below tells how.
+9. It writes the recipes of the installed tools in `.agents/just`. After each
    step, it saves the record and writes the recipes again.
 
 A later `just install` with no names installs the same set again, from the
 clones as they are. To get new commits of the packages, run `just install
 --update`. It pulls the jnterfaces clone and the clone of each package that
 the run installs. It skips a clone with no upstream branch, and it prints
-"Not updated". A config file that a tool copies, for
-example `ruff.toml`, is yours after the first install.
+"Not updated". The installer writes a config file of a tool, for example
+`ruff.toml`, when the project has none. It takes the file out with its tool
+only when nobody changed it.
 
 **An edited file stays as you left it.** The installer does not overwrite a
 file of a package that you edited. It names the file, and it installs the
@@ -270,8 +274,8 @@ Commands in a worktree also make ignored files, such as `.venv` and test
 caches. `just worktrees-prune` keeps a worktree with ignored files, so that
 it never deletes an output. A third file, `.worktreedisposable`, has gitignore
 patterns for the ignored files that a command can make again. Those files do
-not keep a worktree. Each profile writes this file for its language when the
-project has none. The Python profile names `.venv/` and the caches, and the
+not keep a worktree. Each profile adds its lines to this file, in a block of
+its own. The Python profile names `.venv/` and the caches, and the
 TypeScript profile names `node_modules/`.
 
 **What works.** The install, the variant and the worktree recipes. The
@@ -303,7 +307,8 @@ saves it.
   `python-profile`.
 - `pyproject.toml` from `uv init --bare`, with `default-groups = "all"`, so
   that `uv run` has the tools.
-- A starter `.gitignore`, if the project has none.
+- Its lines in `.gitignore` and `.worktreedisposable`, in a block of their
+  own at the start of each file.
 - The default tools `lint` and `test`, which the next layers describe, and the
   recipe `just setup`.
 
@@ -311,7 +316,8 @@ saves it.
 
 - The package jnprofile-typescript. `uv` runs npm and node from the
   `nodejs-wheel` package.
-- `package.json` from `npm init --yes`, and a starter `.gitignore`.
+- `package.json` from `npm init --yes`, and its lines in `.gitignore` and
+  `.worktreedisposable`.
 - The default tools `lint` and `typecheck`.
 
 A profile also turns on its default roles, `tasker` and `prose`, but only in a
@@ -396,12 +402,81 @@ profile:
 - **A role** loses its files. Each file that you edited stays.
 - **A tool** loses the packages that `just install` added, and its recipes.
   Each package that the project had before stays. A dependency group that is
-  left empty goes too. The config files stay, because they are yours.
+  left empty goes too. A config file of the tool goes when nobody changed
+  it. The lines of the tool go from the shared files, unless another owner
+  needs them.
 - **A profile** loses each of its tools, its recipe files and its package.
   The project keeps `pyproject.toml` or `package.json`. If a step fails, the
   next `just install` goes on with the removal, unless you name the profile
   again. `--profile` with a list that leaves out a saved profile also turns
   that profile off.
+
+## Shared files and the log
+
+Several owners can add lines to one file. An owner is a profile, such as
+`python`, or a tool of a profile, such as `python:lint`. The files are line
+files, such as `.gitignore` and `.worktreedisposable`, where each line is a
+pattern. `docs/plan-shared-files.md` gives each decision and its reason.
+
+**Blocks.** The lines of each owner go in a block of their own, at the start
+of the file. Your own lines come after the blocks. In a git ignore file, a
+later line wins, so a line of yours always wins over a line of a block. A
+block looks like this:
+
+```gitignore
+# begin lines of python:lint, the lint tool of the python profile, from jnprofile-python at c299beb.
+# Last written to .gitignore by `just install lint`, entry 2026-10-30T14:05:12Z-a1b2 of .agents/stack-log.jsonl.
+.ruff_cache/
+# end lines of python:lint. `just uninstall lint` removes them.
+```
+
+The begin comment names the owner, its package and commit, the command, and
+the entry in the log. Search the log for the entry to see the whole change.
+
+**The log.** `.agents/stack-log.jsonl` has one JSON object on each line. Each
+run that changes a shared file adds two entries with the same `id`. The
+first entry has `status` `started` and lists each change. The second has
+`status` `finished`. For example:
+
+```json
+{"command": "just install lint", "id": "2026-10-30T14:05:12Z-a1b2", "lines": {".gitignore": {"python:lint": {"added": [".ruff_cache/"]}}}, "sources": {"jnprofile-python": "c299beb...", "jnterfaces": "410aace..."}, "status": "started"}
+```
+
+Commit the log with the project. `.agents/.gitattributes` gives the log the
+union merge of git, so two branches that each add entries merge with no
+conflict.
+
+**How a line goes.** The log says which owner added each line:
+
+- A line that two owners need stays while either owner is on. When the
+  owner of its block goes, the line moves to the block of the other owner.
+- A line that was in the file before the owner came is yours. No removal
+  takes it out.
+- A line that you delete stays out. The installer records it as declined
+  and does not add it again. A shared file that you delete stays deleted in
+  the same way.
+- A line that you move out of its block still goes with its owner, if the
+  file has one copy of it. With two copies, or a copy that differs, the
+  output names the line and the line stays.
+- A line that you add inside a block moves after the blocks at the next run.
+
+**Config files.** A config file of a tool, such as `ruff.toml`, has a list
+of owners and the hash of what the installer wrote. `tsconfig.json` belongs
+to the `typecheck` and `test` tools of the TypeScript profile, so it stays
+until both go. The installer removes a config file only when its hash is the
+recorded one. A config file that you wrote yourself is never written or
+removed. A config file that you delete stays deleted.
+
+**Check and dry run.** `just install --check` compares the log with the
+files, prints each difference, and changes nothing. It fails for a block
+that lacks its begin or end comment, and for a run that started and did not
+finish. Run `just install` again to finish such a run. `--dry-run` prints
+each line and file that a run would change.
+
+**Projects from before the log.** The first run adds an entry with the
+command `baseline`. Each line and config file that was there before it is
+yours. For example, the `.venv/` that an old `python` profile wrote in
+`.gitignore` stays after `just uninstall python`. Remove such lines by hand.
 
 **Removing lint takes out the Git hook.** Before `just uninstall lint`
 removes pre-commit, it runs `uv run --group lint pre-commit uninstall`. It
@@ -421,6 +496,7 @@ again.
 | Tests | `just install test` | pytest, or `node --test` | none |
 | Types | `just install typecheck` | ty with `ty.toml`, or tsc | none |
 | Remove a tool or a profile | `just uninstall NAME` | The packages, the recipes, the Git hook and empty groups go | none |
+| Shared files | any install | The blocks of each owner, the config files, the log, `just install --check` | Lines from role packages |
 | Edit a skill | by hand | The edit stays, and the other files install | none |
 | Claude Code | any install | The `.claude/skills` links | none |
 | Server, Docker, CI | none | none | No mixin |
