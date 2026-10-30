@@ -266,6 +266,14 @@ on each line, and each path becomes a symbolic link to the main checkout, for
 example a large `data` folder. Claude Code and Conductor read
 `.worktreeinclude`; PostHog uses `.worktreelink`.
 
+Commands in a worktree also make ignored files, such as `.venv` and test
+caches. `just worktrees-prune` keeps a worktree with ignored files, so that
+it never deletes an output. A third file, `.worktreedisposable`, has gitignore
+patterns for the ignored files that a command can make again. Those files do
+not keep a worktree. Each profile writes this file for its language when the
+project has none. The Python profile names `.venv/` and the caches, and the
+TypeScript profile names `node_modules/`.
+
 **What works.** The install, the variant and the worktree recipes. The
 GitButler text of the hooks appears only when `but` is installed and GitButler
 owns the checkout. The session-start hook reports worktrees that are ready to
