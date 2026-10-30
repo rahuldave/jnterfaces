@@ -246,18 +246,36 @@ just install tasker
 
 **Variants.** `just install tasker=gitwt` works on each task in its own Git
 worktree, and keeps the main checkout on `main`. The default, `tasker=git`,
-works on a branch in the main checkout. The record saves the variant. The
-`jj` variant is not ready yet.
+works on a branch in the main checkout. The record saves the variant, and
+`just tasker-mode` prints it. The `jj` variant is not ready yet.
 
-**What works.** The install. The hooks run without GitButler, and the Git
-guard of the hooks lets `git commit` run.
+**The worktree recipes.** In a project that jnterfaces started, the role adds
+these recipes:
+
+| Recipe | What it does |
+|---|---|
+| `just worktree-new NAME [BASE]` | Makes branch NAME in `../<repo>.worktrees/NAME`, sets it up, and runs `just setup` there |
+| `just worktree-sync` | Sets up a worktree that another tool made, such as Claude Code |
+| `just worktrees` | Lists the worktrees: clean or dirty, merged or not, and the ignored files that a removal deletes |
+| `just worktrees-prune` | Removes the clean, merged worktrees that were idle for 2 hours, with no `--force`. A worktree with outputs or other ignored files that setup did not put there stays |
+
+A worktree has only the files that Git tracks. So setup follows two files in
+the main checkout. `.worktreeinclude` has gitignore patterns, and each ignored
+file that matches is copied, for example `.env`. `.worktreelink` has one path
+on each line, and each path becomes a symbolic link to the main checkout, for
+example a large `data` folder. Claude Code and Conductor read
+`.worktreeinclude`; PostHog uses `.worktreelink`.
+
+**What works.** The install, the variant and the worktree recipes. The
+GitButler text of the hooks appears only when `but` is installed and GitButler
+owns the checkout. The session-start hook reports worktrees that are ready to
+prune, and removes nothing. In `gitwt`, a `git commit` in the main checkout
+gets a warning.
 
 **What does not work:**
 
-- **The hooks tell the agent to use GitButler** with `but`, also when `but`
-  is not installed.
-- **The `g*` skills do not read the variant yet**, and the worktree recipes
-  are not there yet. A later change of agent_gest_git_skills adds them.
+- **The worktree recipes are missing in a project that jnterfaces did not
+  start.** There the skills run the script of the `gtw` skill directly.
 - **The skills need `gest`.** `gest` does not come through `uv`. The installer
   prints a warning when it is missing.
 - **The starter `AGENTS.md` has `<replace-me>` fields.** You fill them in.
@@ -388,9 +406,9 @@ again.
 | Mixin | Command | Works now | Does not work |
 |---|---|---|---|
 | Writing skill | `install_stack.py prose` | The skill, the starter Justfile and `just prose` | none |
-| Task tracker | `just install tasker` | The skills, the hooks, `AGENTS.md`, the variant | Needs `gest`, which `uv` does not give. The skills do not read the variant yet |
+| Task tracker | `just install tasker` | The skills, the hooks, `AGENTS.md`, the variant, the worktree recipes | Needs `gest`, which `uv` does not give |
 | Python profile | `just install --profile python` | The package, the manifest, `.gitignore`, the defaults | none |
-| TypeScript profile | `just install --profile typescript` | The package, the manifest, `.gitignore`, the defaults | Its repository is not on GitHub yet |
+| TypeScript profile | `just install --profile typescript` | The package, the manifest, `.gitignore`, the defaults | none |
 | Lint | `just install lint` | ruff and pre-commit, or biome | No `just hook` for TypeScript |
 | Tests | `just install test` | pytest, or `node --test` | none |
 | Types | `just install typecheck` | ty with `ty.toml`, or tsc | none |
@@ -405,14 +423,13 @@ The profile packages closed the gaps of the recipes. The recipes follow the
 tools, a project with no code has a Justfile, and `verify` runs only the
 checks that are installed. These gaps are open:
 
-1. **Make the `g*` skills read the variant of `tasker`.** Add the worktree
-   recipes too, such as `just worktree-new` and `just worktrees-prune`, with
-   `.worktreeinclude` and `.worktreelink`.
-2. **Make the hooks of `tasker` say to use GitButler only when `but` is
-   installed.**
-3. **Add tools for the parts of cheesecracker**, for example `serve`,
-   `docker` and `ci`.
-4. **Save the clone folder in the project.**
+1. **Add a profile for a web service**, for example jnprofile-fastapi, with
+   the tools `serve`, `docker` and `system-test`. These parts are not for each
+   Python project, so they are a profile of their own and not tools of the
+   `python` profile. A project names both, with `just install --profile
+   python,fastapi`. Two profiles with the same manifest, `pyproject.toml`,
+   are not tested yet.
+2. **Save the clone folder in the project.**
 
 The installer fixes closed these gaps:
 
