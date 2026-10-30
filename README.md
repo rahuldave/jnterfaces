@@ -60,8 +60,10 @@ The record saves the variant, so a later `just install` keeps it:
 | `gitwt` | each task in its own Git worktree, and the main checkout stays on `main` |
 | `jj` | with jj; not ready yet, so the installer refuses it |
 
-The installer saves the variant only. The `g*` skills of agent_gest_git_skills
-do not read it yet, so today `gitwt` works as `git`.
+The `g*` skills and the hooks of agent_gest_git_skills read the variant with
+`just tasker-mode`. In a project that jnterfaces started, the role also adds
+the worktree recipes `just worktree-new NAME`, `just worktree-sync`,
+`just worktrees` and `just worktrees-prune`.
 
 **The recipes of a role.** A role package can ship a recipe file,
 `.agents/just/roles/<package>.just`. In a project that jnterfaces started, the
