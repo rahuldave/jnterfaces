@@ -51,6 +51,27 @@ Enter to keep the default:
 
 The old names `gest`, `nossaifd` and `sklanes` still work.
 
+**Variants.** A role can have variants, such as `just install tasker=gitwt`.
+The record saves the variant, so a later `just install` keeps it:
+
+| Variant of `tasker` | How the work goes |
+|---|---|
+| `git`, the default | on a branch in the main checkout |
+| `gitwt` | each task in its own Git worktree, and the main checkout stays on `main` |
+| `jj` | with jj; not ready yet, so the installer refuses it |
+
+The installer saves the variant only. The `g*` skills of agent_gest_git_skills
+do not read it yet, so today `gitwt` works as `git`.
+
+**The recipes of a role.** A role package can ship a recipe file,
+`.agents/just/roles/<package>.just`. In a project that jnterfaces started, the
+index imports it. For example, `prose` gives `just prose`, which checks the
+Markdown of the project. Another project gets the line to add to its Justfile.
+
+**Starter files.** A role can write a starter file, such as the `AGENTS.md` of
+`tasker`. The record keeps its hash. `just uninstall` removes the file when
+nobody changed it, and keeps it, with a note, when you edited it.
+
 ### Tools and profiles
 
 A tool is one unit of the setup of the project, such as `lint`. It brings its
@@ -101,6 +122,7 @@ of a dependency group goes, the installer takes out the empty group.
 ### Names and options
 
 - **`just install lint tasker`** turns on a tool and a role.
+- **`just install tasker=gitwt`** turns on a role with a variant.
 - **`just uninstall python`** takes out a profile with its tools, its recipes
   and its package. The project keeps `pyproject.toml`.
 - **`just uninstall reporter lint`** turns them off. It removes the files of

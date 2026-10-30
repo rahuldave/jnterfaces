@@ -362,6 +362,11 @@ class StackTests(unittest.TestCase):
         (root / '.agents/skills' / skill).mkdir(parents=True)
         (root / '.agents/skills' / skill / 'SKILL.md').write_text(f'---\nname: {skill}\ndescription: d\n---\n')
         manifest = {'repository': {'name': name}, 'skills': [{'name': skill, 'path': f'.agents/skills/{skill}'}]}
+        if name == 'nossaifd':
+            (root / '.agents/just/roles').mkdir(parents=True)
+            (root / '.agents/just/roles/nossaifd.just').write_text(
+                '[positional-arguments]\nprose *args:\n    @echo prose "$@"\n')
+            manifest['install_extras'] = {'files': ['.agents/just/roles/nossaifd.just']}
         if name == 'agent_gest_git_skills':
             (root / '.claude/hooks').mkdir(parents=True)
             (root / '.claude/hooks/start.sh').write_text('echo start\n')
@@ -439,7 +444,11 @@ class StackTests(unittest.TestCase):
         self.assertFalse(self.has('cx') or self.has('lanes'))
         self.assertTrue((self.target / '.agents/install.just').is_file())
         self.assertTrue((self.target / '.claude/hooks/start.sh').is_file())
-        self.assertEqual(self.saved(), {'version': 2, 'profiles': [], 'tools': [], 'started': True, 'choices': {
+        saved = self.saved()
+        # The prose role ships a recipe file, so the index exists, and the record holds its hash.
+        self.assertEqual(list(saved.pop('generated')), ['.agents/just/index.just'])
+        self.assertEqual(saved, {'version': 2, 'profiles': [], 'tools': [], 'started': True,
+                                        'variants': {'tasker': 'git'}, 'choices': {
             'cx': False, 'jagt-protocol': False, 'prose': True, 'reporter': False, 'tasker': True}})
         # With no profile, the project still gets the starter Justfile, which imports the recipe file.
         self.assertIn('Wrote Justfile', run.stdout)
@@ -677,6 +686,77 @@ class StackTests(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn('typescript typecheck', run.stdout)
 
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_started_project_gets_the_recipes_of_its_roles(self):
+        self.assertEqual(self.stack('prose').returncode, 0)
+        self.assertIn("import? 'roles/nossaifd.just'", (self.target / '.agents/just/index.just').read_text())
+        run = self.just_in_target('prose', 'a.md')
+        self.assertEqual((run.returncode, run.stdout.strip()), (0, 'prose a.md'), run.stderr)
+        # The recipe goes with its role.
+        self.assertEqual(self.stack('--without', 'prose').returncode, 0)
+        self.assertNotIn('nossaifd', (self.target / '.agents/just/index.just').read_text())
+        self.assertNotEqual(self.just_in_target('prose').returncode, 0)
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_project_not_started_by_jnterfaces_is_told_how_to_add_the_role_recipes(self):
+        (self.target / 'Justfile').write_text("import? '.agents/install.just'\n")
+        run = self.stack('prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("put these lines in it: import? '.agents/just/roles/nossaifd.just'", run.stderr)
+
+    def test_a_role_variant_is_saved_kept_and_dropped_with_the_role(self):
+        run = self.stack('tasker=gitwt')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.saved()['variants'], {'tasker': 'gitwt'})
+        self.assertIn('tasker: gitwt', run.stdout)
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertEqual(self.saved()['variants'], {'tasker': 'gitwt'})
+        self.assertEqual(self.stack('tasker=git').returncode, 0)
+        self.assertEqual(self.saved()['variants'], {'tasker': 'git'})
+        self.assertEqual(self.stack('--without', 'tasker').returncode, 0)
+        self.assertNotIn('variants', self.saved())
+        # A role turned on again without a variant takes the default.
+        self.assertEqual(self.stack('tasker').returncode, 0)
+        self.assertEqual(self.saved()['variants'], {'tasker': 'git'})
+
+    def test_a_variant_that_is_not_ready_or_unknown_is_refused(self):
+        run = self.stack('tasker=jj')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('tasker=jj is not ready yet', run.stderr)
+        self.assertFalse((self.target / '.agents').exists())
+        self.assertIn('tasker has no variant nope', self.stack('tasker=nope').stderr)
+        self.assertIn('only a role that has variants takes one', self.stack('prose=x').stderr)
+        self.assertIn('only a role that has variants takes one', self.stack('--without', 'tasker=git').stderr)
+
+    def test_a_saved_variant_that_is_no_longer_ready_names_the_way_out(self):
+        self.assertEqual(self.stack('tasker=gitwt').returncode, 0)
+        registry = self.registry_with(lambda r: r['packages'][1]['variants']['gitwt'].update(ready=False))
+        run = self.stack('--registry', registry)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('just install tasker=git', run.stderr)
+        self.assertEqual(self.stack('tasker=git', '--registry', registry).returncode, 0)
+        registry = self.registry_with(lambda r: r['packages'][1]['variants'].pop('gitwt'))
+        self.assertEqual(self.stack('tasker=git').returncode, 0)
+        record = self.saved()
+        record['variants'] = {'tasker': 'gitwt'}
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        run = self.stack('--registry', registry)
+        self.assertIn('The saved variant tasker=gitwt is gone from stack.json', run.stderr)
+        self.assertEqual(self.saved()['variants'], {'tasker': 'git'})
+
+    def test_a_project_not_started_by_jnterfaces_gets_no_index_for_roles_alone(self):
+        (self.target / 'Justfile').write_text("import? '.agents/install.just'\n")
+        self.assertEqual(self.stack('prose').returncode, 0)
+        self.assertFalse((self.target / '.agents/just/index.just').exists())
+
+    def test_a_malformed_variant_list_is_refused(self):
+        for change in (lambda r: r['packages'][1].update(default_variant='nope'),
+                       lambda r: r['packages'][1]['variants'].update(git={'about': 'x', 'ready': False}),
+                       lambda r: r['packages'][1]['variants'].update(bad=[]),
+                       lambda r: r['packages'][2].update(variants={'a': {'about': 'x'}})):
+            with self.assertRaises(install_stack.StackError):
+                install_stack.load_registry(self.registry_with(change))
+
     def test_the_record_holds_the_files_of_just_install_and_the_starter_justfile(self):
         self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
         saved = self.saved()
@@ -753,7 +833,7 @@ class StackTests(unittest.TestCase):
         run = self.stack('--profile', 'python', '--defaults')
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn('was not started by jnterfaces', run.stderr)
-        self.assertEqual(run.stderr.count('was not started by jnterfaces'), 1)
+        self.assertEqual(run.stderr.count('adds the recipes of each profile as a module only'), 1)
         index = (self.target / '.agents/just/index.just').read_text()
         self.assertIn("mod python 'python.just'", index)
         self.assertNotIn('verify', index)

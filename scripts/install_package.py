@@ -451,6 +451,16 @@ def recorded_folders(old):
     return found | recorded_links(old)
 
 
+def recorded_seeds(old):
+    """The starter files of a record, with the hash of what the install wrote: plain paths inside the target only."""
+    seeds = old.get('seeds') if isinstance(old, dict) else None
+    found = {}
+    for name, value in (seeds.items() if isinstance(seeds, dict) else []):
+        if isinstance(name, str) and isinstance(value, str) and clean_relative(name, '').as_posix() == name:
+            found[name] = value
+    return found
+
+
 def recorded_links(old):
     """The skill folders in the claude_links of a record: plain folder names only."""
     links = old.get('claude_links') if isinstance(old, dict) else None
@@ -686,11 +696,29 @@ def remove(args, target, tree, package, provenance, hooks):
                and Path(name).name == 'SKILL.md'}
     old_links = recorded_links(old)
     package_folders = (skill_folders(old_hashes) | old_links) - foreign
+    # A starter file goes when it is still as the install wrote it, or as the source ships it now. An edited one stays.
+    seed_gone, seed_kept = [], []
+    # A record from before the seeds were recorded cannot say who wrote the file, so a file equal to what the source
+    # ships counts as the install's. A newer record names its starter files.
+    shipped_seeds = {} if 'seeds' in old else {
+        relative.as_posix(): digest(tree.read(origin)) for relative, origin in package_extras(tree)[2].items()}
+    for name in sorted(set(recorded_seeds(old)) | set(shipped_seeds)):
+        reject_symlinks(target, Path(name))
+        path = target / name
+        if not path.is_file():
+            continue
+        if digest(path.read_bytes()) in {recorded_seeds(old).get(name), shipped_seeds.get(name)}:
+            seed_gone.append(Path(name))
+        else:
+            seed_kept.append(name)
+            print(f'Kept {name}: you edited this starter file of {package}, so it stays. It may still name the skills '
+                  f'of {package}; edit it, or remove it yourself.', file=sys.stderr)
     if args.dry_run:
         link_skills(target, package_folders, staying, old_links, create=False, dry_run=True)
-        print(f'Would remove {len(gone)} files of {package} from {target} and keep {len(kept)} edited files')
+        print(f'Would remove {len(gone) + len(seed_gone)} files of {package} from {target} and keep '
+              f'{len(kept) + len(seed_kept)} edited files')
         return
-    for relative in gone:
+    for relative in gone + seed_gone:
         (target / relative).unlink()
         remove_empty_parents(target, target / relative)
     write_hooks(target, planned)
@@ -700,12 +728,14 @@ def remove(args, target, tree, package, provenance, hooks):
         old['skills'] = sorted({Path(name).parts[2] for name in kept if scope_of(name, []) == 'skill'} & set(old_skills))
         old['merged_hooks'] = {}
         old['created_settings'] = []
+        old['seeds'] = {}
         old['claude_links'] = sorted(links)
         old['removed'] = True
         atomic_write(target / provenance, (json.dumps(old, indent=2) + '\n').encode())
     else:
         (target / provenance).unlink()
-    print(f'Removed {package} from {target}: {len(gone)} files removed, {len(kept)} files kept')
+    print(f'Removed {package} from {target}: {len(gone) + len(seed_gone)} files removed, '
+          f'{len(kept) + len(seed_kept)} files kept')
 
 
 def main():
@@ -793,6 +823,10 @@ def main():
         reject_symlinks(target, relative)
         if not (target / relative).exists():
             seeds[relative] = tree.read(origin)
+    # The starter files that an install wrote, with the hash of what it wrote, so that a removal can take out one that
+    # nobody changed. A starter file that is gone leaves the record.
+    seed_hashes = {name: value for name, value in recorded_seeds(old).items() if (target / name).is_file()}
+    seed_hashes.update({relative.as_posix(): digest(data) for relative, data in seeds.items()})
     legacy = bool(old) and 'merged_hooks' not in old
     revision_then = old_revision(tree.source, old) if legacy else None
     settings = hook_settings(tree, target, hooks, old_hooks, created, legacy=legacy, legacy_files=list(old_hashes),
@@ -865,6 +899,7 @@ def main():
         'extras': sorted(extra_names),
         'merged_hooks': {relative.as_posix(): ours for relative, (_, ours, _) in settings.items() if ours.get('hooks')},
         'created_settings': sorted(relative.as_posix() for relative, (_, _, made) in settings.items() if made),
+        'seeds': dict(sorted(seed_hashes.items())),
         'managed_files': dict(sorted(managed.items())),
     }
     for name, reason in keep:
@@ -895,7 +930,8 @@ def main():
         remove_empty_parents(target, target / relative)
     for relative, data in seeds.items():
         atomic_write(target / relative, data)
-        print(f'Wrote {relative} from {seed[relative]}; it is yours now, and later installs leave it alone.')
+        print(f'Wrote {relative} from {seed[relative]}; it is yours now. Later installs leave it alone, and a removal '
+              f'of {package} takes it out only while nobody has changed it.')
     write_hooks(target, settings)
     metadata['claude_links'] = sorted(link_skills(target, link_folders, present, old_links))
     atomic_write(target / provenance, (json.dumps(metadata, indent=2) + '\n').encode())

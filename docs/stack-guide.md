@@ -209,17 +209,21 @@ uv run ~/Projects/jnterfaces/scripts/install_stack.py --target . prose
 - The starter Justfile, which imports `.agents/install.just`. So `just
   install`, `just uninstall` and `just install --help` work.
 
-Run the checker on a page:
+Run the checker on the Markdown files that git tracks, or on the pages that
+you name. Alone, it leaves out `AGENTS.md` and `CLAUDE.md`, which are
+instructions for agents:
 
 ```bash
-uv run --no-project python .agents/skills/nossaifd/scripts/check.py README.md
+just prose
+just prose -v README.md
 ```
+
+An agent finds the nossaifd skill by its description, through the link in
+`.claude/skills` or the copy in `.agents/skills`. So it needs no line in an
+`AGENTS.md`.
 
 **What does not work:**
 
-- **No recipe for the checker.** You type the `uv run` command above.
-- **No `AGENTS.md`.** Only the `tasker` role writes one. So nothing tells an
-  agent to use the nossaifd skill.
 - **A project with a manifest gets a profile.** If the project has
   `pyproject.toml` or `package.json` on the first install, the installer
   finds the profile and adds its default tools. To install the role alone,
@@ -237,7 +241,13 @@ just install tasker
 - The `g*` skills, which track work with Gest.
 - The agent hooks in `.claude/hooks` and `.codex/hooks`, with their entries
   in `.claude/settings.json` and `.codex/hooks.json`.
-- A starter `AGENTS.md`, if the project has none.
+- A starter `AGENTS.md`, if the project has none. `just uninstall tasker`
+  removes it again when nobody changed it.
+
+**Variants.** `just install tasker=gitwt` works on each task in its own Git
+worktree, and keeps the main checkout on `main`. The default, `tasker=git`,
+works on a branch in the main checkout. The record saves the variant. The
+`jj` variant is not ready yet.
 
 **What works.** The install. The hooks run without GitButler, and the Git
 guard of the hooks lets `git commit` run.
@@ -246,8 +256,8 @@ guard of the hooks lets `git commit` run.
 
 - **The hooks tell the agent to use GitButler** with `but`, also when `but`
   is not installed.
-- **`just uninstall tasker` keeps `AGENTS.md`.** The file still points to
-  `.agents/skills/gtw`, which the removal takes out.
+- **The `g*` skills do not read the variant yet**, and the worktree recipes
+  are not there yet. A later change of agent_gest_git_skills adds them.
 - **The skills need `gest`.** `gest` does not come through `uv`. The installer
   prints a warning when it is missing.
 - **The starter `AGENTS.md` has `<replace-me>` fields.** You fill them in.
@@ -377,8 +387,8 @@ again.
 
 | Mixin | Command | Works now | Does not work |
 |---|---|---|---|
-| Writing skill | `install_stack.py prose` | The skill, `check.py` and the starter Justfile | No recipe for the checker, no `AGENTS.md` |
-| Task tracker | `just install tasker` | The skills, the hooks, `AGENTS.md` | Needs `gest`, which `uv` does not give. Removal keeps `AGENTS.md` |
+| Writing skill | `install_stack.py prose` | The skill, the starter Justfile and `just prose` | none |
+| Task tracker | `just install tasker` | The skills, the hooks, `AGENTS.md`, the variant | Needs `gest`, which `uv` does not give. The skills do not read the variant yet |
 | Python profile | `just install --profile python` | The package, the manifest, `.gitignore`, the defaults | none |
 | TypeScript profile | `just install --profile typescript` | The package, the manifest, `.gitignore`, the defaults | Its repository is not on GitHub yet |
 | Lint | `just install lint` | ruff and pre-commit, or biome | No `just hook` for TypeScript |
@@ -395,15 +405,14 @@ The profile packages closed the gaps of the recipes. The recipes follow the
 tools, a project with no code has a Justfile, and `verify` runs only the
 checks that are installed. These gaps are open:
 
-1. **Add a recipe for the writing checker** to the `prose` role, and an
-   `AGENTS.md` line for it.
-2. **Remove the lines of `tasker` from `AGENTS.md`** when the role goes.
-3. **Make the hooks of `tasker` say to use GitButler only when `but` is
+1. **Make the `g*` skills read the variant of `tasker`.** Add the worktree
+   recipes too, such as `just worktree-new` and `just worktrees-prune`, with
+   `.worktreeinclude` and `.worktreelink`.
+2. **Make the hooks of `tasker` say to use GitButler only when `but` is
    installed.**
-4. **Add tools for the parts of cheesecracker**, for example `serve`,
+3. **Add tools for the parts of cheesecracker**, for example `serve`,
    `docker` and `ci`.
-5. **Publish jnprofile-typescript on GitHub.**
-6. **Save the clone folder in the project.**
+4. **Save the clone folder in the project.**
 
 The installer fixes closed these gaps:
 
@@ -413,3 +422,9 @@ The installer fixes closed these gaps:
 - **The installer script reads `SKILL_PACKAGES_DIR`**, and each run prints
   the folder.
 - **Removing lint** takes out the Git hook.
+
+The role recipes closed these gaps:
+
+- **`just prose`** checks the Markdown of the project.
+- **`just uninstall tasker`** removes an `AGENTS.md` that nobody changed.
+- **jnprofile-typescript** is on GitHub.
