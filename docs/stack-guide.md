@@ -411,72 +411,131 @@ profile:
   again. `--profile` with a list that leaves out a saved profile also turns
   that profile off.
 
-## Shared files and the log
+## Shared files and the record
 
-Several owners can add lines to one file. An owner is a profile, such as
-`python`, or a tool of a profile, such as `python:lint`. The files are line
-files, such as `.gitignore` and `.worktreedisposable`, where each line is a
-pattern. `docs/plan-shared-files.md` gives each decision and its reason.
+Several owners can add a part to one file. An owner is `jnterfaces`, a
+profile such as `python`, a tool of a profile such as `python:lint`, or a role
+such as `tasker`. Each owner adds its part and takes out only its part.
+`docs/plan-shared-files.md` and `docs/plan-snippets.md` give each decision and
+its reason. `scripts/formats.json` lists the shared files that a package can
+add a part to, with the format of each file.
 
-**Blocks.** The lines of each owner go in a block of their own, at the start
-of the file. Your own lines come after the blocks. In a git ignore file, a
-later line wins, so a line of yours always wins over a line of a block. A
-block looks like this:
+**Three kinds of part.** The format of the file sets the kind:
+
+| Kind | Files | What the owner adds |
+|---|---|---|
+| A block of lines | `.gitignore`, `.worktreedisposable` | Its lines, in a block of its own at the start of the file |
+| An include | `ruff.toml`, `tsconfig.json`, `biome.json`, `AGENTS.md` | One line or key that reads an own file, which the installer writes under `.agents/config/` or `.agents/instructions/` |
+| Units | `ty.toml`, `pyproject.toml`, `.pre-commit-config.yaml`, `.claude/settings.json`, `.codex/hooks.json` | Keys, items of a list, or hooks |
+
+An own file is a file that only the installer writes. Do not edit it. To
+change a setting, set it in the shared file. Your settings
+win over the
+settings of the own file. For example, `line-length = 99` in your
+`ruff.toml` wins over the `line-length = 120` of
+`.agents/config/python/ruff.toml`.
+
+A block of lines looks like this:
 
 ```gitignore
 # begin lines of python:lint, the lint tool of the python profile, from jnprofile-python at c299beb.
-# Last written to .gitignore by `just install lint`, entry 2026-10-30T14:05:12Z-a1b2 of .agents/stack-log.jsonl.
+# Last written to .gitignore by `just install lint`. The record is parts.".gitignore" in .agents/stack.json.
 .ruff_cache/
 # end lines of python:lint. `just uninstall lint` removes them.
 ```
 
-The begin comment names the owner, its package and commit, the command, and
-the entry in the log. Search the log for the entry to see the whole change.
+Your own lines come after the blocks. In a git ignore file, a later line
+wins, so a line of yours always wins over a line of a block. In `AGENTS.md`
+the comments of a block are HTML comments. A TOML key or a YAML item of a
+part has one comment on the line before it, which names its owner.
 
-**The log.** `.agents/stack-log.jsonl` has one JSON object on each line. Each
-run that changes a shared file adds two entries with the same `id`. The
-first entry has `status` `started` and lists each change. The second has
-`status` `finished`. For example:
+**The record.** The key `parts` in `.agents/stack.json` records each unit
+that the installer added. For each unit, it records the state, the owner
+that holds the unit, and each owner that needs it. The files are the output of the record. A removal reads the
+record, never the files, to know what to take out. The states are:
 
-```json
-{"command": "just install lint", "id": "2026-10-30T14:05:12Z-a1b2", "lines": {".gitignore": {"python:lint": {"added": [".ruff_cache/"]}}}, "sources": {"jnprofile-python": "c299beb...", "jnterfaces": "410aace..."}, "status": "started"}
-```
+| State | Meaning |
+|---|---|
+| `added` | The installer added the unit. It goes when no owner needs it. |
+| `present` | The unit was in the file before its owner came. It is yours, and stays. |
+| `declined` | You deleted the unit. The installer does not add it again. |
+| `kept` | You changed a whole config file of an older installer. It stays yours, with no part. |
+| `seeded` | A starter, such as the first `AGENTS.md`. It is yours from the start. |
 
-Commit the log with the project. `.agents/.gitattributes` gives the log the
-union merge of git, so two branches that each add entries merge with no
-conflict.
+**How a part goes.**
 
-**How a line goes.** The log says which owner added each line:
-
-- A line that two owners need stays while either owner is on. When the
-  owner of its block goes, the line moves to the block of the other owner.
-- A line that was in the file before the owner came is yours. No removal
-  takes it out.
-- A line that you delete stays out. The installer records it as declined
-  and does not add it again. A shared file that you delete stays deleted in
-  the same way.
-- A line that you move out of its block still goes with its owner, if the
-  file has one copy of it. With two copies, or a copy that differs, the
-  output names the line and the line stays.
+- A unit that two owners need stays while either owner is on. When the
+  owner that holds it goes, it passes to the other owner.
+- A unit that you delete stays out. A shared file that you delete stays
+  deleted in the same way, and its own file goes.
+- A unit that you change is yours. It stays when its owners go, and the
+  output names it.
+- Two owners that need one unit with two values stop the run, which names
+  both owners. `ruff.toml` takes one `extend`, so it has one owner.
 - A line that you add inside a block moves after the blocks at the next run.
+- When the last part goes and nothing else is left in the file, the file
+  goes.
 
-**Config files.** A config file of a tool, such as `ruff.toml`, has a list
-of owners and the hash of what the installer wrote. `tsconfig.json` belongs
-to the `typecheck` and `test` tools of the TypeScript profile, so it stays
-until both go. The installer removes a config file only when its hash is the
-recorded one. A config file that you wrote yourself is never written or
-removed. A config file that you delete stays deleted.
+**Files that the installer leaves alone.** A `tsconfig.json` or a
+`biome.jsonc` with comments is not plain JSON. The installer does not change
+it, and the output prints the include to add by hand. An `extend` of your own
+in `ruff.toml` stays, and the installer writes no own file. If git ignores an
+own file, the run stops, because a fresh clone
+needs the own file.
 
-**Check and dry run.** `just install --check` compares the log with the
+**A guard.** The lint tool of the python profile adds no part to `ruff.toml` when `pyproject.toml` has a `[tool.ruff]`
+table. An `extend` there would change your settings and the format of the whole code base.
+The guard stops a new part only. A part that is there stays when you add
+`[tool.ruff]` later.
+
+**Roles.** A role adds its parts in the same way. The `tasker` role adds a
+starter `AGENTS.md` once. If you delete it while the role is installed, it
+stays deleted. The role also
+adds a line to `AGENTS.md` that points to `.agents/instructions/tasker.md`.
+Its hooks are units of `.claude/settings.json` and `.codex/hooks.json`.
+
+The SessionStart hook of the role prints the rules file, so both Claude and
+Codex read the rules. Claude Code and Codex show a long hook output only as
+a preview and a file. So the first line of the output asks the agent to read
+the whole file.
+
+**The log is a history.** `.agents/stack-log.jsonl` gets one entry for each
+run that changes a file. Nothing reads it to decide what to do. The `jnterfaces` block of
+`.gitignore` names it, so git does not keep it.
+
+**A run that stops.** Before a run writes a file, it saves
+`.agents/stack-pending.json` with the old and new record of each file. The
+next run reads it, so it can still take out a part that the stopped run
+added. git does not keep this file either.
+
+**Branches.** When two branches change `.agents/stack.json`, git gives a
+conflict in it. Resolve it as for any file. A merge can keep the blocks of both sides and the record
+of one side. Then the next run takes each block of a
+known owner into the record.
+
+**Check and dry run.** `just install --check` compares the record with the
 files, prints each difference, and changes nothing. It fails for a block
-that lacks its begin or end comment, and for a run that started and did not
-finish. Run `just install` again to finish such a run. `--dry-run` prints
-each line and file that a run would change.
+that lacks its begin or end comment, and for a run that stopped. Run `just
+install` again to finish such a run. `--dry-run` prints each file that a run
+would change.
 
-**Projects from before the log.** The first run adds an entry with the
-command `baseline`. Each line and config file that was there before it is
-yours. For example, the `.venv/` that an old `python` profile wrote in
-`.gitignore` stays after `just uninstall python`. Remove such lines by hand.
+**Projects of an older installer.** The first run of this installer moves the
+record from the old log to `parts`, once:
+
+- The lines of the old log become units of the record.
+- A config file that the old installer wrote and that nobody changed becomes
+  an own file and an include.
+- A config file that you changed stays yours, with no include. To have the
+  include, delete the file and run `just install` again.
+- An `AGENTS.md` that the old installer wrote and that nobody changed becomes
+  the starter and a pointer. One that you changed stays yours. The hook still
+  prints the rules.
+- The hooks that a role merged become units of the role.
+- The output asks you to run `git rm --cached .agents/stack-log.jsonl` once.
+
+If an older installer on another branch adds an entry to the log after the
+move, the run stops. Run the new installer on that branch first. Each person
+on a project moves to the new installer at the same time.
 
 **Removing lint takes out the Git hook.** Before `just uninstall lint`
 removes pre-commit, it runs `uv run --group lint pre-commit uninstall`. It
@@ -496,7 +555,7 @@ again.
 | Tests | `just install test` | pytest, or `node --test` | none |
 | Types | `just install typecheck` | ty with `ty.toml`, or tsc | none |
 | Remove a tool or a profile | `just uninstall NAME` | The packages, the recipes, the Git hook and empty groups go | none |
-| Shared files | any install | The blocks of each owner, the config files, the log, `just install --check` | Lines from role packages |
+| Shared files | any install | The blocks, includes and units of each owner, the record, `just install --check` | none |
 | Edit a skill | by hand | The edit stays, and the other files install | none |
 | Claude Code | any install | The `.claude/skills` links | none |
 | Server, Docker, CI | none | none | No mixin |

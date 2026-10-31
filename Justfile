@@ -8,7 +8,7 @@ default:
     @just --list --unsorted
 
 # Python comes from uv, so the machine needs just and uv only
-python := "uv run --no-project --quiet python"
+python := "uv run --no-project --quiet --with tomlkit==0.15.2 --with ruamel.yaml==0.19.1 python"
 
 # Check the shell scripts, the Python, the JSON and the Justfile templates for syntax, and check that each link to an optional skill has a fallback
 lint:
