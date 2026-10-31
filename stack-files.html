@@ -585,7 +585,8 @@ profile, for example <code>pyproject.toml</code> or <code>uv.lock</code>.</p>
 </table>
 </div>
 <p>The installer keeps any other key that it finds in the record. One old key,
-<code>added_packages</code>, moves into <code>owned_packages</code> and goes.</p>
+<code>added_packages</code>, goes. An entry moves into <code>owned_packages</code> when its tool
+is a tool of a profile that the run turns on, keeps or turns off. The installer drops the other entries.</p>
 <p><strong><code>parts</code></strong> is keyed by the shared file, then by the unit. For example:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode json code-with-copy"><code class="sourceCode json"><span class="kw">&quot;parts&quot;</span>: {
   <span class="kw">&quot;.gitignore&quot;</span>: {
@@ -777,6 +778,9 @@ installer accepts only <code>biome.json</code> or <code>biome.jsonc</code> there
 the units out of <code>biome.jsonc</code> and adds them to <code>biome.json</code>. A unit that
 you deleted stays out.</li>
 <li><code>just install --check</code> names a part that the next run will move.</li>
+<li>If one of the two files is a symlink, the installer leaves the part alone.
+Each run and <code>just install --check</code> say so. The own file that the part
+includes stays, also after you uninstall its tool.</li>
 <li>A record of an older installer has no <code>file</code>. The installer then looks for
 the units in <code>biome.json</code> first, then in <code>biome.jsonc</code>.</li>
 </ul>
