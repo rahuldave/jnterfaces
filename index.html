@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="generator" content="smalldocs-0.5.4"><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"><meta name="description" content="The installer of the stack, and the just, jagt-protocol and cx skills"><title>jnterfaces</title><link rel="stylesheet" href="site_libs/themes/cosmo.min.css" data-mode="light" class="quarto-color-scheme" id="quarto-bootstrap-light" media="not all and (prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/themes/darkly.min.css" data-mode="dark" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap-dark" media="(prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/bootstrap-icons/bootstrap-icons.min.css"><link rel="stylesheet" href="site_libs/smalldocs.css"><meta name="smalldocs:offset" content="./"><script src="site_libs/bootstrap/bootstrap.bundle.min.js"></script><script src="site_libs/fuse/fuse.min.js"></script><script src="site_libs/smalldocs.js" defer></script><script>(function(){var d=document.documentElement,s=null;try{s=localStorage.getItem('smalldocs-scheme')}catch(e){}var alt=s?s==='alternate':!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);var ls=document.querySelectorAll('link.quarto-color-scheme');if(alt)d.dataset.scheme='alternate';if(s)ls.forEach(function(l){var on=l.classList.contains('quarto-color-alternate')===alt;if(on)l.setAttribute('blocking','render');l.media=on?'all':'not all'});var on=ls[alt?1:0];if(on&&on.dataset.mode==='dark')d.classList.add('quarto-dark')})();</script></head><body class="nav-fixed"><header id="quarto-header" class="headroom sticky-top"><nav class="navbar navbar-expand-lg sd-navbar-default"><div class="navbar-container container-fluid"><div class="navbar-brand-container mx-auto"><a class="navbar-brand" href="index.html"><span class="navbar-title">jnterfaces</span></a></div><button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button><div class="collapse navbar-collapse" id="navbarCollapse"><ul class="navbar-nav navbar-nav-scroll me-auto"><li class="nav-item"><a class="nav-link active" href="index.html" aria-current="page"><span class="menu-text">Home</span></a></li><li class="nav-item"><a class="nav-link" href="stack-guide.html"><span class="menu-text">Stack guide</span></a></li><li class="nav-item"><a class="nav-link" href="stack-files.html"><span class="menu-text">Stack files</span></a></li></ul><ul class="navbar-nav navbar-nav-scroll ms-auto"><li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" id="nav-menu-1" role="link" data-bs-toggle="dropdown" aria-expanded="false"><span class="menu-text">Projects</span></a><ul class="dropdown-menu" aria-labelledby="nav-menu-1"><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnterfaces/"><span class="menu-text">jnterfaces</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-python/"><span class="menu-text">jnprofile-python</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-typescript/"><span class="menu-text">jnprofile-typescript</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/agent_gest_git_skills/"><span class="menu-text">agent_gest_git_skills</span></a></li></ul></li><li class="nav-item compact"><a class="nav-link" href="https://github.com/rahuldave/jnterfaces" aria-label="github"><i class="bi bi-github" role="img"></i></a></li><li class="nav-item compact"><a class="quarto-color-scheme-toggle nav-link" href="" title="Toggle dark mode" onclick="window.smalldocsToggleScheme(); return false;"><i class="bi"></i></a></li></ul><div class="quarto-navbar-tools"><div class="smalldocs-search" id="quarto-search"><i class="bi bi-search" aria-hidden="true"></i><input type="search" class="form-control form-control-sm" placeholder="Search" aria-label="Search" autocomplete="off"><div class="smalldocs-search-results dropdown-menu"></div></div></div></div></div></nav></header><div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article has-margin"><div id="quarto-margin-sidebar" class="sidebar margin-sidebar"><nav id="TOC" role="doc-toc" class="toc-active"><h2 id="toc-title">On this page</h2><ul><li><a href="#install-into-a-repository" id="toc-install-into-a-repository" class="nav-link" data-scroll-target="#install-into-a-repository">Install into a repository</a><ul><li><a href="#roles" id="toc-roles" class="nav-link" data-scroll-target="#roles">Roles</a></li><li><a href="#tools-and-profiles" id="toc-tools-and-profiles" class="nav-link" data-scroll-target="#tools-and-profiles">Tools and profiles</a></li><li><a href="#names-and-options" id="toc-names-and-options" class="nav-link" data-scroll-target="#names-and-options">Names and options</a></li><li><a href="#where-the-packages-are" id="toc-where-the-packages-are" class="nav-link" data-scroll-target="#where-the-packages-are">Where the packages are</a></li><li><a href="#copier" id="toc-copier" class="nav-link" data-scroll-target="#copier">copier</a></li><li><a href="#npx" id="toc-npx" class="nav-link" data-scroll-target="#npx">npx</a></li></ul></li><li><a href="#how-the-packages-stay-apart" id="toc-how-the-packages-stay-apart" class="nav-link" data-scroll-target="#how-the-packages-stay-apart">How the packages stay apart</a></li><li><a href="#work-on-this-repository" id="toc-work-on-this-repository" class="nav-link" data-scroll-target="#work-on-this-repository">Work on this repository</a></li><li><a href="#license" id="toc-license" class="nav-link" data-scroll-target="#license">License</a></li></ul></nav><div class="toc-actions"><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/blob/main/docs/index.md" class="toc-action"><i class="bi bi-code"></i> View source</a></div><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/issues/new" class="toc-action"><i class="bi bi-chat-right"></i> Report an issue</a></div></div></div><main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block default"><div class="quarto-title"><h1 class="title">jnterfaces</h1></div><div class="quarto-title-meta"></div></header><p>jnterfaces is a package of agent skills for the command interface of a project.
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="generator" content="smalldocs-0.5.4"><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"><meta name="description" content="The installer of the stack, and the just, jagt-protocol and cx skills"><title>jnterfaces</title><link rel="stylesheet" href="site_libs/themes/cosmo.min.css" data-mode="light" class="quarto-color-scheme" id="quarto-bootstrap-light" media="not all and (prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/themes/darkly.min.css" data-mode="dark" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap-dark" media="(prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/bootstrap-icons/bootstrap-icons.min.css"><link rel="stylesheet" href="site_libs/smalldocs.css"><meta name="smalldocs:offset" content="./"><script src="site_libs/bootstrap/bootstrap.bundle.min.js"></script><script src="site_libs/fuse/fuse.min.js"></script><script src="site_libs/smalldocs.js" defer></script><script>(function(){var d=document.documentElement,s=null;try{s=localStorage.getItem('smalldocs-scheme')}catch(e){}var alt=s?s==='alternate':!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);var ls=document.querySelectorAll('link.quarto-color-scheme');if(alt)d.dataset.scheme='alternate';if(s)ls.forEach(function(l){var on=l.classList.contains('quarto-color-alternate')===alt;if(on)l.setAttribute('blocking','render');l.media=on?'all':'not all'});var on=ls[alt?1:0];if(on&&on.dataset.mode==='dark')d.classList.add('quarto-dark')})();</script></head><body class="nav-fixed"><header id="quarto-header" class="headroom sticky-top"><nav class="navbar navbar-expand-lg sd-navbar-default"><div class="navbar-container container-fluid"><div class="navbar-brand-container mx-auto"><a class="navbar-brand" href="index.html"><span class="navbar-title">jnterfaces</span></a></div><button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button><div class="collapse navbar-collapse" id="navbarCollapse"><ul class="navbar-nav navbar-nav-scroll me-auto"><li class="nav-item"><a class="nav-link active" href="index.html" aria-current="page"><span class="menu-text">Home</span></a></li><li class="nav-item"><a class="nav-link" href="new-project.html"><span class="menu-text">New project</span></a></li><li class="nav-item"><a class="nav-link" href="stack-guide.html"><span class="menu-text">Stack guide</span></a></li><li class="nav-item"><a class="nav-link" href="stack-files.html"><span class="menu-text">Stack files</span></a></li></ul><ul class="navbar-nav navbar-nav-scroll ms-auto"><li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" id="nav-menu-1" role="link" data-bs-toggle="dropdown" aria-expanded="false"><span class="menu-text">Projects</span></a><ul class="dropdown-menu" aria-labelledby="nav-menu-1"><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnterfaces/"><span class="menu-text">jnterfaces</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-python/"><span class="menu-text">jnprofile-python</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-typescript/"><span class="menu-text">jnprofile-typescript</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/agent_gest_git_skills/"><span class="menu-text">agent_gest_git_skills</span></a></li></ul></li><li class="nav-item compact"><a class="nav-link" href="https://github.com/rahuldave/jnterfaces" aria-label="github"><i class="bi bi-github" role="img"></i></a></li><li class="nav-item compact"><a class="quarto-color-scheme-toggle nav-link" href="" title="Toggle dark mode" onclick="window.smalldocsToggleScheme(); return false;"><i class="bi"></i></a></li></ul><div class="quarto-navbar-tools"><div class="smalldocs-search" id="quarto-search"><i class="bi bi-search" aria-hidden="true"></i><input type="search" class="form-control form-control-sm" placeholder="Search" aria-label="Search" autocomplete="off"><div class="smalldocs-search-results dropdown-menu"></div></div></div></div></div></nav></header><div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article has-margin"><div id="quarto-margin-sidebar" class="sidebar margin-sidebar"><nav id="TOC" role="doc-toc" class="toc-active"><h2 id="toc-title">On this page</h2><ul><li><a href="#install-into-a-repository" id="toc-install-into-a-repository" class="nav-link" data-scroll-target="#install-into-a-repository">Install into a repository</a><ul><li><a href="#roles" id="toc-roles" class="nav-link" data-scroll-target="#roles">Roles</a></li><li><a href="#start-a-new-project" id="toc-start-a-new-project" class="nav-link" data-scroll-target="#start-a-new-project">Start a new project</a></li><li><a href="#tools-and-profiles" id="toc-tools-and-profiles" class="nav-link" data-scroll-target="#tools-and-profiles">Tools and profiles</a></li><li><a href="#names-and-options" id="toc-names-and-options" class="nav-link" data-scroll-target="#names-and-options">Names and options</a></li><li><a href="#where-the-packages-are" id="toc-where-the-packages-are" class="nav-link" data-scroll-target="#where-the-packages-are">Where the packages are</a></li><li><a href="#copier" id="toc-copier" class="nav-link" data-scroll-target="#copier">copier</a></li><li><a href="#npx" id="toc-npx" class="nav-link" data-scroll-target="#npx">npx</a></li></ul></li><li><a href="#how-the-packages-stay-apart" id="toc-how-the-packages-stay-apart" class="nav-link" data-scroll-target="#how-the-packages-stay-apart">How the packages stay apart</a></li><li><a href="#work-on-this-repository" id="toc-work-on-this-repository" class="nav-link" data-scroll-target="#work-on-this-repository">Work on this repository</a></li><li><a href="#license" id="toc-license" class="nav-link" data-scroll-target="#license">License</a></li></ul></nav><div class="toc-actions"><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/blob/main/docs/index.md" class="toc-action"><i class="bi bi-code"></i> View source</a></div><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/issues/new" class="toc-action"><i class="bi bi-chat-right"></i> Report an issue</a></div></div></div><main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block default"><div class="quarto-title"><h1 class="title">jnterfaces</h1></div><div class="quarto-title-meta"></div></header><p>jnterfaces is a package of agent skills for the command interface of a project.
 The interface is the Justfile, the packets that agentic Just targets emit, and
 the incremental file stages of <code>cx</code>. An agent skill is a folder with a
 <code>SKILL.md</code> file that Codex, Claude and other agents read.</p>
@@ -38,6 +38,8 @@ installs in the project. The Justfile of the project imports that file. To
 start a new project, clone jnterfaces once and run its installer:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">git clone https://github.com/rahuldave/jnterfaces ~/.local/share/skill-packages/jnterfaces
 uv run ~/.local/share/skill-packages/jnterfaces/scripts/install_stack.py --profile python</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p><a href="#start-a-new-project">Start a new project</a> gives each step, from an empty
+folder to a project whose checks pass.</p>
 <p>On a terminal, the installer asks which roles to install, and it saves the
 answers in <code>.agents/stack.json</code>. A named role asks nothing, and named roles
 alone turn on only those roles. Without a terminal, a named profile takes the
@@ -128,8 +130,76 @@ the worktree recipes <code>just worktree-new NAME</code>, <code>just worktree-sy
 index imports it. For example, <code>prose</code> gives <code>just prose</code>, which checks the
 Markdown of the project. Another project gets the line to add to its Justfile.</p>
 <p><strong>Starter files.</strong> A role can write a starter file, such as the <code>AGENTS.md</code> of
-<code>tasker</code>. The record keeps its hash. <code>just uninstall</code> removes the file when
-nobody changed it, and keeps it, with a note, when you edited it.</p>
+<code>tasker</code>, once, when the project has none. The starter is yours from then on.
+<code>just uninstall</code> takes out only the lines that the role added to it, and the
+file stays.</p>
+</section>
+<section id="start-a-new-project" class="level3">
+<h3 class="anchored" data-anchor-id="start-a-new-project">Start a new project</h3>
+<ol>
+<li>
+<p>Install <code>git</code>, <code>just</code> and <code>uv</code>.</p>
+</li>
+<li>
+<p>Choose the folder of the package clones. The default is
+<code>~/.local/share/skill-packages</code>. To use another folder, export
+<code>SKILL_PACKAGES_DIR</code> in your shell profile first, for example <code>export SKILL_PACKAGES_DIR=~/Projects</code>. <code>just install</code> in a project finds the
+clones in that folder only. Without the variable, it uses the default
+folder, also when you ran the first install from another clone.</p>
+</li>
+<li>
+<p>Clone jnterfaces into that folder:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">git clone https://github.com/rahuldave/jnterfaces <span class="st">&quot;</span><span class="ss">${</span><span class="va">SKILL_PACKAGES_DIR</span><span class="kw">:-</span><span class="va">$HOME</span>/.local/share/skill-packages<span class="ss">}</span><span class="st">/jnterfaces</span><span class="st">&quot;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</li>
+<li>
+<p>Make the project, and run the installer from the clone:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">mkdir app <span class="op">&amp;&amp;</span> <span class="bu">cd</span> app <span class="op">&amp;&amp;</span> git init
+uv run <span class="st">&quot;</span><span class="ss">${</span><span class="va">SKILL_PACKAGES_DIR</span><span class="kw">:-</span><span class="va">$HOME</span>/.local/share/skill-packages<span class="ss">}</span><span class="st">/jnterfaces/scripts/install_stack.py</span><span class="st">&quot;</span> --profile python</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Use <code>--profile typescript</code> for TypeScript. The installer clones the other
+packages that it needs, writes the starter Justfile, and adds the tools.</p>
+</li>
+<li>
+<p>Run <code>just verify</code>. A project with no code yet passes.</p>
+</li>
+<li>
+<p>Put the code in the place that the profile expects:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Profile</th>
+<th>Code</th>
+<th>Tests</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>python</code></td>
+<td>Modules at the top of the project, such as <code>app.py</code>, or a package folder</td>
+<td><code>tests/test_NAME.py</code>. pytest finds the modules at the top, because the <code>test</code> tool sets <code>pythonpath</code>.</td>
+</tr>
+<tr>
+<td><code>typescript</code></td>
+<td><code>src/</code>, for example <code>src/app.ts</code></td>
+<td><code>src/NAME.test.ts</code>, which imports the code as <code>./app.js</code>. Turn on the tool with <code>just install test</code>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</li>
+<li>
+<p>Run <code>just fmt</code> to format the code, then <code>just verify</code> again.</p>
+</li>
+<li>
+<p>Commit the project, with <code>.agents/</code>, <code>.claude/</code>, <code>.codex/</code>, <code>AGENTS.md</code>,
+the <code>Justfile</code> and the config files. <code>.gitignore</code> already leaves out what a
+command makes again, such as <code>.venv/</code> or <code>node_modules/</code>.</p>
+</li>
+</ol>
+<p>Later, <code>just install --update</code> gets the new commits of each package, and
+<code>just install --check</code> compares the record with the files.</p>
+<p><a href="https://rahuldave.github.io/jnterfaces/new-project.html">Start a Python or TypeScript project</a>
+gives each tool, recipe, hook and config file of a new project, with examples.</p>
 </section>
 <section id="tools-and-profiles" class="level3">
 <h3 class="anchored" data-anchor-id="tools-and-profiles">Tools and profiles</h3>
@@ -282,7 +352,7 @@ example <code>{{jn_copier}} copy TEMPLATE FOLDER</code>.</p>
 <section id="npx" class="level3">
 <h3 class="anchored" data-anchor-id="npx">npx</h3>
 <p>You can also install the skills with npx:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">npx skills add rahuldave/jnterfaces -a codex --skill just -y</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">npx skills add rahuldave/jnterfaces -a codex --skill just -y</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>The npx route installs no tools and records no source revision in <code>.agents/</code>.</p>
 <p>The skills use these executables:</p>
 <ul>
