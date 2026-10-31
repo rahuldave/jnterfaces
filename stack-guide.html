@@ -1,0 +1,829 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="generator" content="smalldocs-0.5.4"><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"><title>How the stack fits together – jnterfaces</title><link rel="stylesheet" href="site_libs/themes/cosmo.min.css" data-mode="light" class="quarto-color-scheme" id="quarto-bootstrap-light" media="not all and (prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/themes/darkly.min.css" data-mode="dark" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap-dark" media="(prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/bootstrap-icons/bootstrap-icons.min.css"><link rel="stylesheet" href="site_libs/smalldocs.css"><meta name="smalldocs:offset" content="./"><script src="site_libs/bootstrap/bootstrap.bundle.min.js"></script><script src="site_libs/fuse/fuse.min.js"></script><script src="site_libs/smalldocs.js" defer></script><script>(function(){var d=document.documentElement,s=null;try{s=localStorage.getItem('smalldocs-scheme')}catch(e){}var alt=s?s==='alternate':!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);var ls=document.querySelectorAll('link.quarto-color-scheme');if(alt)d.dataset.scheme='alternate';if(s)ls.forEach(function(l){var on=l.classList.contains('quarto-color-alternate')===alt;if(on)l.setAttribute('blocking','render');l.media=on?'all':'not all'});var on=ls[alt?1:0];if(on&&on.dataset.mode==='dark')d.classList.add('quarto-dark')})();</script></head><body class="nav-fixed"><header id="quarto-header" class="headroom sticky-top"><nav class="navbar navbar-expand-lg sd-navbar-default"><div class="navbar-container container-fluid"><div class="navbar-brand-container mx-auto"><a class="navbar-brand" href="index.html"><span class="navbar-title">jnterfaces</span></a></div><button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button><div class="collapse navbar-collapse" id="navbarCollapse"><ul class="navbar-nav navbar-nav-scroll me-auto"><li class="nav-item"><a class="nav-link" href="index.html"><span class="menu-text">Home</span></a></li><li class="nav-item"><a class="nav-link active" href="stack-guide.html" aria-current="page"><span class="menu-text">Stack guide</span></a></li></ul><ul class="navbar-nav navbar-nav-scroll ms-auto"><li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" id="nav-menu-1" role="link" data-bs-toggle="dropdown" aria-expanded="false"><span class="menu-text">Projects</span></a><ul class="dropdown-menu" aria-labelledby="nav-menu-1"><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnterfaces/"><span class="menu-text">jnterfaces</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-python/"><span class="menu-text">jnprofile-python</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-typescript/"><span class="menu-text">jnprofile-typescript</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/agent_gest_git_skills/"><span class="menu-text">agent_gest_git_skills</span></a></li></ul></li><li class="nav-item compact"><a class="nav-link" href="https://github.com/rahuldave/jnterfaces" aria-label="github"><i class="bi bi-github" role="img"></i></a></li><li class="nav-item compact"><a class="quarto-color-scheme-toggle nav-link" href="" title="Toggle dark mode" onclick="window.smalldocsToggleScheme(); return false;"><i class="bi"></i></a></li></ul><div class="quarto-navbar-tools"><div class="smalldocs-search" id="quarto-search"><i class="bi bi-search" aria-hidden="true"></i><input type="search" class="form-control form-control-sm" placeholder="Search" aria-label="Search" autocomplete="off"><div class="smalldocs-search-results dropdown-menu"></div></div></div></div></div></nav></header><div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article has-margin"><div id="quarto-margin-sidebar" class="sidebar margin-sidebar"><nav id="TOC" role="doc-toc" class="toc-active"><h2 id="toc-title">On this page</h2><ul><li><a href="#terms" id="toc-terms" class="nav-link" data-scroll-target="#terms">Terms</a></li><li><a href="#where-each-part-lives" id="toc-where-each-part-lives" class="nav-link" data-scroll-target="#where-each-part-lives">Where each part lives</a></li><li><a href="#what-a-machine-needs" id="toc-what-a-machine-needs" class="nav-link" data-scroll-target="#what-a-machine-needs">What a machine needs</a></li><li><a href="#how-an-install-works" id="toc-how-an-install-works" class="nav-link" data-scroll-target="#how-an-install-works">How an install works</a></li><li><a href="#how-the-recipes-arrive" id="toc-how-the-recipes-arrive" class="nav-link" data-scroll-target="#how-the-recipes-arrive">How the recipes arrive</a></li><li><a href="#build-a-project-in-layers" id="toc-build-a-project-in-layers" class="nav-link" data-scroll-target="#build-a-project-in-layers">Build a project in layers</a><ul><li><a href="#layer-0-an-empty-git-repository" id="toc-layer-0-an-empty-git-repository" class="nav-link" data-scroll-target="#layer-0-an-empty-git-repository">Layer 0: an empty Git repository</a></li><li><a href="#layer-1-the-writing-skill" id="toc-layer-1-the-writing-skill" class="nav-link" data-scroll-target="#layer-1-the-writing-skill">Layer 1: the writing skill</a></li><li><a href="#layer-2-the-task-tracker" id="toc-layer-2-the-task-tracker" class="nav-link" data-scroll-target="#layer-2-the-task-tracker">Layer 2: the task tracker</a></li><li><a href="#layer-3-a-language-profile" id="toc-layer-3-a-language-profile" class="nav-link" data-scroll-target="#layer-3-a-language-profile">Layer 3: a language profile</a></li><li><a href="#layer-4-lint-and-format" id="toc-layer-4-lint-and-format" class="nav-link" data-scroll-target="#layer-4-lint-and-format">Layer 4: lint and format</a></li><li><a href="#layer-5-tests" id="toc-layer-5-tests" class="nav-link" data-scroll-target="#layer-5-tests">Layer 5: tests</a></li><li><a href="#layer-6-types" id="toc-layer-6-types" class="nav-link" data-scroll-target="#layer-6-types">Layer 6: types</a></li><li><a href="#layer-7-one-check-before-a-commit" id="toc-layer-7-one-check-before-a-commit" class="nav-link" data-scroll-target="#layer-7-one-check-before-a-commit">Layer 7: one check before a commit</a></li><li><a href="#layers-that-the-stack-does-not-have-yet" id="toc-layers-that-the-stack-does-not-have-yet" class="nav-link" data-scroll-target="#layers-that-the-stack-does-not-have-yet">Layers that the stack does not have yet</a></li></ul></li><li><a href="#how-the-mixins-behave" id="toc-how-the-mixins-behave" class="nav-link" data-scroll-target="#how-the-mixins-behave">How the mixins behave</a></li><li><a href="#shared-files-and-the-record" id="toc-shared-files-and-the-record" class="nav-link" data-scroll-target="#shared-files-and-the-record">Shared files and the record</a></li><li><a href="#what-works-now" id="toc-what-works-now" class="nav-link" data-scroll-target="#what-works-now">What works now</a></li><li><a href="#gaps-to-close" id="toc-gaps-to-close" class="nav-link" data-scroll-target="#gaps-to-close">Gaps to close</a></li></ul></nav><div class="toc-actions"><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/blob/main/docs/stack-guide.md" class="toc-action"><i class="bi bi-code"></i> View source</a></div><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/issues/new" class="toc-action"><i class="bi bi-chat-right"></i> Report an issue</a></div></div></div><main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block default"><div class="quarto-title"><h1 class="title">How the stack fits together</h1></div><div class="quarto-title-meta"></div></header><p>This guide describes the skill stack on the <code>main</code> branch of jnterfaces. It
+says where each part lives, what a machine needs, and how an install works.
+Then it builds a project in layers, from a project with no code to a project
+with the checks of cheesecracker. Each layer says what works now and what does
+not. The results come from installs into empty Git repositories on
+2026-10-29. The section “Gaps to close” says which gaps a later change
+closed.</p>
+<section id="terms" class="level2">
+<h2 class="anchored" data-anchor-id="terms">Terms</h2>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Term</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>skill</td>
+<td>A folder with a <code>SKILL.md</code> file. An agent reads it to learn one job.</td>
+</tr>
+<tr>
+<td>package</td>
+<td>A Git repository that ships skills, for example nossaifd.</td>
+</tr>
+<tr>
+<td>role</td>
+<td>The name of a job, for example <code>prose</code>. A package does the job, so the package can change and the role name stays.</td>
+</tr>
+<tr>
+<td>profile</td>
+<td>A language setup, for example <code>python</code>. A profile package, such as jnprofile-python, ships it.</td>
+</tr>
+<tr>
+<td>tool</td>
+<td>One unit of the setup of a profile, for example <code>lint</code>. It brings packages, config files and recipes.</td>
+</tr>
+<tr>
+<td>manifest</td>
+<td>The file that lists the dependencies of the project: <code>pyproject.toml</code> or <code>package.json</code>.</td>
+</tr>
+<tr>
+<td>record</td>
+<td>A JSON file in <code>.agents/</code> that lists what the installer wrote, with a hash of each file.</td>
+</tr>
+<tr>
+<td>mixin</td>
+<td>One layer that you add to a project, for example a role or a tool.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="where-each-part-lives" class="level2">
+<h2 class="anchored" data-anchor-id="where-each-part-lives">Where each part lives</h2>
+<p>The stack has parts in four places:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Place</th>
+<th>What it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GitHub, <code>rahuldave/...</code></td>
+<td>The source of each package: jnterfaces, agent_gest_git_skills, nossaifd, sklanes, and the profile packages jnprofile-python and jnprofile-typescript.</td>
+</tr>
+<tr>
+<td>The clone folder</td>
+<td>One Git clone of each package. The default folder is <code>~/.local/share/skill-packages</code>.</td>
+</tr>
+<tr>
+<td>The project</td>
+<td>Copies of the skills in <code>.agents/skills</code>, the recipes in <code>.agents/just</code>, the records, and <code>.agents/stack.json</code>.</td>
+</tr>
+<tr>
+<td>The machine</td>
+<td>The programs: <code>git</code>, <code>just</code>, <code>uv</code>, and the programs that some roles need.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The packages and their roles are in this table:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Role</th>
+<th>Package</th>
+<th>What it installs</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>none, always installed</td>
+<td>jnterfaces</td>
+<td>the <code>just</code> skill, the installer file <code>.agents/install.just</code></td>
+<td>always</td>
+</tr>
+<tr>
+<td><code>cx</code></td>
+<td>jnterfaces</td>
+<td>the <code>cx</code> skill</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>jagt-protocol</code></td>
+<td>jnterfaces</td>
+<td>the <code>jagt-protocol</code> skill</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>prose</code></td>
+<td>nossaifd</td>
+<td>the <code>nossaifd</code> skill, its guide and <code>check.py</code></td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>tasker</code></td>
+<td>agent_gest_git_skills</td>
+<td>the <code>g*</code> skills, the agent hooks, the starter <code>AGENTS.md</code></td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>reporter</code></td>
+<td>sklanes</td>
+<td>the <code>lanes</code> skill</td>
+<td>no</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Only jnterfaces has an installer, <code>scripts/install_stack.py</code>. The other
+packages list their files in <code>skill-package.json</code>. The list of packages,
+roles and profiles is in <code>stack.json</code> of jnterfaces. A profile package also
+has <code>profile.json</code>, which lists its tools.</p>
+<p><strong>The clone folder.</strong> The installer looks for each package in the folder that
+<code>SKILL_PACKAGES_DIR</code> names. If the variable is not set, it looks in the folder
+that holds the jnterfaces clone that runs. If a clone is missing, the installer
+clones it from GitHub. Each run prints the folder.</p>
+<p><code>just install</code> finds the jnterfaces clone from two variables. <code>JNTERFACES_DIR</code>
+names the clone. Otherwise, the clone is in <code>SKILL_PACKAGES_DIR</code>, by default
+<code>~/.local/share/skill-packages</code>. The project does not save the folder, so
+export the variable in your shell profile, for example <code>export SKILL_PACKAGES_DIR=~/Projects</code> on this machine. If you set none, <code>just install</code> clones new copies into <code>~/.local/share/skill-packages</code>.</p>
+</section>
+<section id="what-a-machine-needs" class="level2">
+<h2 class="anchored" data-anchor-id="what-a-machine-needs">What a machine needs</h2>
+<p>A machine needs <code>git</code>, <code>just</code> and <code>uv</code>. The installer, Python, the Python
+tools and Node all come through <code>uv</code>. The roles need more programs:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Role or tool</th>
+<th>Program</th>
+<th>How the stack handles a missing program</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tasker</code></td>
+<td><code>gest</code></td>
+<td>The installer prints a warning and installs the skills.</td>
+</tr>
+<tr>
+<td><code>tasker</code> hooks</td>
+<td><code>but</code> (GitButler)</td>
+<td>The hooks check for it, and they work without it.</td>
+</tr>
+<tr>
+<td><code>cx</code></td>
+<td><code>cx</code></td>
+<td>The skill describes a fallback.</td>
+</tr>
+<tr>
+<td><code>jagt-protocol</code></td>
+<td><code>jagt</code></td>
+<td>The skill describes a fallback.</td>
+</tr>
+<tr>
+<td><code>reporter</code></td>
+<td><code>node</code> 22 or later</td>
+<td>The package says to run node with <code>uvx --from &#x27;nodejs-wheel==24.*&#x27; node</code>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="how-an-install-works" class="level2">
+<h2 class="anchored" data-anchor-id="how-an-install-works">How an install works</h2>
+<p>The installer runs these steps:</p>
+<ol>
+<li>It reads the roles, profiles and tools from the command line and from
+<code>.agents/stack.json</code>. If neither names a profile, it looks at the files of
+the project. For example, <code>pyproject.toml</code> turns on the <code>python</code> profile.</li>
+<li>It checks each package. If a check fails, it writes nothing.</li>
+<li>It copies the skills and other files of each role and profile into the
+project, and it writes one record for each package.</li>
+<li>It saves the choices in <code>.agents/stack.json</code>.</li>
+<li>If the project has no Justfile, it writes the starter Justfile.</li>
+<li>If a tool of a profile is to be added and the project has no manifest, it
+makes one, with <code>uv init --bare</code> or <code>npm init --yes</code>.</li>
+<li>It adds the packages of each tool, with <code>uv add --group</code> or <code>npm install --save-dev</code>.</li>
+<li>After the package commands succeed, it writes the shared files, such as
+<code>.gitignore</code>, and the config files of the tools. “Shared files and the
+log” below tells how.</li>
+<li>It writes the recipes of the installed tools in <code>.agents/just</code>. After each
+step, it saves the record and writes the recipes again.</li>
+</ol>
+<p>A later <code>just install</code> with no names installs the same set again, from the
+clones as they are. To get new commits of the packages, run <code>just install --update</code>. It pulls the jnterfaces clone and the clone of each package that
+the run installs. It skips a clone with no upstream branch, and it prints
+“Not updated”. The installer writes a config file of a tool, for example
+<code>ruff.toml</code>, when the project has none. It takes the file out with its tool
+only when nobody changed it.</p>
+<p><strong>An edited file stays as you left it.</strong> The installer does not overwrite a
+file of a package that you edited. It names the file, and it installs the
+other files. The record keeps the hash of the install, so the next run and a
+removal still see the edit. To get the new version, undo the edit, or remove
+the file, and run <code>just install</code> again.</p>
+<p>A file that no install wrote, in the place of a file of a package, still stops
+the install, and the installer writes nothing.</p>
+<p><strong>The first install.</strong> A new project has no Justfile, so it has no <code>just install</code>. Run the installer from the clone for the first install:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">uv run ~/Projects/jnterfaces/scripts/install_stack.py --target . prose</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>A named role asks no questions, so the command turns on <code>prose</code> only. With a
+named profile or tool and no named role, a terminal asks about each role.</p>
+<p>After that, the project has <code>.agents/install.just</code>. A Justfile that has the
+line <code>import? &#x27;.agents/install.just&#x27;</code> gets the recipes <code>just install</code> and
+<code>just uninstall</code>.</p>
+<p><strong>The agents.</strong> Codex reads skills from <code>.agents/skills</code>. Claude Code reads
+skills from <code>.claude/skills</code>. So for each installed skill, the installer makes
+the link <code>.claude/skills/NAME</code>, which points to <code>../../.agents/skills/NAME</code>.
+When the skill goes, the link goes. The installer leaves alone any other file
+or link in <code>.claude/skills</code>, and a <code>.claude</code> or <code>.claude/skills</code> that is a
+link or a file.</p>
+<p><strong>A link that you remove.</strong> If you remove a link, no later install makes it
+again. If you remove the whole <code>.claude/skills</code> folder, the next install
+makes all the links again.</p>
+<p><strong>copier.</strong> <code>.agents/install.just</code> defines the variable <code>jn_copier</code>, which runs
+copier 9 through <code>uvx</code>. copier makes files from a template, and <code>copier update</code> brings in a later version of the template and keeps your edits. So a
+recipe can use <code>{{jn_copier}} copy TEMPLATE FOLDER</code> with no install.</p>
+</section>
+<section id="how-the-recipes-arrive" class="level2">
+<h2 class="anchored" data-anchor-id="how-the-recipes-arrive">How the recipes arrive</h2>
+<p>Each tool of a profile has one recipe file, for example
+<code>.agents/just/python/lint.just</code>. The profile package installs these files.
+<code>just install</code> then writes two kinds of file in <code>.agents/just</code>:</p>
+<ul>
+<li><strong><code>python.just</code></strong>, a module for each profile. It imports the recipe files
+of the installed tools only, and its <code>verify</code> runs their checks. Its
+recipes run in the folder of the project. <code>just python lint</code> runs one.</li>
+<li><strong><code>index.just</code></strong>, which <code>.agents/install.just</code> imports. It has a <code>mod</code> line
+for each profile. In a project that jnterfaces started, it also has a
+combined recipe for each recipe name. So <code>just lint</code> runs the <code>lint</code> of
+each language. Its <code>verify</code> runs the <code>verify</code> of each language, then
+<code>git diff --check</code>.</li>
+</ul>
+<p><strong>A project that jnterfaces started.</strong> When the project has no Justfile, the
+installer writes the starter Justfile, and <code>.agents/stack.json</code> records
+<code>&quot;started&quot;: true</code>. The starter Justfile has <code>set allow-duplicate-recipes</code>. So
+a recipe in the Justfile itself with the name of a recipe of the index, such
+as <code>lint</code>, takes its place. It does not take the place of the recipe of a
+language, so <code>just python verify</code> still runs the <code>lint</code> of the profile. A
+recipe of yours can also depend on a recipe of the index, for example <code>ci: verify</code>.</p>
+<p><strong>A project that jnterfaces did not start</strong>, such as one with its own
+Justfile, gets the modules only, for example <code>just python lint</code>.</p>
+<p><strong>A name that meets a name of the index.</strong> An alias, a module, or a recipe
+in a project without <code>set allow-duplicate-recipes</code> can have the name of a
+recipe or a module of the index. Then the Justfile does not parse.</p>
+<p>The installer checks the Justfile after it writes the index. If it does not
+parse, the installer writes the index with the modules only, then with none,
+and it names the clash. So <code>just install</code> keeps working. Rename the name of
+the project to get the recipes back.</p>
+<p><strong>The record.</strong> <code>.agents/stack.json</code> holds the hash of each file that <code>just install</code> wrote in <code>.agents/just</code>, under <code>generated</code>. The installer changes or
+removes a file only while its hash is the recorded one. It keeps any other
+file, and it names that file. Put your own recipes in the Justfile.</p>
+<p>With more than one language, a combined recipe gives the same arguments to
+each language. To give arguments to one language, run <code>just python test x</code>.</p>
+</section>
+<section id="build-a-project-in-layers" class="level2">
+<h2 class="anchored" data-anchor-id="build-a-project-in-layers">Build a project in layers</h2>
+<p>Each layer adds one mixin. Start at layer 0, and add the layers that the
+project needs. Each command after layer 1 is a recipe of the project.</p>
+<section id="layer-0-an-empty-git-repository" class="level3">
+<h3 class="anchored" data-anchor-id="layer-0-an-empty-git-repository">Layer 0: an empty Git repository</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">mkdir notes <span class="op">&amp;&amp;</span> <span class="bu">cd</span> notes <span class="op">&amp;&amp;</span> git init</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The project has no code, no manifest and no Justfile.</p>
+</section>
+<section id="layer-1-the-writing-skill" class="level3">
+<h3 class="anchored" data-anchor-id="layer-1-the-writing-skill">Layer 1: the writing skill</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">uv run ~/Projects/jnterfaces/scripts/install_stack.py --target . prose</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p><strong>What you get:</strong></p>
+<ul>
+<li><code>.agents/skills/just</code> and <code>.agents/skills/nossaifd</code>, with <code>check.py</code>, and
+their links in <code>.claude/skills</code>.</li>
+<li><code>.agents/install.just</code>, the records, and <code>.agents/stack.json</code>.</li>
+<li>The starter Justfile, which imports <code>.agents/install.just</code>. So <code>just install</code>, <code>just uninstall</code> and <code>just install --help</code> work.</li>
+</ul>
+<p>Run the checker on the Markdown files that git tracks, or on the pages that
+you name. Alone, it leaves out <code>AGENTS.md</code> and <code>CLAUDE.md</code>, which are
+instructions for agents:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just prose
+just prose -v README.md</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>An agent finds the nossaifd skill by its description, through the link in
+<code>.claude/skills</code> or the copy in <code>.agents/skills</code>. So it needs no line in an
+<code>AGENTS.md</code>.</p>
+<p><strong>What does not work:</strong></p>
+<ul>
+<li><strong>A project with a manifest gets a profile.</strong> If the project has
+<code>pyproject.toml</code> or <code>package.json</code> on the first install, the installer
+finds the profile and adds its default tools. To install the role alone,
+pass <code>--profile &#x27;&#x27;</code> on the first install. The record then keeps no
+profile.</li>
+</ul>
+</section>
+<section id="layer-2-the-task-tracker" class="level3">
+<h3 class="anchored" data-anchor-id="layer-2-the-task-tracker">Layer 2: the task tracker</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install tasker</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p><strong>What you get:</strong></p>
+<ul>
+<li>The <code>g*</code> skills, which track work with Gest.</li>
+<li>The agent hooks in <code>.claude/hooks</code> and <code>.codex/hooks</code>, with their entries
+in <code>.claude/settings.json</code> and <code>.codex/hooks.json</code>.</li>
+<li>A starter <code>AGENTS.md</code>, if the project has none. <code>just uninstall tasker</code>
+removes it again when nobody changed it.</li>
+</ul>
+<p><strong>Variants.</strong> <code>just install tasker=gitwt</code> works on each task in its own Git
+worktree, and keeps the main checkout on <code>main</code>. The default, <code>tasker=git</code>,
+works on a branch in the main checkout. The record saves the variant, and
+<code>just tasker-mode</code> prints it. The <code>jj</code> variant is not ready yet.</p>
+<p><strong>The worktree recipes.</strong> In a project that jnterfaces started, the role adds
+these recipes:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Recipe</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>just worktree-new NAME [BASE]</code></td>
+<td>Makes branch NAME in <code>../&lt;repo&gt;.worktrees/NAME</code>, sets it up, and runs <code>just setup</code> there</td>
+</tr>
+<tr>
+<td><code>just worktree-sync</code></td>
+<td>Sets up a worktree that another tool made, such as Claude Code</td>
+</tr>
+<tr>
+<td><code>just worktrees</code></td>
+<td>Lists the worktrees: clean or dirty, merged or not, and the ignored files that a removal deletes</td>
+</tr>
+<tr>
+<td><code>just worktrees-prune</code></td>
+<td>Removes the clean, merged worktrees that were idle for 2 hours, with no <code>--force</code>. A worktree with outputs or other ignored files that setup did not put there stays</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A worktree has only the files that Git tracks. So setup follows two files in
+the main checkout. <code>.worktreeinclude</code> has gitignore patterns, and each ignored
+file that matches is copied, for example <code>.env</code>. <code>.worktreelink</code> has one path
+on each line, and each path becomes a symbolic link to the main checkout, for
+example a large <code>data</code> folder. Claude Code and Conductor read
+<code>.worktreeinclude</code>; PostHog uses <code>.worktreelink</code>.</p>
+<p>Commands in a worktree also make ignored files, such as <code>.venv</code> and test
+caches. <code>just worktrees-prune</code> keeps a worktree with ignored files, so that
+it never deletes an output. A third file, <code>.worktreedisposable</code>, has gitignore
+patterns for the ignored files that a command can make again. Those files do
+not keep a worktree. Each profile adds its lines to this file, in a block of
+its own. The Python profile names <code>.venv/</code> and the caches, and the
+TypeScript profile names <code>node_modules/</code>.</p>
+<p><strong>What works.</strong> The install, the variant and the worktree recipes. The
+GitButler text of the hooks appears only when <code>but</code> is installed and GitButler
+owns the checkout. The session-start hook reports worktrees that are ready to
+prune, and removes nothing. In <code>gitwt</code>, a <code>git commit</code> in the main checkout
+gets a warning.</p>
+<p><strong>What does not work:</strong></p>
+<ul>
+<li><strong>The worktree recipes are missing in a project that jnterfaces did not
+start.</strong> There the skills run the script of the <code>gtw</code> skill directly.</li>
+<li><strong>The skills need <code>gest</code>.</strong> <code>gest</code> does not come through <code>uv</code>. The installer
+prints a warning when it is missing.</li>
+<li><strong>The starter <code>AGENTS.md</code> has <code>&lt;replace-me&gt;</code> fields.</strong> You fill them in.</li>
+</ul>
+</section>
+<section id="layer-3-a-language-profile" class="level3">
+<h3 class="anchored" data-anchor-id="layer-3-a-language-profile">Layer 3: a language profile</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install --profile python</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Use <code>--profile typescript</code> for TypeScript. Name a profile once. The installer
+saves it.</p>
+<p><strong>What you get with <code>python</code>:</strong></p>
+<ul>
+<li>The package jnprofile-python, with its recipe files and its skill
+<code>python-profile</code>.</li>
+<li><code>pyproject.toml</code> from <code>uv init --bare</code>, with <code>default-groups = &quot;all&quot;</code>, so
+that <code>uv run</code> has the tools.</li>
+<li>Its lines in <code>.gitignore</code> and <code>.worktreedisposable</code>, in a block of their
+own at the start of each file.</li>
+<li>The default tools <code>lint</code> and <code>test</code>, which the next layers describe, and the
+recipe <code>just setup</code>.</li>
+</ul>
+<p><strong>What you get with <code>typescript</code>:</strong></p>
+<ul>
+<li>The package jnprofile-typescript. <code>uv</code> runs npm and node from the
+<code>nodejs-wheel</code> package.</li>
+<li><code>package.json</code> from <code>npm init --yes</code>, and its lines in <code>.gitignore</code> and
+<code>.worktreedisposable</code>.</li>
+<li>The default tools <code>lint</code> and <code>typecheck</code>.</li>
+</ul>
+<p>A profile also turns on its default roles, <code>tasker</code> and <code>prose</code>, but only in a
+project with no saved roles.</p>
+</section>
+<section id="layer-4-lint-and-format" class="level3">
+<h3 class="anchored" data-anchor-id="layer-4-lint-and-format">Layer 4: lint and format</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install lint</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th></th>
+<th>Python</th>
+<th>TypeScript</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Packages</td>
+<td>ruff, pre-commit, in the group <code>lint</code></td>
+<td><code>@biomejs/biome@2</code></td>
+</tr>
+<tr>
+<td>Config files</td>
+<td><code>ruff.toml</code>, <code>.pre-commit-config.yaml</code></td>
+<td><code>biome.json</code></td>
+</tr>
+<tr>
+<td>Recipes</td>
+<td><code>just fmt</code>, <code>just lint</code>, <code>just hook</code></td>
+<td><code>just fmt</code>, <code>just lint</code></td>
+</tr>
+<tr>
+<td>In <code>just verify</code></td>
+<td><code>fmt --check</code>, <code>lint</code></td>
+<td><code>lint</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code>ruff.toml</code> and <code>biome.json</code> leave out <code>.agents</code>, <code>.claude</code> and <code>.codex</code>,
+because these folders hold copies from other packages.</p>
+<p><strong>What does not work.</strong> The TypeScript profile has no <code>just hook</code>.</p>
+</section>
+<section id="layer-5-tests" class="level3">
+<h3 class="anchored" data-anchor-id="layer-5-tests">Layer 5: tests</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install <span class="bu">test</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p><strong>Python.</strong> The tool adds pytest and pytest-cov to the group <code>test</code>. <code>just test</code> and <code>just cov</code> run pytest. With no arguments, a project with no tests
+yet passes. A selection that runs no test fails.</p>
+<p><strong>TypeScript.</strong> The tool adds TypeScript and the Node types. <code>just test</code>
+compiles <code>src</code> into <code>dist</code>, and it runs the tests with <code>node --test</code>. With no
+<code>.ts</code> file in <code>src</code> yet, it passes.</p>
+</section>
+<section id="layer-6-types" class="level3">
+<h3 class="anchored" data-anchor-id="layer-6-types">Layer 6: types</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install typecheck</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p><strong>Python.</strong> The tool adds ty to the group <code>lint</code>, and a <code>ty.toml</code> that leaves
+out <code>.agents</code>, <code>.claude</code> and <code>.codex</code>. <code>just typecheck</code> runs <code>ty check</code>.</p>
+<p><strong>TypeScript.</strong> The tool adds TypeScript and <code>tsconfig.json</code>. <code>just typecheck</code> runs <code>tsc --noEmit</code>. With no <code>.ts</code> file in <code>src</code> yet, it passes.</p>
+</section>
+<section id="layer-7-one-check-before-a-commit" class="level3">
+<h3 class="anchored" data-anchor-id="layer-7-one-check-before-a-commit">Layer 7: one check before a commit</h3>
+<p><code>just verify</code> runs the checks of each installed tool of each language, then
+<code>git diff --check</code>, which finds whitespace errors. On a new project with the
+default tools, <code>just verify</code> passes, for Python and for TypeScript.</p>
+<p>cheesecracker calls this recipe <code>just check</code>. The command contract of the
+<code>just</code> skill names it <code>verify</code>, and it lets a project map the name.</p>
+</section>
+<section id="layers-that-the-stack-does-not-have-yet" class="level3">
+<h3 class="anchored" data-anchor-id="layers-that-the-stack-does-not-have-yet">Layers that the stack does not have yet</h3>
+<p>cheesecracker has these parts, and no profile or tool adds them:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Part</th>
+<th>In cheesecracker</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A locked setup</td>
+<td><code>just setup</code> runs <code>uv sync --locked</code>. The profile runs <code>uv sync</code>.</td>
+</tr>
+<tr>
+<td>A server</td>
+<td><code>just serve</code> and <code>just stop</code> start and stop uvicorn in the background.</td>
+</tr>
+<tr>
+<td>System tests</td>
+<td><code>just test-system</code> runs tests against the running server.</td>
+</tr>
+<tr>
+<td>Docker</td>
+<td><code>just docker-build</code>, <code>just docker-serve</code>, <code>just docker-stop</code>, <code>just docker-shell</code> and <code>just docker-test</code>, with a <code>.dockerignore</code>.</td>
+</tr>
+<tr>
+<td>Async tests</td>
+<td>The group <code>test</code> has pytest-asyncio and httpx2.</td>
+</tr>
+<tr>
+<td>Coverage of one package</td>
+<td><code>just cov</code> names the package, <code>--cov=api</code>.</td>
+</tr>
+<tr>
+<td>Test paths</td>
+<td><code>pyproject.toml</code> sets <code>testpaths</code> and <code>pythonpath</code> for pytest.</td>
+</tr>
+<tr>
+<td>CI</td>
+<td>The class repository cheese-app-ci-cd has a GitHub Actions workflow. No profile writes one.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</section>
+<section id="how-the-mixins-behave" class="level2">
+<h2 class="anchored" data-anchor-id="how-the-mixins-behave">How the mixins behave</h2>
+<p><strong>Adding a mixin.</strong> <code>just install NAME</code> adds a role, a tool or a profile, and
+it saves the choice. A tool that fails runs again at the next install.</p>
+<p><strong>Removing a mixin.</strong> <code>just uninstall NAME</code> takes out a role, a tool or a
+profile:</p>
+<ul>
+<li><strong>A role</strong> loses its files. Each file that you edited stays.</li>
+<li><strong>A tool</strong> loses the packages that <code>just install</code> added, and its recipes.
+Each package that the project had before stays. A dependency group that is
+left empty goes too. A config file of the tool goes when nobody changed
+it. The lines of the tool go from the shared files, unless another owner
+needs them.</li>
+<li><strong>A profile</strong> loses each of its tools, its recipe files and its package.
+The project keeps <code>pyproject.toml</code> or <code>package.json</code>. If a step fails, the
+next <code>just install</code> goes on with the removal, unless you name the profile
+again. <code>--profile</code> with a list that leaves out a saved profile also turns
+that profile off.</li>
+</ul>
+</section>
+<section id="shared-files-and-the-record" class="level2">
+<h2 class="anchored" data-anchor-id="shared-files-and-the-record">Shared files and the record</h2>
+<p>Several owners can add a part to one file. An owner is <code>jnterfaces</code>, a
+profile such as <code>python</code>, a tool of a profile such as <code>python:lint</code>, or a role
+such as <code>tasker</code>. Each owner adds its part and takes out only its part.
+<a href="https://github.com/rahuldave/jnterfaces/blob/main/notes/plan-shared-files.md"><code>notes/plan-shared-files.md</code></a> and <a href="https://github.com/rahuldave/jnterfaces/blob/main/notes/plan-snippets.md"><code>notes/plan-snippets.md</code></a> give each decision and
+its reason. <code>scripts/formats.json</code> lists the shared files that a package can
+add a part to, with the format of each file.</p>
+<p><strong>Three kinds of part.</strong> The format of the file sets the kind:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Kind</th>
+<th>Files</th>
+<th>What the owner adds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A block of lines</td>
+<td><code>.gitignore</code>, <code>.worktreedisposable</code></td>
+<td>Its lines, in a block of its own at the start of the file</td>
+</tr>
+<tr>
+<td>An include</td>
+<td><code>ruff.toml</code>, <code>tsconfig.json</code>, <code>biome.json</code>, <code>AGENTS.md</code></td>
+<td>One line or key that reads an own file, which the installer writes under <code>.agents/config/</code> or <code>.agents/instructions/</code></td>
+</tr>
+<tr>
+<td>Units</td>
+<td><code>ty.toml</code>, <code>pyproject.toml</code>, <code>.pre-commit-config.yaml</code>, <code>.claude/settings.json</code>, <code>.codex/hooks.json</code></td>
+<td>Keys, items of a list, or hooks</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An own file is a file that only the installer writes. Do not edit it. To
+change a setting, set it in the shared file. Your settings
+win over the
+settings of the own file. For example, <code>line-length = 99</code> in your
+<code>ruff.toml</code> wins over the <code>line-length = 120</code> of
+<code>.agents/config/python/ruff.toml</code>.</p>
+<p>A block of lines looks like this:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode gitignore code-with-copy"><code class="sourceCode gitignore"># begin lines of python:lint, the lint tool of the python profile, from jnprofile-python at c299beb.
+# Last written to .gitignore by `just install lint`. The record is parts.&quot;.gitignore&quot; in .agents/stack.json.
+.ruff_cache/
+# end lines of python:lint. `just uninstall lint` removes them.</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Your own lines come after the blocks. In a git ignore file, a later line
+wins, so a line of yours always wins over a line of a block. In <code>AGENTS.md</code>
+the comments of a block are HTML comments. A TOML key or a YAML item of a
+part has one comment on the line before it, which names its owner.</p>
+<p><strong>The record.</strong> The key <code>parts</code> in <code>.agents/stack.json</code> records each unit
+that the installer added. For each unit, it records the state, the owner
+that holds the unit, and each owner that needs it. The files are the output of the record. A removal reads the
+record, never the files, to know what to take out. The states are:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>State</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>added</code></td>
+<td>The installer added the unit. It goes when no owner needs it.</td>
+</tr>
+<tr>
+<td><code>present</code></td>
+<td>The unit was in the file before its owner came. It is yours, and stays.</td>
+</tr>
+<tr>
+<td><code>declined</code></td>
+<td>You deleted the unit. The installer does not add it again.</td>
+</tr>
+<tr>
+<td><code>kept</code></td>
+<td>You changed a whole config file of an older installer. It stays yours, with no part.</td>
+</tr>
+<tr>
+<td><code>seeded</code></td>
+<td>A starter, such as the first <code>AGENTS.md</code>. It is yours from the start.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>How a part goes.</strong></p>
+<ul>
+<li>A unit that two owners need stays while either owner is on. When the
+owner that holds it goes, it passes to the other owner.</li>
+<li>A unit that you delete stays out. A shared file that you delete stays
+deleted in the same way, and its own file goes.</li>
+<li>A unit that you change is yours. It stays when its owners go, and the
+output names it.</li>
+<li>Two owners that need one unit with two values stop the run, which names
+both owners. <code>ruff.toml</code> takes one <code>extend</code>, so it has one owner.</li>
+<li>A line that you add inside a block moves after the blocks at the next run.</li>
+<li>When the last part goes and nothing else is left in the file, the file
+goes.</li>
+</ul>
+<p><strong>Files that the installer leaves alone.</strong> A <code>tsconfig.json</code> or a
+<code>biome.jsonc</code> with comments is not plain JSON. The installer does not change
+it, and the output prints the include to add by hand. An <code>extend</code> of your own
+in <code>ruff.toml</code> stays, and the installer writes no own file. If git ignores an
+own file, the run stops, because a fresh clone
+needs the own file.</p>
+<p><strong>A guard.</strong> The lint tool of the python profile adds no part to <code>ruff.toml</code> when <code>pyproject.toml</code> has a <code>[tool.ruff]</code>
+table. An <code>extend</code> there would change your settings and the format of the whole code base.
+The guard stops a new part only. A part that is there stays when you add
+<code>[tool.ruff]</code> later.</p>
+<p><strong>Roles.</strong> A role adds its parts in the same way. The <code>tasker</code> role adds a
+starter <code>AGENTS.md</code> once. If you delete it while the role is installed, it
+stays deleted. The role also
+adds a line to <code>AGENTS.md</code> that points to <code>.agents/instructions/tasker.md</code>.
+Its hooks are units of <code>.claude/settings.json</code> and <code>.codex/hooks.json</code>.</p>
+<p>The SessionStart hook of the role prints the rules file, so both Claude and
+Codex read the rules. Claude Code and Codex show a long hook output only as
+a preview and a file. So the first line of the output asks the agent to read
+the whole file.</p>
+<p><strong>The log is a history.</strong> <code>.agents/stack-log.jsonl</code> gets one entry for each
+run that changes a file. Nothing reads it to decide what to do. The <code>jnterfaces</code> block of
+<code>.gitignore</code> names it, so git does not keep it.</p>
+<p><strong>A run that stops.</strong> Before a run writes a file, it saves
+<code>.agents/stack-pending.json</code> with the old and new record of each file. The
+next run reads it, so it can still take out a part that the stopped run
+added. git does not keep this file either.</p>
+<p><strong>Branches.</strong> When two branches change <code>.agents/stack.json</code>, git gives a
+conflict in it. Resolve it as for any file. A merge can keep the blocks of both sides and the record
+of one side. Then the next run takes each block of a
+known owner into the record.</p>
+<p><strong>Check and dry run.</strong> <code>just install --check</code> compares the record with the
+files, prints each difference, and changes nothing. It fails for a block
+that lacks its begin or end comment, and for a run that stopped. Run <code>just install</code> again to finish such a run. <code>--dry-run</code> prints each file that a run
+would change.</p>
+<p><strong>Projects of an older installer.</strong> The first run of this installer moves the
+record from the old log to <code>parts</code>, once:</p>
+<ul>
+<li>The lines of the old log become units of the record.</li>
+<li>A config file that the old installer wrote and that nobody changed becomes
+an own file and an include.</li>
+<li>A config file that you changed stays yours, with no include. To have the
+include, delete the file and run <code>just install</code> again.</li>
+<li>An <code>AGENTS.md</code> that the old installer wrote and that nobody changed becomes
+the starter and a pointer. One that you changed stays yours. The hook still
+prints the rules.</li>
+<li>The hooks that a role merged become units of the role.</li>
+<li>The output asks you to run <code>git rm --cached .agents/stack-log.jsonl</code> once.</li>
+</ul>
+<p>If an older installer on another branch adds an entry to the log after the
+move, the run stops. Run the new installer on that branch first. Each person
+on a project moves to the new installer at the same time.</p>
+<p><strong>Removing lint takes out the Git hook.</strong> Before <code>just uninstall lint</code>
+removes pre-commit, it runs <code>uv run --group lint pre-commit uninstall</code>. It
+runs only when the <code>pre-commit</code> Git hook runs the Python of the project. If
+the command fails, the removal stops, and the next <code>just install</code> tries it
+again.</p>
+</section>
+<section id="what-works-now" class="level2">
+<h2 class="anchored" data-anchor-id="what-works-now">What works now</h2>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Mixin</th>
+<th>Command</th>
+<th>Works now</th>
+<th>Does not work</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Writing skill</td>
+<td><code>install_stack.py prose</code></td>
+<td>The skill, the starter Justfile and <code>just prose</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td>Task tracker</td>
+<td><code>just install tasker</code></td>
+<td>The skills, the hooks, <code>AGENTS.md</code>, the variant, the worktree recipes</td>
+<td>Needs <code>gest</code>, which <code>uv</code> does not give</td>
+</tr>
+<tr>
+<td>Python profile</td>
+<td><code>just install --profile python</code></td>
+<td>The package, the manifest, <code>.gitignore</code>, the defaults</td>
+<td>none</td>
+</tr>
+<tr>
+<td>TypeScript profile</td>
+<td><code>just install --profile typescript</code></td>
+<td>The package, the manifest, <code>.gitignore</code>, the defaults</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Lint</td>
+<td><code>just install lint</code></td>
+<td>ruff and pre-commit, or biome</td>
+<td>No <code>just hook</code> for TypeScript</td>
+</tr>
+<tr>
+<td>Tests</td>
+<td><code>just install test</code></td>
+<td>pytest, or <code>node --test</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td>Types</td>
+<td><code>just install typecheck</code></td>
+<td>ty with <code>ty.toml</code>, or tsc</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Remove a tool or a profile</td>
+<td><code>just uninstall NAME</code></td>
+<td>The packages, the recipes, the Git hook and empty groups go</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Shared files</td>
+<td>any install</td>
+<td>The blocks, includes and units of each owner, the record, <code>just install --check</code></td>
+<td>none</td>
+</tr>
+<tr>
+<td>Edit a skill</td>
+<td>by hand</td>
+<td>The edit stays, and the other files install</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Claude Code</td>
+<td>any install</td>
+<td>The <code>.claude/skills</code> links</td>
+<td>none</td>
+</tr>
+<tr>
+<td>Server, Docker, CI</td>
+<td>none</td>
+<td>none</td>
+<td>No mixin</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="gaps-to-close" class="level2">
+<h2 class="anchored" data-anchor-id="gaps-to-close">Gaps to close</h2>
+<p>The profile packages closed the gaps of the recipes. The recipes follow the
+tools, a project with no code has a Justfile, and <code>verify</code> runs only the
+checks that are installed. These gaps are open:</p>
+<ol>
+<li><strong>Add a profile for a web service</strong>, for example jnprofile-fastapi, with
+the tools <code>serve</code>, <code>docker</code> and <code>system-test</code>. These parts are not for each
+Python project, so they are a profile of their own and not tools of the
+<code>python</code> profile. A project names both, with <code>just install --profile python,fastapi</code>. Two profiles with the same manifest, <code>pyproject.toml</code>,
+are not tested yet.</li>
+<li><strong>Save the clone folder in the project.</strong></li>
+</ol>
+<p>The installer fixes closed these gaps:</p>
+<ul>
+<li><strong><code>.claude/skills</code> links</strong> for each installed skill.</li>
+<li><strong>An edited file</strong> no longer stops an install.</li>
+<li><strong>A named role</strong> asks no questions.</li>
+<li><strong>The installer script reads <code>SKILL_PACKAGES_DIR</code></strong>, and each run prints
+the folder.</li>
+<li><strong>Removing lint</strong> takes out the Git hook.</li>
+</ul>
+<p>The role recipes closed these gaps:</p>
+<ul>
+<li><strong><code>just prose</code></strong> checks the Markdown of the project.</li>
+<li><strong><code>just uninstall tasker</code></strong> removes an <code>AGENTS.md</code> that nobody changed.</li>
+<li><strong>jnprofile-typescript</strong> is on GitHub.</li>
+</ul>
+</section>
+</main></div><footer class="footer"><div class="nav-footer"><div class="nav-footer-left">Part of <a href="https://rahuldave.github.io/jnterfaces/">jnterfaces</a> and its packages.</div><div class="nav-footer-center"></div><div class="nav-footer-right">Built with <a href="https://docs.smallish.dev/">smalldocs</a>.</div></div></footer></body></html>
