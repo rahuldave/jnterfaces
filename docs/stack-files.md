@@ -208,7 +208,8 @@ The record has these keys:
 | `parts_log_end` | The id of the last entry of the old log that moved into `parts`, for a project of an older installer. | |
 
 The installer keeps any other key that it finds in the record. One old key,
-`added_packages`, moves into `owned_packages` and goes.
+`added_packages`, goes. An entry moves into `owned_packages` when its tool
+is a tool of a profile that the run turns on, keeps or turns off. The installer drops the other entries.
 
 **`parts`** is keyed by the shared file, then by the unit. For example:
 
@@ -290,6 +291,9 @@ there.
   the units out of `biome.jsonc` and adds them to `biome.json`. A unit that
   you deleted stays out.
 - `just install --check` names a part that the next run will move.
+- If one of the two files is a symlink, the installer leaves the part alone.
+  Each run and `just install --check` say so. The own file that the part
+  includes stays, also after you uninstall its tool.
 - A record of an older installer has no `file`. The installer then looks for
   the units in `biome.json` first, then in `biome.jsonc`.
 

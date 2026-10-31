@@ -952,6 +952,9 @@ def read_pending(target):
             raise ValueError
         # A part of a file with two names saves the name of the file that holds it.
         for change in files.values():
+            if not isinstance(change, dict) or not all(isinstance(change.get(side) or {}, dict)
+                                                       for side in ('old', 'new')):
+                raise ValueError
             for side in ('old', 'new'):
                 for entry in (change.get(side) or {}).values():
                     if isinstance(entry, dict) and not isinstance(entry.get('file', ''), str):
@@ -1129,6 +1132,20 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
             messages.append(f'{"Would write" if dry_run else "Wrote"} {path} from the starter of {owner.key}; it '
                             f'is yours now.')
     own_files, keep_own = {}, set()
+
+    def keep_includes(path, units):
+        """A file that the installer leaves alone keeps its parts, so each own file that a part includes stays: the
+        own file of an active owner, and of an owner that went while the record still holds its part."""
+        holding = {key for unit, entry in units.items() if not unit.startswith('(') and entry.get('state') == 'added'
+                   for key in entry.get('needs', [])}
+        keep_own.update(own_path(owner, path, owner.parts[path]) for owner in known
+                        if path in owner.parts and (owner in active or owner.key in holding))
+        # An owner that is gone from the catalog is not in known, so the record names its own file: the include of
+        # a kept unit holds the path of the own file.
+        includes = ' '.join(unit + ' ' + json.dumps(entry.get('value')) for unit, entry in units.items()
+                            if not unit.startswith('(') and entry.get('state') == 'added')
+        keep_own.update(own for own, own_units in parts.items() if OWN in own_units and re.search(
+            r'(?<![\w./-])(?:\./)?' + re.escape(own) + r'(?![\w.-])', includes))
     # The own file of a pointer is written for each active owner, also when the pointer is not in AGENTS.md: a hook
     # of the role prints the own file.
     for owner in active:
@@ -1142,7 +1159,7 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
         if found or FILE in units:
             if found:
                 messages.append(f'{path}: {found} is a symlink, so the installer leaves {path} alone')
-                keep_own.update(own_path(owner, path, owner.parts[path]) for owner in active if path in owner.parts)
+                keep_includes(path, units)
             # A file that is yours alone, (file), was read; only a symlink is a file that this run could not read.
             new_parts[path] = kept(path, units) if found else units
             continue
@@ -1177,6 +1194,8 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
         if found or FILE in units:
             if found:
                 messages.append(f'{path}: {found} is a symlink, so the installer leaves {path} alone')
+                # The part stays in the file, so the own file that its include reads stays too.
+                keep_includes(path, units)
             new_parts[path] = kept(path, units) if found else units
             continue
         notes = []
@@ -1206,10 +1225,13 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
         # The files to take the units out of: the file that the record names, and a file that a stopped run named.
         sources = [source for source in [held] + sorted(left_in.get(path, set()) - {held})
                    if source != file_path and source in (path, spec.get('instead')) and (target / source).exists()]
-        found = next((link for link in map(lambda source: linked(target, source), sources) if link), None)
-        if found:
-            messages.append(f'{path}: {found} is a symlink, so the installer leaves {path} alone')
-            new_parts[path] = kept(path, units)
+        link = next((source for source in sources if linked(target, source)), None)
+        if link:
+            messages.append(f'{path}: {linked(target, link)} is a symlink, so the installer leaves {path} alone')
+            keep_includes(path, units)
+            # The record names the file that still holds the part, so that the next run leaves it alone too.
+            new_parts[path] = {unit: entry if unit.startswith('(') else dict(entry, file=link)
+                               for unit, entry in kept(path, units).items()}
             continue
         if held in sources:
             if gone:
@@ -1475,7 +1497,11 @@ def check(target, parts):
         file_path = held_in(target, path, units)
         if not (target / file_path).exists():
             file_path = target_of(target, path)
-        elif file_path != target_of(target, path):
+        found = linked(target, file_path) or linked(target, target_of(target, path))
+        if found:
+            print(f'{path}: {found} is a symlink, so the installer leaves {path} alone.')
+            continue
+        if file_path != target_of(target, path):
             print(f'{path}: the tool reads {target_of(target, path)} before {file_path}, which holds the parts. The '
                   f'next just install moves them.')
         if read_text(target, file_path) is None and not spec.get('create', True):
