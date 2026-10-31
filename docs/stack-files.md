@@ -169,7 +169,7 @@ A tool has these keys:
 | `lines` | Lines for line files: `{".gitignore": [".ruff_cache/"]}`. |
 | `parts` | Parts for unit files: `{"ruff.toml": "files/ruff.toml"}`. |
 | `files` | Whole files, for an installer from before the parts. A file that is also in `parts` goes as a part. |
-| `skip_if` | A guard. A new part is left out when a file has a text, for example no `ruff.toml` part when `pyproject.toml` has `[tool.ruff`. A part that the record already holds stays. |
+| `skip_if` | A guard `[file, text]`, or a list of guards. A new part is left out when any guard applies: the file has the text, for example no `ruff.toml` part when `pyproject.toml` has `[tool.ruff`. An empty text means that the file is there. In a TOML file, `[a.b` means that the table is there, and `[a.b]` means that the table holds a setting of its own, not only tables. A part that the record already holds stays. |
 | `before_remove` | A command that runs before the packages go, for example `pre-commit uninstall`. |
 
 ### The formats: `scripts/formats.json`
@@ -296,6 +296,44 @@ there.
   includes stays, also after you uninstall its tool.
 - A record of an older installer has no `file`. The installer then looks for
   the units in `biome.json` first, then in `biome.jsonc`.
+
+### The layout of a JSON file
+
+The installer writes each JSON file that it changes as the Biome formatter
+writes it. So `just lint` passes on the file. It reads the Biome config of
+the project to find the layout:
+
+- the config in `biome.json`, else `biome.jsonc`, with its comments;
+- each local file that its `extends` names, from the folder of the file that
+  names it. A local file is a name that starts with `./` or `../`, or ends
+  with `.json` or `.jsonc`. Any other name is a package, and the installer
+  does not read it;
+- each entry of `overrides` whose `includes` match the file.
+
+It takes these settings, as Biome does:
+
+| Setting | Default |
+|---|---|
+| `lineWidth` | 80 |
+| `indentStyle` | `tab` |
+| `indentWidth` | 2 |
+| `expand` | `auto` |
+| `lineEnding` | `lf` |
+| `json.formatter.trailingCommas` | `none` |
+
+Each override is a layer after the config, and a later layer wins. In one
+layer, `json.formatter` wins over `formatter`. A project with no Biome config
+keeps the indent of each file.
+
+The installer does not cover these cases:
+
+- **`formatter.useEditorconfig`.** The installer does not read
+  `.editorconfig`. Set the layout in the Biome config.
+- **`trailingCommas` set to `all` with no `json.parser.allowTrailingCommas`.**
+  Biome then asks for a comma after the last item of a `.json` file, and its
+  parser rejects that comma. The installer writes no such comma, so the file
+  stays valid JSON. `tsconfig.json`, `jsconfig.json` and `.jsonc` files take
+  the comma. `biome.json` never does.
 
 ### The package records: `.agents/<package>-install.json`
 

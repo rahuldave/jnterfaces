@@ -16,11 +16,13 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import posixpath
 import re
 import secrets
 import shutil
 import subprocess
 import time
+import unicodedata
 
 import edit_toml
 import edit_yaml
@@ -590,10 +592,11 @@ def plan_whole_file(target, path, active, claim, sure):
             continue
         origin, guard = owner.files[path]
         # A skip_if rule stops a new file only. An owner of a file that is there keeps it.
-        if (guard and not linked(target, guard[0]) and (target / guard[0]).is_file()
-                and guard[1] in (target / guard[0]).read_text(errors='replace')):
+        # A guard file that is a symbolic link may hold the text, and the installer does not read it, so it holds.
+        if guard and (linked(target, guard[0]) or (target / guard[0]).is_file()
+                      and guard[1] in (target / guard[0]).read_text(errors='replace')):
             if not (claim and file.exists()):
-                notes.append(f'Left out {path}: {guard[0]} already has {guard[1]}')
+                notes.append(f'Left out {path}: {guard_reason(target, guard)}')
                 continue
         needers.append(owner.key)
         source = source or origin
@@ -639,7 +642,8 @@ def hook_units(settings):
 
 def json_load(text):
     try:
-        data = json.loads(text) if text and text.strip() else {}
+        # A comma after the last item is there when the Biome config allows it. It goes when the file is written.
+        data = json.loads(json_commas(text)) if text and text.strip() else {}
     except ValueError as exc:
         raise SharedError(f'it is not plain JSON ({exc})')
     if not isinstance(data, dict):
@@ -647,14 +651,264 @@ def json_load(text):
     return data
 
 
-def json_dump(data, old):
-    """JSON text with the indent of the old text, two spaces when there is none."""
-    indent = 2
-    for line in (old or '').splitlines()[1:]:
-        if line.strip():
-            indent = (len(line) - len(line.lstrip())) or 2
-            break
-    return json.dumps(data, indent=indent, ensure_ascii=False) + '\n'
+def guard_reason(target, guard):
+    """Why a skip_if guard [file, text] holds, for the note of the run."""
+    if linked(target, guard[0]):
+        return f'{guard[0]} is a symbolic link, which the installer does not read'
+    return f'{guard[0]} already has {guard[1]}' if guard[1] else f'the project has {guard[0]}'
+
+
+def json_dump(data, old, style=None):
+    """JSON text in the layout of the Biome formatter, so that biome check passes on a file that the installer wrote:
+    an object has one key on each line, and a list of plain values stays on one line when the line fits. style holds
+    what the Biome config of the project sets: the width, the indent (a tab, or a number of spaces), expand, trailing
+    commas and the line ending. With no indent in style, the text keeps the indent of the old text, two spaces when
+    there is none."""
+    style = style or {}
+    indent = style.get('indent')
+    if indent is None:
+        indent = 2
+        for line in (old or '').splitlines()[1:]:
+            if line.strip():
+                lead = line[:len(line) - len(line.lstrip())]
+                indent = '\t' if lead.startswith('\t') else len(lead) or 2
+                break
+    layout = {'unit': '\t' if indent == '\t' else ' ' * indent,
+              # Biome counts a tab as indentWidth columns of the line.
+              'step': style.get('tab', 2) if indent == '\t' else indent,
+              'width': style.get('width', 80), 'expand': style.get('expand', 'auto'),
+              'trailing': style.get('trailing', False)}
+    text = json_text(data, layout, 0, 0, 0) + '\n'
+    return text.replace('\n', {'crlf': '\r\n', 'cr': '\r'}.get(style.get('ending'), '\n'))
+
+
+def json_columns(text):
+    """The columns that text takes on a line, as the Biome formatter counts them: two for a wide character."""
+    return sum(0 if unicodedata.combining(char) else 2 if unicodedata.east_asian_width(char) in 'WF' else 1
+               for char in text)
+
+
+def json_scalar(value):
+    """The text of a plain JSON value. An exponent has no plus sign and no leading zero, as Biome writes it."""
+    text = json.dumps(value, ensure_ascii=False)
+    if isinstance(value, float) and 'e' in text:
+        mantissa, exponent = text.split('e')
+        text = f'{mantissa}e{int(exponent)}'
+    return text
+
+
+def json_text(value, layout, level, before, after):
+    """The text of one JSON value. layout holds the text of one level of indent and its columns, the width, expand
+    and the trailing commas. before is the columns of the line before the value, after the columns of what follows it
+    on the line: a comma, or nothing."""
+    unit, step, width = layout['unit'], layout['step'], layout['width']
+    inner, outer = unit * (level + 1), unit * level
+    if isinstance(value, (dict, list)) and value and layout['expand'] != 'always':
+        flat = json_flat(value, layout['expand'] == 'never')
+        if flat is not None and before + json_columns(flat) + after <= width:
+            return flat
+    # The last item gets a comma too when the config sets trailingCommas to all.
+    last = ',' if layout['trailing'] else ''
+
+    def comma(number, count):
+        return int(number < count - 1 or layout['trailing'])
+    if isinstance(value, dict):
+        if not value:
+            return '{}'
+        rows = []
+        for number, (key, item) in enumerate(value.items()):
+            head = json.dumps(key, ensure_ascii=False) + ': '
+            rows.append(inner + head + json_text(item, layout, level + 1, step * (level + 1) + json_columns(head),
+                                                 comma(number, len(value))))
+        return '{\n' + ',\n'.join(rows) + last + '\n' + outer + '}'
+    if isinstance(value, list):
+        if not value:
+            return '[]'
+        if layout['expand'] != 'always' and all(
+                isinstance(item, (int, float)) and not isinstance(item, bool) for item in value):
+            # A list of numbers fills each line, as the Biome formatter fills it, with no comma after the last.
+            rows, row, used = [], [], step * (level + 1)
+            for number, item in enumerate(value):
+                text = json_scalar(item) + (',' if number < len(value) - 1 else '')
+                if row and used + 1 + len(text) > width:
+                    rows.append(row)
+                    row, used = [], step * (level + 1)
+                used += (1 if row else 0) + len(text)
+                row.append(text)
+            if layout['trailing'] and used > width:
+                # Biome puts a comma after the last number when its line is too long.
+                row[-1] += ','
+            return '[\n' + '\n'.join(inner + ' '.join(row) for row in rows + [row]) + '\n' + outer + ']'
+        rows = [inner + json_text(item, layout, level + 1, step * (level + 1), comma(number, len(value)))
+                for number, item in enumerate(value)]
+        return '[\n' + ',\n'.join(rows) + last + '\n' + outer + ']'
+    return json_scalar(value)
+
+
+def json_flat(value, objects=False):
+    """The text of a value on one line: a plain value, an empty object, or a list of them. With objects, as when the
+    config sets expand to never, an object can go on one line too. None when the value cannot."""
+    if isinstance(value, dict):
+        if not value:
+            return '{}'
+        if not objects:
+            return None
+        items = [json_flat(item, objects) for item in value.values()]
+        return None if None in items else '{ ' + ', '.join(
+            json.dumps(key, ensure_ascii=False) + ': ' + item for key, item in zip(value, items)) + ' }'
+    if not isinstance(value, list):
+        return json_scalar(value)
+    items = [json_flat(item, objects) for item in value]
+    return None if None in items else '[' + ', '.join(items) + ']'
+
+
+def json_parts(text, comments=False):
+    """The text in parts: each string whole, as (True, string), and the text between, as (False, text). With
+    comments, each comment becomes a space."""
+    parts, index, start = [], 0, 0
+    while index < len(text):
+        if text[index] == '"':
+            parts.append((False, text[start:index]))
+            end = index + 1
+            while end < len(text) and text[end] != '"':
+                end += 2 if text[end] == '\\' else 1
+            parts.append((True, text[index:end + 1]))
+            index = start = end + 1
+        elif comments and (text.startswith('//', index) or text.startswith('/*', index)):
+            parts.append((False, text[start:index] + ' '))
+            end = text.find('\n' if text[index + 1] == '/' else '*/', index + 2)
+            index = start = len(text) if end < 0 else end + (0 if text[index + 1] == '/' else 2)
+        else:
+            index += 1
+    return parts + [(False, text[start:])]
+
+
+def json_commas(text):
+    """The text with no comma before a closing bracket. The strings stay as they are."""
+    return ''.join(part if quoted else re.sub(r',(\s*[}\]])', r'\1', part) for quoted, part in json_parts(text))
+
+
+def jsonc_load(text):
+    """The object of JSON text that may have a byte order mark, comments and trailing commas, as a Biome config may."""
+    return json_load(''.join(part for _, part in json_parts(text.lstrip('\ufeff'), comments=True)))
+
+
+def json_glob(pattern):
+    """The regular expression of a Biome glob: ** is any number of folders, * any name part, {a,b} either one. A
+    pattern that starts with ./ starts at the folder of the config."""
+    pattern = pattern[2:] if pattern.startswith('./') else pattern
+    parts, index = [], 0
+    while index < len(pattern):
+        close = pattern.find('}', index) if pattern[index] == '{' else -1
+        if close > 0:
+            parts.append('(?:' + '|'.join(re.escape(choice) for choice in pattern[index + 1:close].split(',')) + ')')
+            index = close + 1
+        elif pattern.startswith('**/', index):
+            parts.append('(?:.*/)?')
+            index += 3
+        elif pattern.startswith('**', index):
+            parts.append('.*')
+            index += 2
+        elif pattern[index] == '*':
+            parts.append('[^/]*')
+            index += 1
+        elif pattern[index] == '?':
+            parts.append('[^/]')
+            index += 1
+        else:
+            parts.append(re.escape(pattern[index]))
+            index += 1
+    return re.compile(''.join(parts) + r'\Z')
+
+
+def json_style(target, read=None):
+    """A function that gives the layout of the Biome formatter for a JSON file of the project: its line width, its
+    indent and the columns of a tab. It reads biome.json or biome.jsonc, the local files that their extends names, and
+    the overrides whose includes match the file. With no Biome config, the indent is None, so a file keeps its own.
+    read gives the text of a file of the project, also one that this run is about to write; None when it is missing.
+    The function reads the config again at each call, so a file that this run writes after biome.json takes it."""
+    read = read or (lambda name: read_text(target, name))
+    def merged(base, top):
+        result = dict(base)
+        for key, value in top.items():
+            result[key] = merged(result[key], value) if isinstance(value, dict) and isinstance(
+                result.get(key), dict) else value
+        return result
+
+    def load(name, seen):
+        """The config in name, with the files that its extends names under it. A name is relative to the project."""
+        if name in seen or len(seen) > 8 or not plain(name):
+            return {}
+        if linked(target, name):
+            # The installer does not read through a symbolic link, but Biome does, so the layout is not known.
+            raise LookupError(name)
+        try:
+            text = read(name)
+            data = jsonc_load(text) if text else None
+        except (SharedError, OSError, ValueError):
+            return {}
+        if data is None:
+            return {}
+        listed = data.get('extends', [])
+        config = {}
+        folder = posixpath.dirname(name)
+        for item in [listed] if isinstance(listed, str) else listed if isinstance(listed, list) else []:
+            # A name that starts with ./ or ../, or ends with .json or .jsonc, is a file next to the config. Any other
+            # name is a package of node_modules, which the installer does not read.
+            if isinstance(item, str) and not item.startswith('/') and (
+                    item.startswith(('./', '../')) or item.endswith(('.json', '.jsonc'))):
+                local = posixpath.normpath(posixpath.join(folder, item))
+                if not local.startswith('../'):
+                    config = merged(config, load(local, seen | {name}))
+        return merged(config, {key: value for key, value in data.items() if key != 'extends'})
+
+    def style(path):
+        root = next((name for name in ('biome.json', 'biome.jsonc') if read(name) is not None or linked(target, name)),
+                    None)
+        try:
+            config = load(root, set()) if root else None
+        except LookupError:
+            config = None
+        if config is None:
+            return {'width': 80, 'indent': None}
+        # Biome takes the settings layer by layer: the config, then each override that matches the file. In one
+        # layer json.formatter wins over formatter, and a later layer wins over an earlier one.
+        layers = [config]
+        overrides = config.get('overrides')
+        for override in overrides if isinstance(overrides, list) else []:
+            patterns = override.get('includes') if isinstance(override, dict) else None
+            if not isinstance(patterns, list):
+                continue
+            matched = False
+            for pattern in patterns:
+                if isinstance(pattern, str) and json_glob(pattern.lstrip('!')).match(path):
+                    matched = not pattern.startswith('!')
+            if matched:
+                layers.append(override)
+
+        def setting(key, kind, default, keys=(('formatter',), ('json', 'formatter')), flag=False):
+            value = default
+            for layer in layers:
+                for path in keys:
+                    found = layer
+                    for name in path + (key,):
+                        found = found.get(name) if isinstance(found, dict) else None
+                    if isinstance(found, kind) and isinstance(found, bool) == flag:
+                        value = found
+            return value
+        tab = setting('indentWidth', int, 2)
+        return {'width': setting('lineWidth', int, 80), 'tab': tab,
+                'indent': '\t' if setting('indentStyle', str, 'tab') == 'tab' else tab,
+                'expand': setting('expand', str, 'auto', (('formatter',), ('json', 'formatter'))),
+                # Biome writes a comma after the last item only where its parser allows one: in a .jsonc file, in
+                # tsconfig*.json and jsconfig*.json, and where the config allows it. biome.json never has one.
+                # The agent hooks files are plain JSON for the agents that read them, so they never have one.
+                'trailing': path != 'biome.json' and FORMATS.get(path, {}).get('format') != 'hooks' and setting(
+                    'trailingCommas', str, 'none', (('json', 'formatter'),)) == 'all' and (
+                    path.endswith('.jsonc') or bool(re.fullmatch(r'[tj]sconfig(\..*)?\.json', posixpath.basename(path)))
+                    or setting('allowTrailingCommas', bool, False, (('json', 'parser'),), True)),
+                'ending': setting('lineEnding', str, 'lf')}
+    return style
 
 
 def read_units(kind, text, names, spec):
@@ -733,7 +987,7 @@ def apply_units(kind, text, adds, removes, spec):
             data['hooks'] = hooks
         else:
             data.pop('hooks', None)
-        return json_dump(data, text) if data or text else '', made
+        return json_dump(data, text, spec.get('style')) if data or text else '', made
     listed = data.get('extends')
     was_string = isinstance(listed, str)
     listed = [listed] if was_string else list(listed) if isinstance(listed, list) else None
@@ -760,7 +1014,7 @@ def apply_units(kind, text, adds, removes, spec):
         del data['extends']
     elif listed is not None:
         data['extends'] = []
-    return (json_dump(data, text) if data else ''), made
+    return (json_dump(data, text, spec.get('style')) if data else ''), made
 
 
 def empty_units(kind, text):
@@ -814,7 +1068,7 @@ def desired_units(target, path, active, notes):
                     raise SharedError(f'The source {source} of {owner.key} for {path} is not JSON: {exc}')
         elif path in owner.skipped:
             guard = owner.skipped[path]
-            notes.append(f'Left out the part of {owner.key} in {path}: {guard[0]} already has {guard[1]}')
+            notes.append(f'Left out the part of {owner.key} in {path}: {guard_reason(target, guard)}')
         for unit, value in owner.units.get(path, {}).items():
             found[unit] = {'value': value}
         for unit, item in found.items():
@@ -828,7 +1082,7 @@ def desired_units(target, path, active, notes):
     return want
 
 
-def plan_unit_file(path, kind, text, want, old, unsure, migrating, notes):
+def plan_unit_file(path, kind, text, want, old, unsure, migrating, notes, style=None):
     """Work out one file of units. Returns the new text, the new entries, and the own files that the includes need
     {own path: (data, needs)}."""
     names = list(dict.fromkeys(list(want) + [unit for unit in old if not unit.startswith('(')]))
@@ -873,7 +1127,12 @@ def plan_unit_file(path, kind, text, want, old, unsure, migrating, notes):
                 # The tables on the way go with the unit when they are empty, as when the installer made them.
                 path_of = edit_toml.parse_name(unit)[0]
                 adopted_made[unit] = [edit_toml.key_text(path_of[:depth]) for depth in range(1, len(path_of))]
-            if current[unit] != value:
+            item_of = edit_toml.parse_name(unit) if kind == 'toml' else None
+            if current[unit] != value and item_of and item_of[1] is not edit_toml.MISSING:
+                # The key holds one value of yours, not a list, so the item has no list to go in.
+                notes.append(f'{path}: {edit_toml.key_text(item_of[0])} is {json.dumps(current[unit])}, which is '
+                             f'yours and stays. {item["owner"]} would add {json.dumps(value)} to a list there.')
+            elif current[unit] != value:
                 loud = 'Note: ' if unit == 'tool.uv.default-groups' else ''
                 notes.append(f'{loud}{path}: {unit} is already set to {json.dumps(current[unit])}, which is yours and '
                              f'stays. {item["owner"]} would set {json.dumps(value)}.'
@@ -906,7 +1165,7 @@ def plan_unit_file(path, kind, text, want, old, unsure, migrating, notes):
         return text, entries, owns
     add_rows = [(unit, want[unit]['value'], mark_of(want[unit]['about'], unit, path) if kind in ('toml', 'yaml')
                  and not unit.startswith('extends[') else None, want[unit].get('rows')) for unit in adds]
-    new_text, made = apply_units(kind, text, add_rows, removes, FORMATS[path])
+    new_text, made = apply_units(kind, text, add_rows, removes, dict(FORMATS[path], style=style))
     for unit, things in made.items():
         if things:
             entries[unit]['made'] = things
@@ -1184,7 +1443,14 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
                 entries[key] = units[key]
         if entries:
             new_parts[path] = entries
-    for path in unit_paths:
+    # The JSON files take the layout of the Biome formatter, with the line width and the indent of the project.
+    def planned(name):
+        if name in own_files:
+            return own_files[name][0].decode('utf-8', 'replace')
+        return text_of(name)
+    style = json_style(target, planned)
+    # biome.json comes first, so that the other JSON files take the Biome config that this run writes.
+    for path in sorted(unit_paths, key=lambda path: path != 'biome.json'):
         spec = FORMATS[path]
         file_path = target_of(target, path)
         if file_path != path:
@@ -1213,7 +1479,8 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
             record_path[source] = path
             source_text = text_of(source)
             try:
-                moved, _, _ = plan_unit_file(path, spec['format'], source_text, {}, gone, unsure, False, notes)
+                moved, _, _ = plan_unit_file(path, spec['format'], source_text, {}, gone, unsure, False, notes,
+                                             style(source))
             except SharedError as exc:
                 messages.append(f'{source}: the installer cannot take {", ".join(gone)} out of it: {exc}. '
                                 f'Remove it by hand.')
@@ -1246,8 +1513,20 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
         try:
             if text is None and not spec.get('create', True):
                 raise SharedError(f'there is no {path} yet')
+            used = style(file_path)
             new_text, entries, owns = plan_unit_file(path, spec['format'], text, want, old, unsure,
-                                                     migrating or path in replaced, notes)
+                                                     migrating or path in replaced, notes, used)
+            if path == 'biome.json' and new_text and new_text != text:
+                # The Biome config sets its own layout. The extends that this run adds or takes out can change the
+                # indent and the width, so the file takes the layout of the config that it holds after the change.
+                def after_change(name, new_text=new_text, owns=owns):
+                    if name == file_path:
+                        return new_text
+                    return owns[name][0].decode('utf-8', 'replace') if name in owns else planned(name)
+                layout = json_style(target, after_change)(file_path)
+                if layout != used:
+                    new_text, entries, owns = plan_unit_file(path, spec['format'], text, want, old, unsure,
+                                                             migrating or path in replaced, [], layout)
         except SharedError as exc:
             include = [item['value'] for item in want.values() if 'own' in item]
             # The output names the include to add by hand, so the own file that it reads must be there.
@@ -1429,27 +1708,33 @@ def verb(old, new, dry_run):
 def check(target, parts):
     """Compare the record of the parts with the files. Print each difference. Return 1 for a broken block, a run that
     stopped or a file that cannot be read, else 0."""
+    notes = []
+
+    def note(text):
+        notes.append(text)
+        print(text)
+
     failed = False
     try:
         pending = read_pending(target)
     except SharedError as exc:
-        print(f'just install --check: {exc}')
+        note(f'just install --check: {exc}')
         return 1
     if pending:
-        print(f'A run stopped while it changed {", ".join(sorted(pending))}. Run just install again.')
+        note(f'A run stopped while it changed {", ".join(sorted(pending))}. Run just install again.')
         failed = True
     unread = sorted(path for path, units in (parts or {}).items() if any(entry.get('unsure') for entry in units.values()))
     if unread:
-        print(f'A run stopped while it changed {", ".join(unread)}, and a later run could not read the file. Fix the '
+        note(f'A run stopped while it changed {", ".join(unread)}, and a later run could not read the file. Fix the '
               f'file, then run just install again.')
         failed = True
     if parts is None:
-        print(f'just install --check: {RECORD} has no record of the parts yet. The next just install makes it.')
+        note(f'just install --check: {RECORD} has no record of the parts yet. The next just install makes it.')
         return 1 if failed else 0
     for path, units in sorted(parts.items()):
         found = linked(target, path)
         if found:
-            print(f'{path}: {found} is a symlink, so the installer leaves {path} alone.')
+            note(f'{path}: {found} is a symlink, so the installer leaves {path} alone.')
             continue
         file = target / path
         if OWN in units or WHOLE in units:
@@ -1457,10 +1742,10 @@ def check(target, parts):
             if entry['state'] != 'added':
                 continue
             if not file.exists():
-                print(f'{path} of {", ".join(entry["needs"])} is gone. The next just install writes it again.'
+                note(f'{path} of {", ".join(entry["needs"])} is gone. The next just install writes it again.'
                       if OWN in units else f'{path} of {", ".join(entry["needs"])} is gone.')
             elif digest(file.read_bytes()) != entry.get('hash'):
-                print(f'{path} of {", ".join(entry["needs"])} is edited. '
+                note(f'{path} of {", ".join(entry["needs"])} is edited. '
                       + ('The next just install writes it again.' if OWN in units else 'It stays when its owners go.'))
             continue
         if FILE in units:
@@ -1469,7 +1754,7 @@ def check(target, parts):
         if spec['format'] == 'lines':
             if not file.exists():
                 if any(entry.get('state') == 'added' for unit, entry in units.items() if not unit.startswith('(')):
-                    print(f'{path} is gone. The next just install records its lines as declined.')
+                    note(f'{path} is gone. The next just install records its lines as declined.')
                 continue
             style = style_of(path)
             text = file.read_bytes().decode('utf-8', errors='surrogateescape')
@@ -1477,21 +1762,21 @@ def check(target, parts):
             blocks, user, broken = parse(text[1:] if text.startswith('﻿') else text,
                                          set(claims) | {'jnterfaces'}, style)
             for owner in broken:
-                print(f'{path}: the block of {owner} lacks its begin or end comment.')
+                note(f'{path}: the block of {owner} lacks its begin or end comment.')
                 failed = True
             here = {normal(bare(row)) for row in user if style.is_rule(bare(row))} | {
                 normal(bare(row)) for body in blocks.values() for row in body if style.is_rule(bare(row))}
             for owner, owner_claims in claims.items():
                 for key, state in owner_claims.items():
                     if state == 'added' and key not in here:
-                        print(f'{path}: {key} of {owner} is gone. The next just install records it as declined.')
+                        note(f'{path}: {key} of {owner} is gone. The next just install records it as declined.')
                 for row in blocks.get(owner, []):
                     if style.is_rule(bare(row)) and owner_claims.get(normal(bare(row))) != 'added':
-                        print(f'{path}: {bare(row).strip()} is inside the block of {owner}, but {owner} did not add '
+                        note(f'{path}: {bare(row).strip()} is inside the block of {owner}, but {owner} did not add '
                               f'it. The next just install moves it to your part.')
             for owner in blocks:
                 if owner not in claims:
-                    print(f'{path}: the record has no lines of {owner}, which has a block. The next just install '
+                    note(f'{path}: the record has no lines of {owner}, which has a block. The next just install '
                           f'takes the lines that {owner} needs into the record.')
             continue
         file_path = held_in(target, path, units)
@@ -1499,29 +1784,30 @@ def check(target, parts):
             file_path = target_of(target, path)
         found = linked(target, file_path) or linked(target, target_of(target, path))
         if found:
-            print(f'{path}: {found} is a symlink, so the installer leaves {path} alone.')
+            note(f'{path}: {found} is a symlink, so the installer leaves {path} alone.')
             continue
         if file_path != target_of(target, path):
-            print(f'{path}: the tool reads {target_of(target, path)} before {file_path}, which holds the parts. The '
+            note(f'{path}: the tool reads {target_of(target, path)} before {file_path}, which holds the parts. The '
                   f'next just install moves them.')
         if read_text(target, file_path) is None and not spec.get('create', True):
-            print(f'{file_path}: the file is not there. If you make it again, the next just install records each unit '
+            note(f'{file_path}: the file is not there. If you make it again, the next just install records each unit '
                   f'that it lacks as declined.')
             continue
         try:
             current = read_units(spec['format'], read_text(target, file_path),
                                  [unit for unit in units if not unit.startswith('(')], spec)
         except SharedError as exc:
-            print(f'{file_path}: cannot read it: {exc}.')
+            note(f'{file_path}: cannot read it: {exc}.')
             continue
         for unit, entry in units.items():
             if unit.startswith('(') or entry['state'] != 'added':
                 continue
             if unit not in current:
-                print(f'{file_path}: {unit} of {entry.get("holder")} is gone. The next just install records it as '
+                note(f'{file_path}: {unit} of {entry.get("holder")} is gone. The next just install records it as '
                       f'declined.')
             elif current[unit] != entry.get('value'):
-                print(f'{file_path}: {unit} of {entry.get("holder")} is changed. It is yours now.')
+                note(f'{file_path}: {unit} of {entry.get("holder")} is changed. It is yours now.')
     if not failed:
-        print(f'just install --check: the record in {RECORD} and the files agree, apart from the notes above')
+        note_text = ', apart from the notes above' if notes else ''
+        print(f'just install --check: the record in {RECORD} and the files agree{note_text}')
     return 1 if failed else 0

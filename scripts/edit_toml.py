@@ -132,6 +132,9 @@ def read(text, names):
                 found[unit] = value
         elif isinstance(value, list) and item in value:
             found[unit] = item
+        elif value is not MISSING and not isinstance(value, list):
+            # The key holds one value of yours, such as pythonpath = "src", so it has no list to add the item to.
+            found[unit] = value
     return found
 
 
@@ -283,6 +286,8 @@ def edit(text, adds, removes):
                 del parent[path[-1]]
         else:
             array = parent[path[-1]]
+            if not isinstance(plain(array), list):
+                continue
             for index in reversed([i for i, value in enumerate(array) if value == item]):
                 del array[index]
     removed_text = document.as_string()

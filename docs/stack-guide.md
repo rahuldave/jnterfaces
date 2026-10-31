@@ -5,8 +5,11 @@ says where each part lives, what a machine needs, and how an install works.
 Then it builds a project in layers, from a project with no code to a project
 with the checks of cheesecracker. Each layer says what works now and what does
 not. The results come from installs into empty Git repositories on
-2026-10-29. The section "Gaps to close" says which gaps a later change
-closed.
+2026-10-29.
+
+On 2026-10-31, a new project of each profile was checked again,
+with code and tests, up to a passing `just verify`. The section "Gaps to
+close" says which gaps a later change closed.
 
 ## Terms
 
@@ -191,6 +194,9 @@ each language. To give arguments to one language, run `just python test x`.
 Each layer adds one mixin. Start at layer 0, and add the layers that the
 project needs. Each command after layer 1 is a recipe of the project.
 
+For the shortest path to a full project, with each tool and recipe, read
+[Start a Python or TypeScript project](new-project.md).
+
 ### Layer 0: an empty Git repository
 
 ```bash
@@ -245,8 +251,9 @@ just install tasker
 - The `g*` skills, which track work with Gest.
 - The agent hooks in `.claude/hooks` and `.codex/hooks`, with their entries
   in `.claude/settings.json` and `.codex/hooks.json`.
-- A starter `AGENTS.md`, if the project has none. `just uninstall tasker`
-  removes it again when nobody changed it.
+- A starter `AGENTS.md`, if the project has none. The starter is yours from
+  then on. `just uninstall tasker` takes out only the lines of the role, and
+  the rest of the file stays.
 
 **Variants.** `just install tasker=gitwt` works on each task in its own Git
 worktree, and keeps the main checkout on `main`. The default, `tasker=git`,
@@ -388,7 +395,7 @@ cheesecracker has these parts, and no profile or tool adds them:
 | Docker | `just docker-build`, `just docker-serve`, `just docker-stop`, `just docker-shell` and `just docker-test`, with a `.dockerignore`. |
 | Async tests | The group `test` has pytest-asyncio and httpx2. |
 | Coverage of one package | `just cov` names the package, `--cov=api`. |
-| Test paths | `pyproject.toml` sets `testpaths` and `pythonpath` for pytest. |
+| Test paths | `pyproject.toml` sets `testpaths` and `pythonpath` for pytest. The `test` tool now sets `pythonpath`, but not `testpaths`. |
 | CI | The class repository cheese-app-ci-cd has a GitHub Actions workflow. No profile writes one. |
 
 ## How the mixins behave
@@ -588,5 +595,5 @@ The installer fixes closed these gaps:
 The role recipes closed these gaps:
 
 - **`just prose`** checks the Markdown of the project.
-- **`just uninstall tasker`** removes an `AGENTS.md` that nobody changed.
+- **`just uninstall tasker`** takes the lines of the role out of `AGENTS.md`.
 - **jnprofile-typescript** is on GitHub.

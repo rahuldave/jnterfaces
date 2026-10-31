@@ -186,7 +186,7 @@ def check_profile(name, profile, choices):
                   and lines_ok(tool) and parts_ok(tool)
                   and isinstance(tool.get('group', ''), str)
                   and isinstance(tool.get('skip_if', {}), dict)
-                  and all(string_list(v) and len(v) == 2 and plain_path(v[0]) for v in tool.get('skip_if', {}).values())
+                  and all(guards_of(v) for v in tool.get('skip_if', {}).values())
                   and before_remove_ok(tool.get('before_remove'))
                   and recipe_file_ok(tool.get('recipes'))
                   and string_list(tool.get('verify', []))
@@ -278,6 +278,12 @@ def commit_of(clone):
     return run.stdout.strip() if run.returncode == 0 and run.stdout.strip() else '?'
 
 
+def project_env():
+    """The environment of a command in the project. uv run of this script sets VIRTUAL_ENV to the environment of
+    the script, so uv in the project would warn that it is not .venv of the project. The command does not get it."""
+    return {key: value for key, value in os.environ.items() if key != 'VIRTUAL_ENV'}
+
+
 def owners_of(profiles, names, pairs, commits, target=None, record=None):
     """The owners of the shared files, in order: each profile in names, followed by each of its tools in pairs, in
     the order of its profile.json. A package that has parts for a file leaves out its old whole file of that name,
@@ -302,28 +308,47 @@ def owners_of(profiles, names, pairs, commits, target=None, record=None):
                 guards = entry.get('skip_if', {})
                 parts = entry.get('parts', {})
                 key = f'{name}:{tool}'
-                skipped = {path: guards[path] for path in parts if path in guards and target is not None
-                           and guard_applies(target, guards[path]) and not any(
+                applying = {path: next((guard for guard in guards_of(guards[path]) if target is not None
+                                        and guard_applies(target, guard)), None) for path in guards}
+                skipped = {path: applying[path] for path in parts if applying.get(path) and not any(
                                entry.get('state') == 'added' and key in entry.get('needs', [])
                                for entry in (record or {}).get(path, {}).values())}
                 found.append(shared_files.Owner(
                     f'{name}:{tool}', f'the {tool} tool of the {name} profile', package, commits[name],
                     f'`just uninstall {tool}` removes them.', copy.deepcopy(entry.get('lines', {})),
-                    {path: (root / origin, guards.get(path)) for path, origin in entry.get('files', {}).items()
+                    {path: (root / origin, applying.get(path) or (guards_of(guards[path]) or [None])[0]
+                            if path in guards else None) for path, origin in entry.get('files', {}).items()
                      if path not in parts},
                     {path: root / origin for path, origin in parts.items()}, skipped=skipped))
     return found
 
 
+def guards_of(value):
+    """The guards of a skip_if entry: one guard [file, text], or a list of them, of which any one applies. An empty
+    list when the entry has neither form."""
+    def ok(guard):
+        return string_list(guard) and len(guard) == 2 and plain_path(guard[0])
+    if ok(value):
+        return [value]
+    return value if isinstance(value, list) and value and all(ok(guard) for guard in value) else []
+
+
 def guard_applies(target, guard):
-    """True when the file of a skip_if guard has its text, such as [tool.ruff in pyproject.toml. In a TOML file a
-    guard of the form [a.b means that the table a.b is there, in any form: [tool.ruff], [ tool.ruff.lint ],
-    tool.ruff.x = 1 or ruff.x = 1 under [tool]."""
+    """True when the file of a skip_if guard has its text, such as [tool.ruff in pyproject.toml. An empty text means
+    that the file is there. In a TOML file a guard of the form [a.b means that the table a.b is there, in any form:
+    [tool.ruff], [ tool.ruff.lint ], tool.ruff.x = 1 or ruff.x = 1 under [tool]. A guard of the form [a.b] means that
+    the table a.b holds a value of its own, not only tables: [tool.pytest] with addopts, but not with ini_options
+    alone."""
     file = target / guard[0]
-    if shared_files.linked(target, guard[0]) or not file.is_file():
+    if shared_files.linked(target, guard[0]):
+        # The installer does not read through a symbolic link. A linked file may hold the config, so the guard holds.
+        return True
+    if not file.is_file():
         return False
+    if not guard[1]:
+        return True
     text = file.read_text(errors='replace')
-    table = re.fullmatch(r'\[([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)', guard[1])
+    table = re.fullmatch(r'\[([A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*)(\]?)', guard[1])
     if guard[0].endswith('.toml') and table:
         try:
             data = tomllib.loads(text)
@@ -334,6 +359,8 @@ def guard_applies(target, guard):
                 if not isinstance(data, dict) or part not in data:
                     return False
                 data = data[part]
+            if table.group(2):
+                return isinstance(data, dict) and any(not isinstance(value, dict) for value in data.values())
             return True
     # The text must start a line, so that a comment that names it does not count.
     return any(line.lstrip().startswith(guard[1]) for line in text.splitlines())
@@ -991,7 +1018,7 @@ def prepare(target, profile, steps):
     if init and not (target / init['file']).exists():
         print(f'No {init["file"]}, so the installer runs: {" ".join(init["command"])}', file=sys.stderr)
         try:
-            failed = subprocess.run(init['command'], cwd=target).returncode
+            failed = subprocess.run(init['command'], cwd=target, env=project_env()).returncode
         except OSError as exc:
             failed = str(exc)
         if failed or not (target / init['file']).exists():
@@ -1548,7 +1575,7 @@ def main(argv=None):
             if not problem:
                 for first in entry.get('before', []):
                     print(f'Before removing {tool} for {profile}: {" ".join(first)}', file=sys.stderr)
-                    code = subprocess.run(first, cwd=target).returncode
+                    code = subprocess.run(first, cwd=target, env=project_env()).returncode
                     if code:
                         failed = f'{" ".join(first)} exited with {code}'
                         break
@@ -1557,7 +1584,7 @@ def main(argv=None):
                 elif command:
                     print(f'{"Adding" if kind == "add" else "Removing"} {tool} for {profile}: {" ".join(command)}',
                           file=sys.stderr)
-                    failed = subprocess.run(command, cwd=target).returncode
+                    failed = subprocess.run(command, cwd=target, env=project_env()).returncode
                 else:
                     print(f'The project already has the packages of {tool} for {profile}', file=sys.stderr)
         except (OSError, StackError) as exc:

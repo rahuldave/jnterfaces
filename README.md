@@ -32,6 +32,9 @@ git clone https://github.com/rahuldave/jnterfaces ~/.local/share/skill-packages/
 uv run ~/.local/share/skill-packages/jnterfaces/scripts/install_stack.py --profile python
 ```
 
+[Start a new project](#start-a-new-project) gives each step, from an empty
+folder to a project whose checks pass.
+
 On a terminal, the installer asks which roles to install, and it saves the
 answers in `.agents/stack.json`. A named role asks nothing, and named roles
 alone turn on only those roles. Without a terminal, a named profile takes the
@@ -74,8 +77,52 @@ index imports it. For example, `prose` gives `just prose`, which checks the
 Markdown of the project. Another project gets the line to add to its Justfile.
 
 **Starter files.** A role can write a starter file, such as the `AGENTS.md` of
-`tasker`. The record keeps its hash. `just uninstall` removes the file when
-nobody changed it, and keeps it, with a note, when you edited it.
+`tasker`, once, when the project has none. The starter is yours from then on.
+`just uninstall` takes out only the lines that the role added to it, and the
+file stays.
+
+### Start a new project
+
+1. Install `git`, `just` and `uv`.
+2. Choose the folder of the package clones. The default is
+   `~/.local/share/skill-packages`. To use another folder, export
+   `SKILL_PACKAGES_DIR` in your shell profile first, for example `export
+   SKILL_PACKAGES_DIR=~/Projects`. `just install` in a project finds the
+   clones in that folder only. Without the variable, it uses the default
+   folder, also when you ran the first install from another clone.
+3. Clone jnterfaces into that folder:
+
+   ```bash
+   git clone https://github.com/rahuldave/jnterfaces "${SKILL_PACKAGES_DIR:-$HOME/.local/share/skill-packages}/jnterfaces"
+   ```
+
+4. Make the project, and run the installer from the clone:
+
+   ```bash
+   mkdir app && cd app && git init
+   uv run "${SKILL_PACKAGES_DIR:-$HOME/.local/share/skill-packages}/jnterfaces/scripts/install_stack.py" --profile python
+   ```
+
+   Use `--profile typescript` for TypeScript. The installer clones the other
+   packages that it needs, writes the starter Justfile, and adds the tools.
+5. Run `just verify`. A project with no code yet passes.
+6. Put the code in the place that the profile expects:
+
+   | Profile | Code | Tests |
+   |---|---|---|
+   | `python` | Modules at the top of the project, such as `app.py`, or a package folder | `tests/test_NAME.py`. pytest finds the modules at the top, because the `test` tool sets `pythonpath`. |
+   | `typescript` | `src/`, for example `src/app.ts` | `src/NAME.test.ts`, which imports the code as `./app.js`. Turn on the tool with `just install test`. |
+
+7. Run `just fmt` to format the code, then `just verify` again.
+8. Commit the project, with `.agents/`, `.claude/`, `.codex/`, `AGENTS.md`,
+   the `Justfile` and the config files. `.gitignore` already leaves out what a
+   command makes again, such as `.venv/` or `node_modules/`.
+
+Later, `just install --update` gets the new commits of each package, and
+`just install --check` compares the record with the files.
+
+[Start a Python or TypeScript project](https://rahuldave.github.io/jnterfaces/new-project.html)
+gives each tool, recipe, hook and config file of a new project, with examples.
 
 ### Tools and profiles
 
