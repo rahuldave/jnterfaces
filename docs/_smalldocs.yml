@@ -14,6 +14,8 @@ website:
     left:
       - href: index.md
         text: Home
+      - href: new-project.md
+        text: New project
       - href: stack-guide.md
         text: Stack guide
       - href: stack-files.md

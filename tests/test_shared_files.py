@@ -801,6 +801,213 @@ class IncludeTests(Base):
         self.assertFalse((self.target / '.agents/config').exists())
         self.assertEqual(self.text('tsconfig.json'), mine)
 
+    def test_an_include_is_written_as_biome_formats_it(self):
+        (self.target / 'tsconfig.json').write_text('{\n  "compilerOptions": {"strict": true}\n}\n')
+        tsc = owner('typescript:typecheck', parts={'tsconfig.json': self.source_file('tsconfig.json', '{}\n')})
+        self.sync([tsc])
+        self.assertEqual(self.text('tsconfig.json'), '{\n  "compilerOptions": {\n    "strict": true\n  },\n'
+                         '  "extends": ["./.agents/config/typescript/tsconfig.json"]\n}\n')
+
+    def test_a_list_that_does_not_fit_the_line_has_one_item_on_each_line(self):
+        text = shared_files.json_dump({'include': ['a' * 30, 'b' * 30], 'n': [1, 2]}, None, {'width': 60})
+        self.assertEqual(text, '{\n  "include": [\n    "' + 'a' * 30 + '",\n    "' + 'b' * 30 + '"\n  ],\n'
+                               '  "n": [1, 2]\n}\n')
+        # The line '  "include": ["a...", "b..."]' is 81 characters.
+        self.assertEqual(shared_files.json_dump({'include': ['a' * 30, 'b' * 30]}, None, {'width': 81}),
+                         '{\n  "include": ["' + 'a' * 30 + '", "' + 'b' * 30 + '"]\n}\n')
+
+    def test_the_comma_after_a_list_counts_in_the_line(self):
+        # The line '  "a": ["xxxxxx"],' is 18 characters, with its comma.
+        self.assertEqual(shared_files.json_dump({'a': ['xxxxxx'], 'b': 1}, None, {'width': 18}),
+                         '{\n  "a": ["xxxxxx"],\n  "b": 1\n}\n')
+        self.assertEqual(shared_files.json_dump({'a': ['xxxxxx'], 'b': 1}, None, {'width': 17}),
+                         '{\n  "a": [\n    "xxxxxx"\n  ],\n  "b": 1\n}\n')
+
+    def test_lists_of_lists_and_of_numbers_take_the_layout_of_biome(self):
+        # The texts that the Biome formatter 2 prints for these values.
+        self.assertEqual(shared_files.json_dump({'k': [[1, 2], [3]]}, None, {'width': 80}), '{\n  "k": [[1, 2], [3]]\n}\n')
+        self.assertEqual(shared_files.json_dump({'n': [1, 2.5, -3]}, None, {'width': 15}),
+                         '{\n  "n": [\n    1, 2.5, -3\n  ]\n}\n')
+        self.assertEqual(shared_files.json_dump({'n': [100, 101, 102]}, None, {'width': 13}),
+                         '{\n  "n": [\n    100, 101,\n    102\n  ]\n}\n')
+
+    def test_the_line_width_comes_from_the_biome_config_of_the_project(self):
+        width = lambda: shared_files.json_style(self.target)('tsconfig.json')['width']
+        self.assertEqual(width(), 80)
+        (self.target / '.agents/config/typescript').mkdir(parents=True)
+        (self.target / '.agents/config/typescript/lint.json').write_text('{"formatter": {"lineWidth": 120}}')
+        (self.target / 'biome.json').write_text('{"extends": ["./.agents/config/typescript/lint.json"]}')
+        self.assertEqual(width(), 120)
+        (self.target / 'biome.json').write_text('{"extends": ["./.agents/config/typescript/lint.json"], '
+                                                '"json": {"formatter": {"lineWidth": 100}}}')
+        self.assertEqual(width(), 100)
+
+    def test_the_indent_comes_from_the_biome_config_and_a_tab_is_the_default(self):
+        style = lambda: shared_files.json_style(self.target)('tsconfig.json')
+        self.assertEqual(style()['indent'], None)
+        (self.target / 'biome.json').write_text('{}')
+        self.assertEqual(style()['indent'], '\t')
+        self.assertEqual(shared_files.json_dump({'a': {'b': 1}}, None, style()), '{\n\t"a": {\n\t\t"b": 1\n\t}\n}\n')
+        (self.target / 'biome.json').write_text('{"formatter": {"indentStyle": "space", "indentWidth": 4}}')
+        self.assertEqual(shared_files.json_dump({'a': 1}, '{\n  "a": 0\n}\n', style()), '{\n    "a": 1\n}\n')
+
+    def test_a_tab_counts_as_the_indent_width_in_the_line(self):
+        # Biome counts the tab before "k" as indentWidth columns: 1 + 5 + 10 + 2 + 1 = 19 columns at indentWidth 2.
+        value = {'k': ['abcdefgh']}
+        self.assertEqual(shared_files.json_dump(value, None, {'width': 19, 'indent': '\t', 'tab': 2}),
+                         '{\n\t"k": ["abcdefgh"]\n}\n')
+        self.assertEqual(shared_files.json_dump(value, None, {'width': 19, 'indent': '\t', 'tab': 4}),
+                         '{\n\t"k": [\n\t\t"abcdefgh"\n\t]\n}\n')
+
+    def test_a_file_with_no_biome_config_keeps_its_tab_indent(self):
+        self.assertEqual(shared_files.json_dump({'a': 1}, '{\n\t"a": 0\n}\n'), '{\n\t"a": 1\n}\n')
+
+    def test_the_style_reads_a_biome_jsonc_with_comments_and_trailing_commas(self):
+        (self.target / 'biome.jsonc').write_text('{\n  // mine, with a "quote"\n  /* a block */ "formatter": '
+                                                 '{"lineWidth": 120, "indentStyle": "space",},\n  "x": "a//b",\n}\n')
+        style = shared_files.json_style(self.target)('tsconfig.json')
+        self.assertEqual((style['width'], style['indent']), (120, 2))
+
+    def test_an_extends_is_read_from_the_folder_of_the_file_that_names_it(self):
+        (self.target / 'cfg').mkdir()
+        (self.target / 'cfg/a.json').write_text('{"extends": ["./b.json"]}')
+        (self.target / 'cfg/b.json').write_text('{"formatter": {"lineWidth": 120}}')
+        (self.target / 'biome.json').write_text('{"extends": ["./cfg/a.json"]}')
+        self.assertEqual(shared_files.json_style(self.target)('tsconfig.json')['width'], 120)
+
+    def test_the_settings_of_all_the_files_merge_and_json_wins(self):
+        (self.target / 'more.json').write_text('{"json": {"formatter": {"lineWidth": 120}}}')
+        (self.target / 'biome.json').write_text('{"extends": ["./more.json"], "formatter": {"lineWidth": 100}}')
+        self.assertEqual(shared_files.json_style(self.target)('tsconfig.json')['width'], 120)
+
+    def test_an_override_that_matches_the_file_sets_its_layout(self):
+        (self.target / 'biome.json').write_text(json.dumps({'formatter': {'lineWidth': 100}, 'overrides': [
+            {'includes': ['**/tsconfig*.json', '!other/**'], 'formatter': {'lineWidth': 40}}]}))
+        style = shared_files.json_style(self.target)
+        self.assertEqual(style('tsconfig.json')['width'], 40)
+        self.assertEqual(style('biome.json')['width'], 100)
+        self.assertEqual(style('other/tsconfig.json')['width'], 100)
+
+    def test_an_extends_cycle_or_a_missing_file_gives_the_default(self):
+        (self.target / 'a.json').write_text('{"extends": ["./biome.json"], "formatter": {"lineWidth": "wide"}}')
+        (self.target / 'biome.json').write_text('{"extends": ["./a.json", "./gone.json", "some-package"]}')
+        self.assertEqual(shared_files.json_style(self.target)('tsconfig.json')['width'], 80)
+
+    def test_empty_objects_exponents_and_wide_characters_take_the_layout_of_biome(self):
+        self.assertEqual(shared_files.json_dump({'d': [{}], 'm': ['a', {}, 2.5]}, None),
+                         '{\n  "d": [{}],\n  "m": ["a", {}, 2.5]\n}\n')
+        self.assertEqual(shared_files.json_dump({'n': [1e100, 1e-07]}, None), '{\n  "n": [1e100, 1e-7]\n}\n')
+        # Each emoji takes two columns: 2 + 5 + 2 + 30 * 2 + 2 = 71 columns fit in 71, not in 70.
+        wide = {'k': ['\U0001F600' * 30]}
+        self.assertEqual(shared_files.json_dump(wide, None, {'width': 71}).count('\n'), 3)
+        self.assertEqual(shared_files.json_dump(wide, None, {'width': 70}).count('\n'), 5)
+
+    def test_biome_json_takes_the_layout_of_the_config_that_it_holds_after_the_change(self):
+        (self.target / 'biome.json').write_text('{\n\t"formatter": {\n\t\t"enabled": true\n\t}\n}\n')
+        lint = owner('typescript:lint', parts={'biome.json': self.source_file(
+            'lint.json', '{"formatter": {"indentStyle": "space"}}\n')})
+        self.sync([lint])
+        self.assertEqual(self.text('biome.json'), '{\n  "formatter": {\n    "enabled": true\n  },\n'
+                                                  '  "extends": ["./.agents/config/typescript/lint.json"]\n}\n')
+        self.sync([], [lint])
+        self.assertEqual(self.text('biome.json'), '{\n\t"formatter": {\n\t\t"enabled": true\n\t}\n}\n')
+
+    def test_a_later_layer_wins_over_json_formatter_of_an_earlier_one(self):
+        (self.target / 'biome.json').write_text(json.dumps({'json': {'formatter': {'indentStyle': 'space'}}, 'overrides': [
+            {'includes': ['**'], 'formatter': {'indentStyle': 'tab'}},
+            {'includes': ['**'], 'json': {'formatter': {'indentWidth': 8}}},
+            {'includes': ['**'], 'formatter': {'indentWidth': 4}}]}))
+        style = shared_files.json_style(self.target)('tsconfig.json')
+        self.assertEqual((style['indent'], style['tab']), ('\t', 4))
+
+    def test_an_extends_with_a_bare_file_name_is_read_next_to_the_config(self):
+        (self.target / 'base.json').write_text('{"formatter": {"indentStyle": "space", "lineWidth": 60}}')
+        (self.target / 'biome.json').write_text('{"extends": ["base.json", "a-package"]}')
+        style = shared_files.json_style(self.target)('tsconfig.json')
+        self.assertEqual((style['indent'], style['width']), (2, 60))
+
+    def test_an_include_with_a_dot_slash_or_braces_matches(self):
+        (self.target / 'biome.json').write_text(json.dumps({'overrides': [
+            {'includes': ['./tsconfig.json'], 'formatter': {'lineWidth': 40}},
+            {'includes': ['**/*.{json,jsonc}'], 'formatter': {'indentWidth': 4}}]}))
+        style = shared_files.json_style(self.target)
+        self.assertEqual((style('tsconfig.json')['width'], style('tsconfig.json')['tab']), (40, 4))
+        self.assertEqual((style('other.json')['width'], style('a/b.jsonc')['tab']), (80, 4))
+        self.assertEqual(style('a.js')['tab'], 2)
+
+    def test_expand_trailing_commas_and_the_line_ending_take_the_layout_of_biome(self):
+        value = {'a': {'b': 1}, 'n': [1, 2, 3], 's': ['x', 'y'], 'e': [], 'l': [[1], {'k': 1}], 'q': [{}]}
+        self.assertEqual(shared_files.json_dump(value, None, {'indent': 2, 'expand': 'never'}),
+                         '{\n  "a": { "b": 1 },\n  "n": [1, 2, 3],\n  "s": ["x", "y"],\n  "e": [],\n'
+                         '  "l": [[1], { "k": 1 }],\n  "q": [{}]\n}\n')
+        self.assertEqual(shared_files.json_dump({'n': [1, 2], 'q': [{}]}, None, {'indent': 2, 'expand': 'always'}),
+                         '{\n  "n": [\n    1,\n    2\n  ],\n  "q": [\n    {}\n  ]\n}\n')
+        self.assertEqual(shared_files.json_dump(value, None, {'indent': 2, 'width': 12, 'trailing': True}),
+                         '{\n  "a": {\n    "b": 1,\n  },\n  "n": [\n    1, 2, 3\n  ],\n  "s": [\n    "x",\n'
+                         '    "y",\n  ],\n  "e": [],\n  "l": [\n    [1],\n    {\n      "k": 1,\n    },\n  ],\n'
+                         '  "q": [{}],\n}\n')
+        self.assertEqual(shared_files.json_dump({'a': 1}, None, {'indent': 2, 'ending': 'crlf'}),
+                         '{\r\n  "a": 1\r\n}\r\n')
+        (self.target / 'biome.json').write_text('{"formatter": {"expand": "never", "lineEnding": "crlf"}, '
+                                                '"json": {"formatter": {"trailingCommas": "all"}}}')
+        style = shared_files.json_style(self.target)('tsconfig.json')
+        # Biome's parser rejects a comma after the last item of a .json file unless the config allows it. It takes
+        # one in a .jsonc file and in tsconfig*.json, and never in biome.json.
+        self.assertEqual((style['expand'], style['trailing'], style['ending']), ('never', True, 'crlf'))
+        style = shared_files.json_style(self.target)
+        self.assertEqual([style(name)['trailing'] for name in (
+            'a.json', 'tsconfig.app.json', 'sub/jsconfig.json', 'mytsconfig.json', 'biome.jsonc', 'biome.json')],
+            [False, True, True, False, True, False])
+        (self.target / 'biome.json').write_text('{"json": {"formatter": {"trailingCommas": "all"}, '
+                                                '"parser": {"allowTrailingCommas": true}}}')
+        style = shared_files.json_style(self.target)
+        self.assertEqual([style(name)['trailing'] for name in ('a.json', 'biome.json')], [True, False])
+
+    def test_a_file_with_trailing_commas_can_be_changed_again(self):
+        (self.target / 'tsconfig.json').write_text('{\n  "a": ["x,]",],\n}\n')
+        types = owner('typescript:typecheck', parts={'tsconfig.json': self.source_file('ts.json', '{}\n')})
+        self.sync([types])
+        self.assertEqual(json.loads(self.text('tsconfig.json'))['a'], ['x,]'])
+        self.assertIn('extends', self.text('tsconfig.json'))
+
+    def test_the_config_reader_keeps_commas_in_strings_and_skips_a_byte_order_mark(self):
+        self.assertEqual(shared_files.jsonc_load('\ufeff{"includes": ["a,]", "b",], /* c, */ "x": "//y",}'),
+                         {'includes': ['a,]', 'b'], 'x': '//y'})
+        (self.target / 'biome.json').write_text('\ufeff{"formatter": {"indentStyle": "space"}}')
+        self.assertEqual(shared_files.json_style(self.target)('tsconfig.json')['indent'], 2)
+
+    def test_the_agent_hooks_files_never_get_a_trailing_comma(self):
+        (self.target / 'biome.json').write_text('{"json": {"formatter": {"trailingCommas": "all"}, '
+                                                '"parser": {"allowTrailingCommas": true}}}')
+        style = shared_files.json_style(self.target)
+        self.assertEqual([style(name)['trailing'] for name in ('.claude/settings.json', '.codex/hooks.json', 'a.json')],
+                         [False, False, True])
+
+    def test_a_symlinked_biome_config_keeps_the_indent_of_each_file(self):
+        (self.source / 'shared.json').write_text('{"formatter": {"indentStyle": "space", "indentWidth": 2}}')
+        (self.target / 'biome.json').symlink_to(self.source / 'shared.json')
+        self.assertEqual(shared_files.json_style(self.target)('tsconfig.json')['indent'], None)
+        (self.target / 'biome.json').unlink()
+        (self.target / 'biome.json').write_text('{"extends": ["./linked.json"]}')
+        (self.target / 'linked.json').symlink_to(self.source / 'shared.json')
+        self.assertEqual(shared_files.json_style(self.target)('tsconfig.json')['indent'], None)
+
+    def test_a_number_line_that_is_too_long_gets_the_trailing_comma(self):
+        value = {'a' * 20: [1, 12345678901234567]}
+        self.assertEqual(shared_files.json_dump(value, None, {'indent': 2, 'width': 20, 'trailing': True}),
+                         '{\n  "' + 'a' * 20 + '": [\n    1,\n    12345678901234567,\n  ],\n}\n')
+        self.assertEqual(shared_files.json_dump({'n': [1, 2, 3]}, None, {'indent': 2, 'width': 12, 'trailing': True}),
+                         '{\n  "n": [\n    1, 2, 3\n  ],\n}\n')
+
+    def test_a_tsconfig_written_with_a_new_biome_json_takes_its_layout(self):
+        (self.target / 'tsconfig.json').write_text('{\n  "compilerOptions": {"lib": [' + ', '.join(
+            f'"lib{n:02}"' for n in range(10)) + ']}\n}\n')
+        lint = owner('typescript:lint', parts={'biome.json': self.source_file(
+            'lint.json', '{"formatter": {"indentStyle": "space", "lineWidth": 120}}\n')})
+        types = owner('typescript:typecheck', parts={'tsconfig.json': self.source_file('ts.json', '{}\n')})
+        self.sync([types, lint])
+        self.assertIn('"lib": ["lib00", ', self.text('tsconfig.json'))
+
     def test_biome_jsonc_takes_the_part_when_it_exists(self):
         mine = '{\n  // mine\n  "formatter": {}\n}\n'
         (self.target / 'biome.jsonc').write_text(mine)
@@ -870,6 +1077,14 @@ class IncludeTests(Base):
         code, out = self.check()
         self.assertIn('the tool reads biome.json before biome.jsonc', out)
         self.assertNotIn('is gone', out)
+        self.assertIn('the files agree, apart from the notes above', out)
+
+    def test_a_check_with_no_notes_names_no_notes(self):
+        lint = owner('typescript:lint', parts={'biome.json': self.source_file('lint.json', '{}\n')})
+        self.sync([lint])
+        code, out = self.check()
+        self.assertEqual(code, 0)
+        self.assertEqual(out, 'just install --check: the record in .agents/stack.json and the files agree\n')
 
     def test_a_move_that_stops_before_its_first_write_still_takes_the_part_out(self):
         lint = self.biome_in_jsonc()
@@ -1529,15 +1744,18 @@ class WholeFileTests(Base):
         self.sync([], [lint])
         self.assertFalse((self.target / 'ruff.toml').exists())
 
-    def test_a_skip_if_file_through_a_link_is_not_read(self):
+    def test_a_skip_if_file_through_a_link_holds_and_is_not_read(self):
+        # The file through the link has no [tool.ruff, so a read would let ruff.toml in. The guard holds unread.
         outside = self.target / 'outside'
         outside.mkdir()
-        (outside / 'pyproject.toml').write_text('[tool.ruff]\n')
+        (outside / 'pyproject.toml').write_text('[project]\n')
         (self.target / 'cfg').symlink_to(outside)
         (self.source / 'ruff.toml').write_text('x\n')
         lint = owner('python:lint', files={'ruff.toml': (self.source / 'ruff.toml', ['cfg/pyproject.toml', '[tool.ruff'])})
-        self.sync([lint])
-        self.assertTrue((self.target / 'ruff.toml').is_file())
+        notes = self.sync([lint])
+        self.assertFalse((self.target / 'ruff.toml').exists())
+        self.assertIn('Left out ruff.toml: cfg/pyproject.toml is a symbolic link, which the installer does not read',
+                      notes)
 
 
 if __name__ == '__main__':

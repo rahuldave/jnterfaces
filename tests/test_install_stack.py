@@ -239,6 +239,9 @@ from pathlib import Path
 tool, args = Path(sys.argv[0]).name, sys.argv[1:]
 with open(os.environ['TOOL_LOG'], 'a') as log:
     log.write(tool + ' ' + ' '.join(args) + '\n')
+if 'VIRTUAL_ENV' in os.environ:
+    with open(os.environ['TOOL_LOG'] + '.env', 'a') as log:
+        log.write(tool + ' ' + ' '.join(args) + '\n')
 
 
 def name_of(spec):
@@ -536,6 +539,14 @@ class StackTests(unittest.TestCase):
         run = self.stack('--dry-run')
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn("New role(s) that the saved record does not have: prose=yes", run.stderr)
+
+    def test_the_commands_of_the_project_do_not_get_the_virtual_env_of_the_installer(self):
+        # uv run of the installer sets VIRTUAL_ENV, and uv in the project warns about it.
+        run = self.stack('--defaults', '--profile', 'python', env={'VIRTUAL_ENV': '/somewhere/else'})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('uv init --bare --no-workspace', self.tools_run())
+        self.assertIn('uv add --group lint ruff pre-commit', self.tools_run())
+        self.assertFalse(Path(str(self.log) + '.env').exists())
 
     def test_a_python_profile_sets_the_defaults_adds_its_tools_and_writes_the_justfile(self):
         (self.target / 'pyproject.toml').write_text('[project]\nname = "app"\n')
@@ -1844,6 +1855,65 @@ class PartsTests(StackTests):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertFalse((self.target / 'ruff.toml').exists())
         self.assertIn('Left out the part of python:lint in ruff.toml', run.stderr)
+
+    def pytest_part(self):
+        """The test tool of the test profile gets the pythonpath part, with the guards of jnprofile-python."""
+        def test(p):
+            p['tools']['test']['parts'] = {'pyproject.toml': 'files/pytest.toml'}
+            p['tools']['test']['skip_if'] = {'pyproject.toml': [
+                ['pyproject.toml', '[tool.pytest]'], ['pytest.ini', ''], ['tox.ini', '[pytest]'],
+                ['setup.cfg', '[tool:pytest]']]}
+        self.edit_profile('python', test)
+        (self.packages / 'jnprofile-python/files/pytest.toml').write_text(
+            '[tool.pytest.ini_options]\npythonpath = ["."]\n')
+        commit(self.packages / 'jnprofile-python')
+
+    def test_a_skip_if_guard_list_leaves_out_the_part_when_any_guard_applies(self):
+        self.pytest_part()
+        for name, text, note in [('pytest.ini', '', 'the project has pytest.ini'),
+                                 ('setup.cfg', '[tool:pytest]\naddopts = -q\n', 'setup.cfg already has [tool:pytest]'),
+                                 ('pyproject.toml', '[project]\nname = "a"\n\n[tool.pytest]\naddopts = ["-q"]\n',
+                                  'pyproject.toml already has [tool.pytest]')]:
+            with self.subTest(name):
+                self.target = self.base / f'target-{name}'
+                self.target.mkdir()
+                git(self.target, 'init', '-q')
+                (self.target / name).write_text(text)
+                run = self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose')
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertNotIn('ini_options', (self.target / 'pyproject.toml').read_text())
+                self.assertIn(f'Left out the part of python:test in pyproject.toml: {note}', run.stderr)
+
+    def test_a_symlinked_guard_file_stops_the_part(self):
+        self.pytest_part()
+        (self.base / 'shared-tox.ini').write_text('[pytest]\naddopts = -q\n')
+        (self.target / 'tox.ini').symlink_to(self.base / 'shared-tox.ini')
+        run = self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('ini_options', (self.target / 'pyproject.toml').read_text())
+
+    def test_a_tool_pytest_table_with_only_ini_options_does_not_stop_the_part(self):
+        self.pytest_part()
+        (self.target / 'pyproject.toml').write_text(
+            '[project]\nname = "a"\n\n[tool.pytest.ini_options]\naddopts = "-q"\n')
+        run = self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('pythonpath = ["."]', (self.target / 'pyproject.toml').read_text())
+
+    def test_a_pythonpath_string_of_yours_stays_and_the_rest_of_the_file_is_written(self):
+        self.pytest_part()
+        (self.target / 'pyproject.toml').write_text(
+            '[project]\nname = "a"\n\n[tool.pytest.ini_options]\npythonpath = "src lib"\n')
+        run = self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        text = (self.target / 'pyproject.toml').read_text()
+        self.assertIn('pythonpath = "src lib"', text)
+        self.assertIn('default-groups = "all"', text)
+        self.assertIn('tool.pytest.ini_options.pythonpath is "src lib", which is yours and stays. python:test would '
+                      'add "." to a list there.', run.stderr)
+        run = self.stack('--without', 'test')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('pythonpath = "src lib"', (self.target / 'pyproject.toml').read_text())
 
     def test_a_skip_if_guard_does_not_take_out_a_part_that_is_there(self):
         self.edit_profile('python', lambda p: p['tools']['lint'].update({'parts': {'ruff.toml': 'files/lint.toml'}}))
