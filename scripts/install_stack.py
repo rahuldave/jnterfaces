@@ -1272,7 +1272,7 @@ def main(argv=None):
     parser.add_argument('--clean', action='store_true', help='install the committed HEAD of each clone')
     parser.add_argument('--dry-run', action='store_true', help='check everything and write nothing in the target')
     parser.add_argument('--check', action='store_true',
-                        help='compare .agents/stack-log.jsonl with the line files and the whole files, and change nothing')
+                        help='compare the record in .agents/stack.json with the shared files, and change nothing')
     parser.add_argument('--registry', type=Path, default=ROOT / 'stack.json', help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.all and args.defaults:

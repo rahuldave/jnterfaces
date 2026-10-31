@@ -419,6 +419,8 @@ such as `tasker`. Each owner adds its part and takes out only its part.
 [`notes/plan-shared-files.md`](https://github.com/rahuldave/jnterfaces/blob/main/notes/plan-shared-files.md) and [`notes/plan-snippets.md`](https://github.com/rahuldave/jnterfaces/blob/main/notes/plan-snippets.md) give each decision and
 its reason. `scripts/formats.json` lists the shared files that a package can
 add a part to, with the format of each file.
+[The files of the stack](stack-files.md) gives each key of the record and of
+the files that the packages ship.
 
 **Three kinds of part.** The format of the file sets the kind:
 

@@ -198,6 +198,9 @@ The list of packages, roles, aliases and profiles is in `stack.json`.
 [The stack guide](https://rahuldave.github.io/jnterfaces/stack-guide.html) builds a project in layers, from a
 project with no code to a project with lint and tests. It says what works now
 and what does not.
+[The files of the stack](https://rahuldave.github.io/jnterfaces/stack-files.html)
+gives each file that the installer reads or writes, each of its keys, and how
+the files work together.
 
 ### copier
 
