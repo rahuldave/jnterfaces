@@ -379,6 +379,17 @@ class LineFileTests(Base):
         self.assertEqual(self.parts, {})
 
 
+def stopping_at(name):
+    """Stop the run when it writes the file name."""
+    real = shared_files.write
+
+    def write(file, data):
+        if file.name == name:
+            raise KeyboardInterrupt
+        real(file, data)
+    return mock.patch.object(shared_files, 'write', write)
+
+
 class RecordTests(Base):
     """A run that stops, the record that merges, and the history."""
 
@@ -388,6 +399,167 @@ class RecordTests(Base):
         self.sync([py], stop=True)
         self.sync([], [py])
         self.assertFalse((self.target / '.gitignore').exists())
+
+    def test_a_second_run_that_stops_keeps_the_new_record_of_the_first(self):
+        (self.target / '.gitignore').write_text('mine/\n')
+        py = owner('python', PY)
+        # The first run writes the block and stops. The second removes python and stops before it writes.
+        self.sync([py], stop=True)
+        with stopping_at('.gitignore'), self.assertRaises(KeyboardInterrupt):
+            self.sync([], [py])
+        self.sync([], [py])
+        self.assertEqual(self.text(), 'mine/\n')
+
+    def test_a_run_that_stops_on_biome_jsonc_files_the_pending_file_under_biome_json(self):
+        (self.target / 'biome.jsonc').write_text('{\n  "formatter": {"enabled": true}\n}\n')
+        ts = owner('ts:lint', parts={'biome.json': self.source_file('biome.json', '{"linter": {"enabled": true}}\n')})
+        self.sync([ts], stop=True)
+        pending = json.loads((self.target / shared_files.PENDING).read_text())
+        self.assertIn('biome.json', pending['files'])
+        self.assertNotIn('biome.jsonc', pending['files'])
+        self.sync([], [ts])
+        self.assertNotIn('extends', self.text('biome.jsonc'))
+
+    def test_a_unit_that_a_stopped_run_took_out_is_yours_when_you_add_it_again(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "x"\n')
+        py = owner('python', units={'pyproject.toml': {'tool.uv.package': False}})
+        lint = owner('lint', files={'tool.cfg': (self.source_file('tool.cfg', 'a\n'), None)})
+        self.sync([py], stop=True)
+        # This run takes the key out of pyproject.toml, then stops at a later file.
+        with stopping_at('tool.cfg'), self.assertRaises(KeyboardInterrupt):
+            self.sync([lint], [py, lint])
+        self.assertNotIn('package', self.text('pyproject.toml'))
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "x"\n\n[tool.uv]\npackage = false\ndev = 1\n')
+        self.sync([lint], [py, lint])
+        self.assertIn('package = false', self.text('pyproject.toml'))
+
+    def test_a_pending_file_of_an_older_installer_under_biome_jsonc_still_counts(self):
+        ts = owner('ts:lint', parts={'biome.json': self.source_file('biome.json', '{"linter": {"enabled": true}}\n')})
+        (self.target / 'biome.jsonc').write_text('{\n  "formatter": {"enabled": true}\n}\n')
+        self.sync([ts], stop=True)
+        file = self.target / shared_files.PENDING
+        data = json.loads(file.read_text())
+        data['files']['biome.jsonc'] = data['files'].pop('biome.json')
+        file.write_text(json.dumps(data))
+        self.sync([], [ts])
+        self.assertNotIn('extends', self.text('biome.jsonc'))
+
+    def value_owners(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "x"\n')
+        return (owner('python', PY, units={'pyproject.toml': {'tool.uv.package': False}}),
+                owner('python', TS, units={'pyproject.toml': {'tool.uv.package': True}}))
+
+    def test_a_value_that_changes_across_two_stops_stays_the_installers(self):
+        first, second = self.value_owners()
+        self.sync([first], stop=True)
+        with stopping_at('.gitignore'), self.assertRaises(KeyboardInterrupt):
+            self.sync([second])
+        notes = self.sync([second])
+        self.assertIn('package = true', self.text('pyproject.toml'))
+        self.assertFalse(any('you changed' in note for note in notes))
+        self.assertEqual(self.parts['pyproject.toml']['tool.uv.package']['state'], 'added')
+        self.assertNotIn('earlier', self.parts['pyproject.toml']['tool.uv.package'])
+
+    def test_a_value_that_changes_in_a_run_that_stops_before_it_writes_stays_the_installers(self):
+        first, second = self.value_owners()
+        self.sync([first])
+        with stopping_at('.gitignore'), self.assertRaises(KeyboardInterrupt):
+            self.sync([second])
+        self.assertIn('package = false', self.text('pyproject.toml'))
+        self.sync([second])
+        self.assertIn('package = true', self.text('pyproject.toml'))
+
+    def test_a_removal_after_a_stopped_change_of_value_takes_the_unit_out(self):
+        first, second = self.value_owners()
+        self.sync([first])
+        with stopping_at('.gitignore'), self.assertRaises(KeyboardInterrupt):
+            self.sync([second])
+        self.sync([], [second])
+        self.assertNotIn('package', self.text('pyproject.toml'))
+
+    def test_a_unit_that_a_stopped_run_never_wrote_is_yours_when_you_add_it(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "x"\n')
+        py = owner('python', units={'pyproject.toml': {'tool.uv.package': False}})
+        lint = owner('lint', files={'tool.cfg': (self.source_file('tool.cfg', 'a\n'), None)})
+        # The first run stops before it writes pyproject.toml. The second has nothing to write there.
+        with stopping_at('pyproject.toml'), self.assertRaises(KeyboardInterrupt):
+            self.sync([py])
+        with stopping_at('tool.cfg'), self.assertRaises(KeyboardInterrupt):
+            self.sync([lint], [py, lint])
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "x"\n\n[tool.uv]\npackage = false\ndev = 1\n')
+        self.sync([lint], [py, lint])
+        self.assertIn('package = false', self.text('pyproject.toml'))
+
+    def test_a_file_that_a_run_cannot_read_keeps_the_values_of_a_stopped_run(self):
+        first, second = self.value_owners()
+        self.sync([first], stop=True)
+        with stopping_at('.gitignore'), self.assertRaises(KeyboardInterrupt):
+            self.sync([second])
+        good = self.text('pyproject.toml')
+        (self.target / 'pyproject.toml').write_text(good + '[[[broken\n')
+        self.sync([second])
+        (self.target / 'pyproject.toml').write_text(good)
+        notes = self.sync([second])
+        self.assertFalse(any('you changed' in note for note in notes))
+        self.assertIn('package = true', self.text('pyproject.toml'))
+        self.assertEqual(self.parts['pyproject.toml']['tool.uv.package']['state'], 'added')
+        self.assertNotIn('earlier', self.parts['pyproject.toml']['tool.uv.package'])
+
+    def unsure_then_unreadable(self, spoil):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "x"\n')
+        py = owner('python', units={'pyproject.toml': {'tool.uv.package': False}})
+        with stopping_at('pyproject.toml'), self.assertRaises(KeyboardInterrupt):
+            self.sync([py])
+        mend = spoil(self.target / 'pyproject.toml')
+        self.sync([py])
+        self.assertTrue(self.parts['pyproject.toml']['tool.uv.package'].get('unsure'))
+        code, out = self.check()
+        self.assertEqual(code, 1)
+        self.assertIn('a later run could not read the file', out)
+        mend()
+        notes = self.sync([py])
+        self.assertFalse(any('declined' in note for note in notes))
+        self.assertIn('package = false', self.text('pyproject.toml'))
+        self.assertNotIn('unsure', self.parts['pyproject.toml']['tool.uv.package'])
+
+    def test_a_file_that_a_run_cannot_read_stays_unsure(self):
+        def spoil(file):
+            good = file.read_text()
+            file.write_text('[project\nname = "x"\n')
+            return lambda: file.write_text(good)
+        self.unsure_then_unreadable(spoil)
+
+    def test_a_file_that_is_a_symlink_for_one_run_stays_unsure(self):
+        def spoil(file):
+            real = file.with_name('real.toml')
+            real.write_text(file.read_text())
+            file.unlink()
+            file.symlink_to(real)
+
+            def mend():
+                file.unlink()
+                file.write_text(real.read_text())
+            return mend
+        self.unsure_then_unreadable(spoil)
+
+    def test_a_file_that_is_yours_after_a_stopped_run_is_not_left_unsure(self):
+        (self.target / '.gitignore').write_text('mine/\n')
+        self.parts = {'.gitignore': {'(file)': {'state': 'kept', 'needs': ['python']}}}
+        py = owner('python', PY)
+        self.sync([py], unsure=['.gitignore'])
+        self.assertNotIn('unsure', self.parts['.gitignore']['(file)'])
+        code, out = self.check()
+        self.assertNotIn('could not read the file', out)
+
+    def test_a_value_that_you_set_after_a_stop_is_still_yours(self):
+        first, second = self.value_owners()
+        self.sync([first])
+        with stopping_at('.gitignore'), self.assertRaises(KeyboardInterrupt):
+            self.sync([second])
+        text = self.text('pyproject.toml').replace('package = false', 'package = "mine"')
+        (self.target / 'pyproject.toml').write_text(text)
+        self.sync([second])
+        self.assertIn('package = "mine"', self.text('pyproject.toml'))
 
     def test_a_run_that_stopped_after_it_wrote_keeps_its_lines_as_its_own(self):
         py = owner('python', PY)
@@ -848,6 +1020,19 @@ class RoleTests(Base):
         end = next(index for index, line in enumerate(lines) if 'end lines of tasker' in line)
         (self.target / 'AGENTS.md').write_text(''.join(lines[:end + 1]))
         self.sync([alone, tasker])
+        self.sync([alone], [alone, tasker], stop=True)
+        self.assertFalse((self.target / 'AGENTS.md').exists())
+        self.sync([alone], [alone, tasker])
+        self.assertFalse((self.target / 'AGENTS.md').exists())
+
+    def test_a_starter_that_a_stopped_run_wrote_is_not_written_again_after_the_installer_deleted_it(self):
+        alone = owner('starter-only', starter={'AGENTS.md': self.source_file('alone.md', '# Project\n')})
+        tasker = self.role()
+        self.sync([alone, tasker], stop=True)
+        lines = self.text('AGENTS.md').splitlines(keepends=True)
+        end = next(index for index, line in enumerate(lines) if 'end lines of tasker' in line)
+        (self.target / 'AGENTS.md').write_text(''.join(lines[:end + 1]))
+        # This run empties the file, so it deletes the file, and it stops.
         self.sync([alone], [alone, tasker], stop=True)
         self.assertFalse((self.target / 'AGENTS.md').exists())
         self.sync([alone], [alone, tasker])

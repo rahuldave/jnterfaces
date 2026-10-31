@@ -811,16 +811,25 @@ def plan_unit_file(path, kind, text, want, old, unsure, migrating, notes):
     names = list(dict.fromkeys(list(want) + [unit for unit in old if not unit.startswith('(')]))
     current = read_units(kind, text, names, FORMATS[path])
     adds, removes, entries, owns, adopted_made = [], [], {}, {}, {}
+
+    def ours(unit, entry):
+        """The file holds the value that the installer wrote: the value of the record, or a value of a run that
+        stopped before. 'earlier' holds those values, and only while no run has worked out the file since: a file
+        that a run could not read keeps its entries as they were."""
+        return unit in current and (current[unit] == entry.get('value') or current[unit] in entry.get('earlier', []))
+
+    def as_written(unit, entry):
+        return dict(entry, value=current[unit]) if unit in current else entry
     for unit, item in want.items():
         entry = old.get(unit)
         value = item['value']
         here = unit in current
         state = None
         if entry and entry['state'] == 'added':
-            if here and current[unit] == entry.get('value'):
+            if ours(unit, entry):
                 state = 'added'
-                if value != entry.get('value'):
-                    removes.append((unit, entry))
+                if value != current[unit]:
+                    removes.append((unit, as_written(unit, entry)))
                     adds.append(unit)
             elif here:
                 state = 'present'
@@ -865,8 +874,8 @@ def plan_unit_file(path, kind, text, want, old, unsure, migrating, notes):
         if unit in want or unit.startswith('('):
             continue
         if entry['state'] == 'added':
-            if unit in current and current[unit] == entry.get('value'):
-                removes.append((unit, entry))
+            if ours(unit, entry):
+                removes.append((unit, as_written(unit, entry)))
             elif unit in current:
                 notes.append(f'{path}: you changed {unit}, so it stays when its owners go. Remove it by hand if no one '
                              f'needs it.')
@@ -925,10 +934,16 @@ def read_pending(target):
 
 def merged_entries(old, new):
     """The entries of a file that a stopped run was changing: each unit as the new entries have it, else as the old
-    ones have it."""
+    ones have it. When the two give a unit two values, the file may hold either, so the entry keeps the old values
+    in 'earlier'."""
     merged = {unit: dict(entry) for unit, entry in (old or {}).items()}
     for unit, entry in (new or {}).items():
+        before = merged.get(unit, {})
         merged[unit] = dict(entry)
+        values = [value for value in before.get('earlier', []) + ([before['value']] if 'value' in before else [])
+                  + entry.get('earlier', []) if value != entry.get('value')]
+        if values and before.get('state') == 'added':
+            merged[unit]['earlier'] = [value for index, value in enumerate(values) if value not in values[:index]]
     return merged
 
 
@@ -950,13 +965,28 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
     """Bring the shared files of the target to the active owners. parts is the record of the parts in
     .agents/stack.json. Return the notes, the new parts and the files that changed. Unless dry_run, write the files,
     with .agents/stack-pending.json while they change. The caller saves the parts, then calls finish."""
-    pending = read_pending(target)
+    pending = {}
+    # A pending file of an older installer may name the file that a part went to, such as biome.jsonc.
+    for path, change in read_pending(target).items():
+        path = next((name for name, spec in FORMATS.items() if spec.get('instead') == path), path)
+        held = pending.setdefault(path, {})
+        held['old'] = merged_entries(held.get('old'), change.get('old'))
+        held['new'] = merged_entries(held.get('new'), change.get('new'))
+        if change.get('starter'):
+            held['starter'] = True
     parts = {path: {unit: dict(entry) for unit, entry in units.items()} for path, units in (parts or {}).items()}
     unsure_files = set(unsure_paths)
     for path, change in pending.items():
         if plain(path):
             parts[path] = merged_entries(change.get('old'), change.get('new'))
             unsure_files.add(path)
+    # A file that a run could not read while it was unsure keeps 'unsure' in its entries, so it stays unsure until a
+    # run works it out. The flag moves to unsure_files here, and kept() puts it back on the entries that a run keeps
+    # as they were.
+    for path, units in parts.items():
+        for entry in units.values():
+            if entry.pop('unsure', False):
+                unsure_files.add(path)
     # The record before this run, for the old record of each file in .agents/stack-pending.json.
     recorded = {path: {unit: dict(entry) for unit, entry in units.items()} for path, units in parts.items()}
     # The include of AGENTS.md is a line in a block, which points to the own file.
@@ -1005,6 +1035,14 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
         if reserved(path):
             raise SharedError(f'{path} belongs to the installer, so no owner may name it')
     new_parts, changes = {}, {}
+
+    def kept(path, units):
+        """The entries of a file that this run leaves alone, as they were."""
+        if path not in unsure_files:
+            return units
+        return {unit: dict(entry, unsure=True) for unit, entry in units.items()}
+    # The file that each part goes to, when it is not the path of the record: biome.jsonc for biome.json.
+    record_path = {}
 
     def text_of(path):
         if path not in texts:
@@ -1070,7 +1108,8 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
             if found:
                 messages.append(f'{path}: {found} is a symlink, so the installer leaves {path} alone')
                 keep_own.update(own_path(owner, path, owner.parts[path]) for owner in active if path in owner.parts)
-            new_parts[path] = units
+            # A file that is yours alone, (file), was read; only a symlink is a file that this run could not read.
+            new_parts[path] = kept(path, units) if found else units
             continue
         old = text_of(path)
         # git skips a byte-order mark only at the very start, so the mark stays there, before the blocks.
@@ -1096,12 +1135,14 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
     for path in unit_paths:
         spec = FORMATS[path]
         file_path = target_of(target, path)
+        if file_path != path:
+            record_path[file_path] = path
         found = linked(target, file_path)
         units = parts.get(path, {})
         if found or FILE in units:
             if found:
                 messages.append(f'{path}: {found} is a symlink, so the installer leaves {path} alone')
-            new_parts[path] = units
+            new_parts[path] = kept(path, units) if found else units
             continue
         notes = []
         want = desired_units(target, path, active, notes)
@@ -1119,7 +1160,7 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
             own_files.update({item['own']: (item['data'], item['needs']) for item in want.values() if 'own' in item})
             messages.append(f'{file_path}: the installer leaves the file alone: {exc}.'
                             + (f' Add the include yourself: {spec["include"]} {include[0]}' if include else ''))
-            new_parts[path] = units
+            new_parts[path] = kept(path, units)
             continue
         messages += notes
         for key in (STARTER,):
@@ -1142,7 +1183,7 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
             if any(path in owner.files for owner in active) or WHOLE in units:
                 messages.append(f'{path}: {found} is a symlink, so the installer leaves {path} alone')
             if units:
-                new_parts[path] = units
+                new_parts[path] = kept(path, units)
             continue
         old = units.get(WHOLE)
         claim = {'owners': old.get('needs', []), 'hash': old.get('hash'), 'declined': old['state'] == 'declined'} \
@@ -1199,13 +1240,23 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
         return messages, new_parts, changes
     if writes or pending:
         # Each file of a run that stopped before stays in the pending file with its first old record, also when
-        # this run writes nothing to it, so that two runs that stop in a row lose no record.
-        paths = list(dict.fromkeys(list(pending) + list(writes)))
-        save_pending(target, {path: dict({'old': pending[path].get('old', {}) if path in pending
-                                          else recorded.get(path, {}), 'new': new_parts.get(path, {})},
-                                         **({'starter': True} if path in seeded or pending.get(path, {}).get('starter')
-                                            else {}))
-                              for path in paths})
+        # this run writes nothing to it, so that two runs that stop in a row lose no record. Until this run writes
+        # a file, its new record also keeps the new entries of the run before, which the next run checks against
+        # the file. Once this run wrote the file, its new record is the one of this run. The pending file names
+        # the path of the record, biome.json also when the part goes to biome.jsonc. Only a starter that this run
+        # writes is marked: a starter that a run before wrote is in the file now.
+        # A file that this run read and leaves as it is holds what this run's new record says.
+        paths = list(dict.fromkeys(list(pending) + [record_path.get(path, path) for path in writes]))
+        to_write = {record_path.get(path, path) for path in writes}
+        read = set(line_paths) | set(unit_paths) | set(whole)
+        files = {path: dict({'old': pending[path].get('old', {}) if path in pending else recorded.get(path, {}),
+                             'new': merged_entries(pending[path].get('new'), new_parts.get(path))
+                             if path in pending and path in to_write
+                             else new_parts.get(path, {}) if path in read or path not in pending
+                             else pending[path].get('new', {})},
+                            **({'starter': True} if path in seeded else {}))
+                 for path in paths}
+        save_pending(target, files)
         for path, data in writes.items():
             file = target / path
             if data is None:
@@ -1213,6 +1264,10 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
                 remove_empty_folders(target, file)
             else:
                 write(file, data if isinstance(data, bytes) else data.encode('utf-8', errors='surrogateescape'))
+            entry = files[record_path.get(path, path)]
+            if entry['new'] != new_parts.get(record_path.get(path, path), {}):
+                entry['new'] = new_parts.get(record_path.get(path, path), {})
+                save_pending(target, files)
         if changes:
             history(target, command, sources, changes)
     return messages, new_parts, changes
@@ -1283,6 +1338,11 @@ def check(target, parts):
         return 1
     if pending:
         print(f'A run stopped while it changed {", ".join(sorted(pending))}. Run just install again.')
+        failed = True
+    unread = sorted(path for path, units in (parts or {}).items() if any(entry.get('unsure') for entry in units.values()))
+    if unread:
+        print(f'A run stopped while it changed {", ".join(unread)}, and a later run could not read the file. Fix the '
+              f'file, then run just install again.')
         failed = True
     if parts is None:
         print(f'just install --check: {RECORD} has no record of the parts yet. The next just install makes it.')
