@@ -916,6 +916,110 @@ class IncludeTests(Base):
         self.assertNotIn('extends', self.text('biome.json'))
         self.assertTrue(any('is a symlink' in note for note in notes), notes)
 
+    def symlinked_jsonc_after_a_stop(self):
+        """A move that stops before its first write, then a biome.jsonc that you make a symlink."""
+        lint = self.biome_in_jsonc()
+        with stopping_at('biome.jsonc'), self.assertRaises(KeyboardInterrupt):
+            self.sync([lint])
+        (self.target / 'real.jsonc').write_text(self.text('biome.jsonc'))
+        (self.target / 'biome.jsonc').unlink()
+        (self.target / 'biome.jsonc').symlink_to('real.jsonc')
+        return lint
+
+    def test_a_part_left_in_a_symlink_keeps_its_own_file(self):
+        lint = self.symlinked_jsonc_after_a_stop()
+        self.sync([lint])
+        self.assertIn('lint.json', self.text('real.jsonc'))
+        self.assertTrue((self.target / '.agents/config/typescript/lint.json').exists())
+
+    def test_a_part_left_in_a_symlink_is_named_by_each_run(self):
+        lint = self.symlinked_jsonc_after_a_stop()
+        self.sync([lint])
+        notes = self.sync([lint])
+        self.assertTrue(any('biome.jsonc is a symlink' in note for note in notes), notes)
+        self.assertTrue((self.target / '.agents/config/typescript/lint.json').exists())
+
+    def test_a_symlinked_biome_json_keeps_its_own_file(self):
+        (self.target / 'biome.json').write_text('{\n  "linter": {"enabled": true}\n}\n')
+        lint = owner('typescript:lint', parts={'biome.json': self.source_file('lint.json', '{}\n')})
+        self.sync([lint])
+        (self.target / 'real.json').write_text(self.text('biome.json'))
+        (self.target / 'biome.json').unlink()
+        (self.target / 'biome.json').symlink_to('real.json')
+        self.sync([lint])
+        self.assertTrue((self.target / '.agents/config/typescript/lint.json').exists())
+
+    def symlinked_biome_json(self):
+        (self.target / 'biome.json').write_text('{\n  "linter": {"enabled": true}\n}\n')
+        lint = owner('typescript:lint', parts={'biome.json': self.source_file('lint.json', '{}\n')})
+        self.sync([lint])
+        (self.target / 'real.json').write_text(self.text('biome.json'))
+        (self.target / 'biome.json').unlink()
+        (self.target / 'biome.json').symlink_to('real.json')
+        return lint
+
+    def test_an_uninstall_keeps_the_own_file_of_a_part_in_a_symlinked_biome_json(self):
+        lint = self.symlinked_biome_json()
+        self.sync([], [lint])
+        self.assertIn('lint.json', self.text('real.json'))
+        self.assertTrue((self.target / '.agents/config/typescript/lint.json').exists())
+
+    def test_a_tool_that_leaves_the_catalog_keeps_the_own_file_of_a_part_in_a_symlink(self):
+        self.symlinked_biome_json()
+        self.sync([], [])
+        self.assertIn('lint.json', self.text('real.json'))
+        self.assertTrue((self.target / '.agents/config/typescript/lint.json').exists())
+
+    def two_own_files_with_one_name_a_prefix_of_the_other(self):
+        (self.target / 'biome.json').write_text('{\n  "linter": {"enabled": true}\n}\n')
+        (self.target / 'tsconfig.json').write_text('{\n  "compilerOptions": {}\n}\n')
+        lint = owner('typescript:lint', parts={'biome.json': self.source_file('a/base.jsonc', '{}\n')})
+        tsc = owner('typescript:tsc', parts={'tsconfig.json': self.source_file('b/base.json', '{}\n')})
+        self.sync([lint, tsc])
+        (self.target / 'real.json').write_text(self.text('biome.json'))
+        (self.target / 'biome.json').unlink()
+        (self.target / 'biome.json').symlink_to('real.json')
+        return lint, tsc
+
+    def test_an_own_file_that_a_symlink_does_not_include_goes(self):
+        lint, tsc = self.two_own_files_with_one_name_a_prefix_of_the_other()
+        self.sync([lint], [lint, tsc])
+        self.assertTrue((self.target / '.agents/config/typescript/base.jsonc').exists())
+        self.assertFalse((self.target / '.agents/config/typescript/base.json').exists())
+
+    def test_an_own_file_of_a_tool_that_leaves_the_catalog_goes_when_no_symlink_includes_it(self):
+        lint, _ = self.two_own_files_with_one_name_a_prefix_of_the_other()
+        self.sync([lint], [lint])
+        self.assertFalse((self.target / '.agents/config/typescript/base.json').exists())
+        self.assertNotIn('.agents/config/typescript/base.json', self.parts)
+
+    def test_an_uninstall_keeps_the_own_file_of_a_part_left_in_a_symlinked_biome_jsonc(self):
+        lint = self.symlinked_jsonc_after_a_stop()
+        self.sync([lint])
+        self.sync([], [lint])
+        self.assertIn('lint.json', self.text('real.jsonc'))
+        self.assertTrue((self.target / '.agents/config/typescript/lint.json').exists())
+
+    def test_check_names_a_symlinked_biome_jsonc_and_promises_no_move(self):
+        lint = self.biome_in_jsonc()
+        (self.target / 'real.jsonc').write_text(self.text('biome.jsonc'))
+        (self.target / 'biome.jsonc').unlink()
+        (self.target / 'biome.jsonc').symlink_to('real.jsonc')
+        notes = self.sync([lint])
+        self.assertIn('biome.json: biome.jsonc is a symlink, so the installer leaves biome.json alone', notes)
+        code, out = self.check()
+        self.assertNotIn('The next just install moves them', out)
+        self.assertIn('biome.jsonc is a symlink', out)
+
+    def test_check_names_a_pending_file_whose_change_is_not_a_map(self):
+        pending = self.target / shared_files.PENDING
+        pending.parent.mkdir(exist_ok=True)
+        for change in (['x'], {'old': ['x']}):
+            pending.write_text(json.dumps({'files': {'biome.json': change}}))
+            code, out = self.check()
+            self.assertEqual(code, 1)
+            self.assertIn('is not a file that the installer wrote', out)
+
     def test_a_copy_of_biome_json_as_biome_jsonc_keeps_the_part(self):
         (self.target / 'biome.json').write_text('{\n  "linter": {"enabled": true}\n}\n')
         lint = owner('typescript:lint', parts={'biome.json': self.source_file('lint.json', '{}\n')})
@@ -1102,6 +1206,25 @@ class RoleTests(Base):
         self.sync([], [role])
         self.assertEqual(self.text('AGENTS.md'), '# Project\nProject name: <replace-me>\n')
         self.assertFalse((self.target / '.agents/instructions').exists())
+
+    def test_a_role_that_goes_while_agents_md_is_a_symlink_keeps_its_instructions(self):
+        role = self.role()
+        self.sync([role])
+        (self.target / 'real.md').write_text(self.text('AGENTS.md'))
+        (self.target / 'AGENTS.md').unlink()
+        (self.target / 'AGENTS.md').symlink_to('real.md')
+        self.sync([], [role])
+        self.assertIn('.agents/instructions/tasker.md', self.text('real.md'))
+        self.assertTrue((self.target / '.agents/instructions/tasker.md').exists())
+
+    def test_a_role_that_leaves_the_catalog_while_agents_md_is_a_symlink_keeps_its_instructions(self):
+        role = self.role()
+        self.sync([role])
+        (self.target / 'real.md').write_text(self.text('AGENTS.md'))
+        (self.target / 'AGENTS.md').unlink()
+        (self.target / 'AGENTS.md').symlink_to('real.md')
+        self.sync([], [])
+        self.assertTrue((self.target / '.agents/instructions/tasker.md').exists())
 
     def test_your_agents_md_gets_only_the_pointer(self):
         (self.target / 'AGENTS.md').write_text('# Mine\n')
