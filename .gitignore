@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .DS_Store
 .gest/
+
+# The site that just docs builds
+docs/_site/

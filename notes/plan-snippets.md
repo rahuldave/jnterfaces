@@ -6,7 +6,7 @@ reviews changed this plan. The third review checked the record against the built
 second review ran ruff, ty, tsc, biome, tomlkit and ruamel.yaml to
 check how each tool reads an include.
 
-This plan extends `docs/plan-shared-files.md`, which is built. It changes
+This plan extends `notes/plan-shared-files.md`, which is built. It changes
 three decisions of that plan:
 
 - **D1.** `.agents/stack.json` becomes the record of each part. The log
@@ -45,7 +45,7 @@ of what the installer did.
 
 ## Terms
 
-The terms of `docs/plan-shared-files.md` hold here. These terms are new:
+The terms of `notes/plan-shared-files.md` hold here. These terms are new:
 
 - **Own file.** A file that only the installer writes, at a path under
   `.agents/config/` or `.agents/instructions/`. Nobody edits it, so the
@@ -557,7 +557,7 @@ The profiles, the role and jnterfaces merge together.
 
 - `docs/stack-guide.md`: the section "Shared files and the log" covers the
   record, includes, units, starters and the table of P10.
-- `docs/plan-shared-files.md`: mark D1, D7 and D12 as changed by this plan.
+- `notes/plan-shared-files.md`: mark D1, D7 and D12 as changed by this plan.
 - `README.md` of jnterfaces: `formats.json`, and the `parts` and `starter`
   keys.
 - The SKILL.md and README of each profile, and the README of

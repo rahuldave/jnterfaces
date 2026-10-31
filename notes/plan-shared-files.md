@@ -1,6 +1,6 @@
 # Plan for files that several profiles share
 
-Status: built. `docs/plan-snippets.md` later changed D1, D7 and D12. The
+Status: built. `notes/plan-snippets.md` later changed D1, D7 and D12. The
 record of each part moved to `.agents/stack.json`. An adversarial review of the first draft changed D1, D2, D5,
 D6, D7 and D9, and added D12 to D14. Three reviews of the code changed D4,
 D5, D7, D10, D12 and D13, and added D15.

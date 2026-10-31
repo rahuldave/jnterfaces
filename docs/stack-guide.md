@@ -416,7 +416,7 @@ profile:
 Several owners can add a part to one file. An owner is `jnterfaces`, a
 profile such as `python`, a tool of a profile such as `python:lint`, or a role
 such as `tasker`. Each owner adds its part and takes out only its part.
-`docs/plan-shared-files.md` and `docs/plan-snippets.md` give each decision and
+[`notes/plan-shared-files.md`](https://github.com/rahuldave/jnterfaces/blob/main/notes/plan-shared-files.md) and [`notes/plan-snippets.md`](https://github.com/rahuldave/jnterfaces/blob/main/notes/plan-snippets.md) give each decision and
 its reason. `scripts/formats.json` lists the shared files that a package can
 add a part to, with the format of each file.
 

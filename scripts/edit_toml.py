@@ -4,7 +4,7 @@
 # ///
 """Add and take out the units of a part in a TOML file, such as ty.toml or pyproject.toml.
 
-docs/plan-snippets.md gives the decisions. A unit is a key, such as tool.uv.default-groups, or one item of an array of
+notes/plan-snippets.md gives the decisions. A unit is a key, such as tool.uv.default-groups, or one item of an array of
 plain values, such as ".agents" in src.exclude. The name of a key unit is its path. The name of an item unit is the
 path of its array, then the item in JSON: src.exclude[".agents"]. tomlkit keeps your comments and the order of your
 keys. Each change is checked: the data of the new text must be the data of the old text with only the units changed.
