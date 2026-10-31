@@ -551,6 +551,34 @@ class RecordTests(Base):
         code, out = self.check()
         self.assertNotIn('could not read the file', out)
 
+    def test_a_file_that_is_yours_and_a_symlink_is_not_left_unsure(self):
+        (self.target / 'real-gitignore').write_text('mine/\n')
+        (self.target / '.gitignore').symlink_to(self.target / 'real-gitignore')
+        self.parts = {'.gitignore': {'(file)': {'state': 'kept', 'needs': ['python']}}}
+        self.sync([owner('python', PY)], unsure=['.gitignore'])
+        self.assertNotIn('unsure', self.parts['.gitignore']['(file)'])
+        self.assertEqual(self.check()[0], 0)
+
+    def test_a_unit_file_that_is_yours_and_a_symlink_is_not_left_unsure(self):
+        (self.target / 'real.toml').write_text('line-length = 100\n')
+        (self.target / 'ruff.toml').symlink_to(self.target / 'real.toml')
+        self.parts = {'ruff.toml': {'(file)': {'state': 'kept', 'needs': ['python:lint']}}}
+        lint = owner('python:lint', parts={'ruff.toml': self.source_file('ruff.toml', 'line-length = 88\n')})
+        self.sync([lint], unsure=['ruff.toml'])
+        self.assertNotIn('unsure', self.parts['ruff.toml']['(file)'])
+
+    def test_a_pyproject_that_you_delete_after_a_stop_is_not_unsure(self):
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "x"\n')
+        py = owner('python', units={'pyproject.toml': {'tool.uv.package': False}})
+        with stopping_at('pyproject.toml'), self.assertRaises(KeyboardInterrupt):
+            self.sync([py])
+        (self.target / 'pyproject.toml').unlink()
+        self.sync([py])
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn('pyproject.toml: the file is not there', out)
+        self.assertNotIn('could not read the file', out)
+
     def test_a_value_that_you_set_after_a_stop_is_still_yours(self):
         first, second = self.value_owners()
         self.sync([first])
@@ -782,6 +810,151 @@ class IncludeTests(Base):
         self.assertEqual(self.text('biome.jsonc'), mine)
         self.assertTrue(any('biome.jsonc: the installer leaves the file alone' in note for note in notes), notes)
         self.assertEqual(self.text('.agents/config/typescript/lint.json'), '{}\n')
+
+    def biome_in_jsonc(self):
+        """The part of lint in a biome.jsonc, then a biome.json of yours next to it."""
+        (self.target / 'biome.jsonc').write_text('{\n  "formatter": {"enabled": true}\n}\n')
+        lint = owner('typescript:lint', parts={'biome.json': self.source_file('lint.json', '{}\n')})
+        self.sync([lint])
+        self.assertIn('extends', self.text('biome.jsonc'))
+        (self.target / 'biome.json').write_text('{\n  "linter": {"enabled": true}\n}\n')
+        return lint
+
+    def test_the_record_names_biome_jsonc_when_it_holds_the_part(self):
+        self.biome_in_jsonc()
+        units = self.parts['biome.json']
+        self.assertEqual({entry.get('file') for unit, entry in units.items() if not unit.startswith('(')},
+                         {'biome.jsonc'})
+
+    def test_the_part_moves_to_a_biome_json_that_you_add(self):
+        lint = self.biome_in_jsonc()
+        notes = self.sync([lint])
+        self.assertNotIn('extends', self.text('biome.jsonc'))
+        self.assertIn('"formatter"', self.text('biome.jsonc'))
+        self.assertIn('extends', self.text('biome.json'))
+        self.assertIn('"linter"', self.text('biome.json'))
+        self.assertTrue(any('move from biome.jsonc to biome.json' in note for note in notes), notes)
+        self.assertEqual({entry.get('file') for entry in self.parts['biome.json'].values()}, {'biome.json'})
+        self.assertEqual(self.check()[0], 0)
+        self.sync([], [lint])
+        self.assertNotIn('extends', self.text('biome.json'))
+        self.assertNotIn('extends', self.text('biome.jsonc'))
+
+    def test_the_part_of_an_older_record_moves_too(self):
+        lint = self.biome_in_jsonc()
+        for entry in self.parts['biome.json'].values():
+            entry.pop('file', None)
+        self.sync([lint])
+        self.assertNotIn('extends', self.text('biome.jsonc'))
+        self.assertIn('extends', self.text('biome.json'))
+
+    def test_a_part_that_you_deleted_stays_out_when_it_moves(self):
+        lint = self.biome_in_jsonc()
+        (self.target / 'biome.json').unlink()
+        (self.target / 'biome.jsonc').write_text('{\n  "formatter": {"enabled": true}\n}\n')
+        self.sync([lint])
+        (self.target / 'biome.json').write_text('{\n  "linter": {"enabled": true}\n}\n')
+        self.sync([lint])
+        self.assertNotIn('extends', self.text('biome.json'))
+
+    def test_a_dry_run_does_not_move_the_part(self):
+        lint = self.biome_in_jsonc()
+        before = self.parts
+        self.sync([lint], dry_run=True)
+        self.assertIn('extends', self.text('biome.jsonc'))
+        self.assertNotIn('extends', self.text('biome.json'))
+        self.assertEqual(self.parts, before)
+
+    def test_check_names_a_part_that_will_move(self):
+        self.biome_in_jsonc()
+        code, out = self.check()
+        self.assertIn('the tool reads biome.json before biome.jsonc', out)
+        self.assertNotIn('is gone', out)
+
+    def test_a_move_that_stops_before_its_first_write_still_takes_the_part_out(self):
+        lint = self.biome_in_jsonc()
+        with stopping_at('biome.jsonc'), self.assertRaises(KeyboardInterrupt):
+            self.sync([lint])
+        self.sync([lint])
+        self.assertNotIn('extends', self.text('biome.jsonc'))
+        self.assertIn('extends', self.text('biome.json'))
+        self.sync([], [lint])
+        self.assertNotIn('extends', self.text('biome.jsonc'))
+        self.assertNotIn('extends', self.text('biome.json'))
+
+    def test_a_move_that_stops_after_both_writes_keeps_the_part_ours(self):
+        lint = self.biome_in_jsonc()
+        # The run writes both files, then stops before it saves the record.
+        self.sync([lint], stop=True)
+        self.sync([lint])
+        unit = next(unit for unit in self.parts['biome.json'] if unit.startswith('extends['))
+        self.assertEqual(self.parts['biome.json'][unit]['state'], 'added')
+        self.sync([], [lint])
+        self.assertNotIn('extends', self.text('biome.json'))
+
+    def test_a_pending_file_with_a_file_that_is_not_a_name_stops_the_run(self):
+        lint = self.biome_in_jsonc()
+        with stopping_at('biome.jsonc'), self.assertRaises(KeyboardInterrupt):
+            self.sync([lint])
+        pending = self.target / shared_files.PENDING
+        data = json.loads(pending.read_text())
+        for entry in data['files']['biome.json']['old'].values():
+            entry['file'] = ['biome.jsonc']
+        pending.write_text(json.dumps(data))
+        with self.assertRaises(shared_files.SharedError):
+            self.sync([lint])
+
+    def test_a_symlinked_biome_jsonc_after_a_stopped_move_is_left_alone(self):
+        lint = self.biome_in_jsonc()
+        with stopping_at('biome.jsonc'), self.assertRaises(KeyboardInterrupt):
+            self.sync([lint])
+        (self.target / 'real.jsonc').write_text(self.text('biome.jsonc'))
+        (self.target / 'biome.jsonc').unlink()
+        (self.target / 'biome.jsonc').symlink_to('real.jsonc')
+        notes = self.sync([lint])
+        self.assertIn('extends', self.text('real.jsonc'))
+        self.assertNotIn('extends', self.text('biome.json'))
+        self.assertTrue(any('is a symlink' in note for note in notes), notes)
+
+    def test_a_copy_of_biome_json_as_biome_jsonc_keeps_the_part(self):
+        (self.target / 'biome.json').write_text('{\n  "linter": {"enabled": true}\n}\n')
+        lint = owner('typescript:lint', parts={'biome.json': self.source_file('lint.json', '{}\n')})
+        self.sync([lint])
+        (self.target / 'biome.jsonc').write_text(self.text('biome.json'))
+        self.sync([lint])
+        unit = next(unit for unit in self.parts['biome.json'] if unit.startswith('extends['))
+        self.assertEqual(self.parts['biome.json'][unit]['state'], 'added')
+        self.sync([], [lint])
+        self.assertNotIn('extends', self.text('biome.json'))
+
+    def test_an_older_record_with_the_part_in_both_files_keeps_biome_json(self):
+        (self.target / 'biome.json').write_text('{\n  "linter": {"enabled": true}\n}\n')
+        lint = owner('typescript:lint', parts={'biome.json': self.source_file('lint.json', '{}\n')})
+        self.sync([lint])
+        for entry in self.parts['biome.json'].values():
+            entry.pop('file', None)
+        (self.target / 'biome.jsonc').write_text(self.text('biome.json'))
+        self.sync([lint])
+        unit = next(unit for unit in self.parts['biome.json'] if unit.startswith('extends['))
+        self.assertEqual(self.parts['biome.json'][unit]['state'], 'added')
+
+    def test_a_file_in_the_record_outside_the_project_is_not_touched(self):
+        self.biome_in_jsonc()
+        outside = self.target.parent / (self.target.name + '-outside.json')
+        unit = next(unit for unit in self.parts['biome.json'] if unit.startswith('extends['))
+        outside.write_text(json.dumps({'extends': [self.parts['biome.json'][unit]['value']]}))
+        self.addCleanup(outside.unlink, missing_ok=True)
+        for entry in self.parts['biome.json'].values():
+            entry['file'] = '../' + outside.name
+        self.sync([owner('typescript:lint', parts={'biome.json': self.source_file('lint.json', '{}\n')})])
+        self.assertTrue(outside.exists())
+
+    def test_check_after_you_rename_biome_jsonc_to_biome_json(self):
+        self.biome_in_jsonc()
+        (self.target / 'biome.json').unlink()
+        (self.target / 'biome.jsonc').rename(self.target / 'biome.json')
+        code, out = self.check()
+        self.assertNotIn('is gone', out)
 
     def test_an_own_file_that_git_ignores_stops_the_run(self):
         subprocess.run(['git', 'init', '-q', str(self.target)], check=True)

@@ -198,6 +198,29 @@ def target_of(target, path):
     return instead if instead and (target / instead).exists() and not (target / path).exists() else path
 
 
+def held_in(target, path, units):
+    """The file that holds the units of path: the file that the record names, else path. Only path and its instead
+    file, such as biome.jsonc, can be named. A record of an older installer names no file, so the units that it added
+    are looked for in the instead file, when path does not hold them."""
+    instead = FORMATS.get(path, {}).get('instead')
+    named = [entry['file'] for unit, entry in units.items() if not unit.startswith('(') and entry.get('file')]
+    if named:
+        return named[0] if named[0] in (path, instead) else path
+    added = [unit for unit, entry in units.items() if not unit.startswith('(') and entry['state'] == 'added']
+    if not instead or not added or not (target / instead).exists() or linked(target, instead):
+        return path
+
+    def holds(name):
+        try:
+            current = read_units(FORMATS[path]['format'], read_text(target, name), added, FORMATS[path])
+        except SharedError:
+            return False
+        return any(unit in current for unit in added)
+    if (target / path).exists() and not linked(target, path) and holds(path):
+        return path
+    return instead if holds(instead) else path
+
+
 # The log of the installer from before the record, which the first run replays once.
 
 def strings(value):
@@ -927,6 +950,12 @@ def read_pending(target):
         files = data['files']
         if not isinstance(files, dict):
             raise ValueError
+        # A part of a file with two names saves the name of the file that holds it.
+        for change in files.values():
+            for side in ('old', 'new'):
+                for entry in (change.get(side) or {}).values():
+                    if isinstance(entry, dict) and not isinstance(entry.get('file', ''), str):
+                        raise ValueError
         return files
     except (OSError, ValueError, KeyError, TypeError):
         raise SharedError(f'{PENDING} is not a file that the installer wrote. Delete it, then run just install --check.')
@@ -976,10 +1005,15 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
             held['starter'] = True
     parts = {path: {unit: dict(entry) for unit, entry in units.items()} for path, units in (parts or {}).items()}
     unsure_files = set(unsure_paths)
+    # A run that stopped while it moved a part, such as from biome.jsonc to biome.json, may have left the part in the
+    # file that the old record names. The new record names the other file, so this run looks in both.
+    left_in = {}
     for path, change in pending.items():
         if plain(path):
             parts[path] = merged_entries(change.get('old'), change.get('new'))
             unsure_files.add(path)
+            left_in[path] = {entry.get('file') for entry in (change.get('old') or {}).values()
+                             if isinstance(entry, dict) and isinstance(entry.get('file'), str)}
     # A file that a run could not read while it was unsure keeps 'unsure' in its entries, so it stays unsure until a
     # run works it out. The flag moves to unsure_files here, and kept() puts it back on the entries that a run keeps
     # as they were.
@@ -1037,10 +1071,11 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
     new_parts, changes = {}, {}
 
     def kept(path, units):
-        """The entries of a file that this run leaves alone, as they were."""
+        """The entries of a file that this run leaves alone, as they were. A file that is yours alone, (file), has
+        nothing to work out, so only the other entries stay unsure."""
         if path not in unsure_files:
             return units
-        return {unit: dict(entry, unsure=True) for unit, entry in units.items()}
+        return {unit: entry if unit == FILE else dict(entry, unsure=True) for unit, entry in units.items()}
     # The file that each part goes to, when it is not the path of the record: biome.jsonc for biome.json.
     record_path = {}
 
@@ -1148,6 +1183,43 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
         want = desired_units(target, path, active, notes)
         old = {unit: entry for unit, entry in units.items() if not unit.startswith('(')}
         unsure = set(old) if path in unsure_files else set()
+        # The record names the file that holds the units. When a file that comes before it is there now, such as a
+        # biome.json next to biome.jsonc, the tool reads that file only, so the units move to it. A unit that you
+        # deleted stays declined.
+        held = held_in(target, path, units)
+        gone = {unit: entry for unit, entry in old.items() if entry['state'] == 'added'}
+
+        def take_out(source):
+            """Take the units that the installer added out of source, a file that the tool no longer reads."""
+            record_path[source] = path
+            source_text = text_of(source)
+            try:
+                moved, _, _ = plan_unit_file(path, spec['format'], source_text, {}, gone, unsure, False, notes)
+            except SharedError as exc:
+                messages.append(f'{source}: the installer cannot take {", ".join(gone)} out of it: {exc}. '
+                                f'Remove it by hand.')
+                return
+            if moved != source_text:
+                put(source, None if empty_units(spec['format'], moved) else moved)
+                report_units(messages, source, source_text, writes.get(source), dry_run)
+                changes[source] = 'units'
+        # The files to take the units out of: the file that the record names, and a file that a stopped run named.
+        sources = [source for source in [held] + sorted(left_in.get(path, set()) - {held})
+                   if source != file_path and source in (path, spec.get('instead')) and (target / source).exists()]
+        found = next((link for link in map(lambda source: linked(target, source), sources) if link), None)
+        if found:
+            messages.append(f'{path}: {found} is a symlink, so the installer leaves {path} alone')
+            new_parts[path] = kept(path, units)
+            continue
+        if held in sources:
+            if gone:
+                take_out(held)
+                messages.append(f'{path}: the tool reads {file_path} before {held}, so the parts move from {held} '
+                                f'to {file_path}.')
+            old = {unit: entry for unit, entry in old.items() if entry['state'] == 'declined'}
+        for source in sources:
+            if source != held and gone:
+                take_out(source)
         text = text_of(file_path)
         try:
             if text is None and not spec.get('create', True):
@@ -1160,9 +1232,14 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
             own_files.update({item['own']: (item['data'], item['needs']) for item in want.values() if 'own' in item})
             messages.append(f'{file_path}: the installer leaves the file alone: {exc}.'
                             + (f' Add the include yourself: {spec["include"]} {include[0]}' if include else ''))
-            new_parts[path] = kept(path, units)
+            # A file that is not there holds no value of a stopped run, so its units are not unsure.
+            new_parts[path] = kept(path, units) if text is not None else units
             continue
         messages += notes
+        # The record names the file that holds the units of a file with two names, such as biome.json.
+        if spec.get('instead'):
+            for unit, entry in entries.items():
+                entry['file'] = file_path
         for key in (STARTER,):
             if key in units:
                 entries[key] = units[key]
@@ -1395,7 +1472,16 @@ def check(target, parts):
                     print(f'{path}: the record has no lines of {owner}, which has a block. The next just install '
                           f'takes the lines that {owner} needs into the record.')
             continue
-        file_path = target_of(target, path)
+        file_path = held_in(target, path, units)
+        if not (target / file_path).exists():
+            file_path = target_of(target, path)
+        elif file_path != target_of(target, path):
+            print(f'{path}: the tool reads {target_of(target, path)} before {file_path}, which holds the parts. The '
+                  f'next just install moves them.')
+        if read_text(target, file_path) is None and not spec.get('create', True):
+            print(f'{file_path}: the file is not there. If you make it again, the next just install records each unit '
+                  f'that it lacks as declined.')
+            continue
         try:
             current = read_units(spec['format'], read_text(target, file_path),
                                  [unit for unit in units if not unit.startswith('(')], spec)

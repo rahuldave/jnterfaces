@@ -16,6 +16,8 @@ website:
         text: Home
       - href: stack-guide.md
         text: Stack guide
+      - href: stack-files.md
+        text: Stack files
     right:
       - text: Projects
         menu:
