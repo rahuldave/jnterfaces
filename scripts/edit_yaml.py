@@ -4,7 +4,7 @@
 # ///
 """Add and take out the units of a part in a YAML file, such as the repos of .pre-commit-config.yaml.
 
-docs/plan-snippets.md gives the decisions. A unit is an item of a top-level list, known by one of its keys: the item
+notes/plan-snippets.md gives the decisions. A unit is an item of a top-level list, known by one of its keys: the item
 of repos whose repo is https://github.com/astral-sh/ruff-pre-commit. Its name is the list, the key and the value:
 repos[repo=https://github.com/astral-sh/ruff-pre-commit].
 

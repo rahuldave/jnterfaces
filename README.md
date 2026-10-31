@@ -5,6 +5,9 @@ The interface is the Justfile, the packets that agentic Just targets emit, and
 the incremental file stages of `cx`. An agent skill is a folder with a
 `SKILL.md` file that Codex, Claude and other agents read.
 
+The documentation site is https://rahuldave.github.io/jnterfaces/. It is built from `docs/`.
+`just docs` previews it, and `just docs-publish` publishes it to the branch `gh-pages`.
+
 | Skill | Use it when |
 |---|---|
 | `just` | You write, change or run a Justfile, or map workflow concepts to recipes. |
@@ -192,7 +195,7 @@ the old copies of skills and hooks that it shipped, and it keeps your edits.
   writes it only when the project does not have it.
 
 The list of packages, roles, aliases and profiles is in `stack.json`.
-[docs/stack-guide.md](docs/stack-guide.md) builds a project in layers, from a
+[The stack guide](https://rahuldave.github.io/jnterfaces/stack-guide.html) builds a project in layers, from a
 project with no code to a project with lint and tests. It says what works now
 and what does not.
 
@@ -253,4 +256,4 @@ of all three, and of the one installer.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](https://github.com/rahuldave/jnterfaces/blob/main/LICENSE).

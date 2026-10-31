@@ -1,0 +1,41 @@
+project:
+  type: website
+  output-dir: _site
+
+website:
+  title: jnterfaces
+  description: "The installer of the stack, and the just, jagt-protocol and cx skills"
+  site-url: https://rahuldave.github.io/jnterfaces/
+  repo-url: https://github.com/rahuldave/jnterfaces
+  repo-subdir: docs
+  repo-actions: [source, issue]
+  page-navigation: true
+  navbar:
+    left:
+      - href: index.md
+        text: Home
+      - href: stack-guide.md
+        text: Stack guide
+    right:
+      - text: Projects
+        menu:
+          - text: jnterfaces
+            href: https://rahuldave.github.io/jnterfaces/
+          - text: jnprofile-python
+            href: https://rahuldave.github.io/jnprofile-python/
+          - text: jnprofile-typescript
+            href: https://rahuldave.github.io/jnprofile-typescript/
+          - text: agent_gest_git_skills
+            href: https://rahuldave.github.io/agent_gest_git_skills/
+    tools:
+      - icon: github
+        href: https://github.com/rahuldave/jnterfaces
+  page-footer:
+    left: "Part of [jnterfaces](https://rahuldave.github.io/jnterfaces/) and its packages."
+    right: "Built with [smalldocs](https://docs.smallish.dev/)."
+
+theme:
+  light: cosmo
+  dark: darkly
+toc: true
+code-copy: true

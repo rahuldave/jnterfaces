@@ -1587,7 +1587,7 @@ def main(argv=None):
         # Save after each step, so that an interrupted run keeps what it added and removed.
         progress()
     # The line files and the whole files change after the package commands succeeded, as D12 of
-    # docs/plan-shared-files.md says.
+    # notes/plan-shared-files.md says.
     state['parts'] = sync_files(target, profiles, [name for name in active if name not in leaving], tools, active,
                                 False, parts, roles, gone_roles, unsure, migrating)
     save(tools, [])

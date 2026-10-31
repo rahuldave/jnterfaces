@@ -1,6 +1,6 @@
 """The parts that the owners of a project add to its shared files, and the record of each part in .agents/stack.json.
 
-docs/plan-shared-files.md and docs/plan-snippets.md give the decisions. An owner is jnterfaces, a profile such as
+notes/plan-shared-files.md and notes/plan-snippets.md give the decisions. An owner is jnterfaces, a profile such as
 python, a tool of a profile such as python:lint, or a role such as tasker. Each owner adds its part to a shared file
 and takes out only its part:
 
