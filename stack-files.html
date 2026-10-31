@@ -1,0 +1,933 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="generator" content="smalldocs-0.5.4"><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"><title>The files of the stack – jnterfaces</title><link rel="stylesheet" href="site_libs/themes/cosmo.min.css" data-mode="light" class="quarto-color-scheme" id="quarto-bootstrap-light" media="not all and (prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/themes/darkly.min.css" data-mode="dark" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap-dark" media="(prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/bootstrap-icons/bootstrap-icons.min.css"><link rel="stylesheet" href="site_libs/smalldocs.css"><meta name="smalldocs:offset" content="./"><script src="site_libs/bootstrap/bootstrap.bundle.min.js"></script><script src="site_libs/fuse/fuse.min.js"></script><script src="site_libs/smalldocs.js" defer></script><script>(function(){var d=document.documentElement,s=null;try{s=localStorage.getItem('smalldocs-scheme')}catch(e){}var alt=s?s==='alternate':!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);var ls=document.querySelectorAll('link.quarto-color-scheme');if(alt)d.dataset.scheme='alternate';if(s)ls.forEach(function(l){var on=l.classList.contains('quarto-color-alternate')===alt;if(on)l.setAttribute('blocking','render');l.media=on?'all':'not all'});var on=ls[alt?1:0];if(on&&on.dataset.mode==='dark')d.classList.add('quarto-dark')})();</script></head><body class="nav-fixed"><header id="quarto-header" class="headroom sticky-top"><nav class="navbar navbar-expand-lg sd-navbar-default"><div class="navbar-container container-fluid"><div class="navbar-brand-container mx-auto"><a class="navbar-brand" href="index.html"><span class="navbar-title">jnterfaces</span></a></div><button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button><div class="collapse navbar-collapse" id="navbarCollapse"><ul class="navbar-nav navbar-nav-scroll me-auto"><li class="nav-item"><a class="nav-link" href="index.html"><span class="menu-text">Home</span></a></li><li class="nav-item"><a class="nav-link" href="stack-guide.html"><span class="menu-text">Stack guide</span></a></li><li class="nav-item"><a class="nav-link active" href="stack-files.html" aria-current="page"><span class="menu-text">Stack files</span></a></li></ul><ul class="navbar-nav navbar-nav-scroll ms-auto"><li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" id="nav-menu-1" role="link" data-bs-toggle="dropdown" aria-expanded="false"><span class="menu-text">Projects</span></a><ul class="dropdown-menu" aria-labelledby="nav-menu-1"><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnterfaces/"><span class="menu-text">jnterfaces</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-python/"><span class="menu-text">jnprofile-python</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-typescript/"><span class="menu-text">jnprofile-typescript</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/agent_gest_git_skills/"><span class="menu-text">agent_gest_git_skills</span></a></li></ul></li><li class="nav-item compact"><a class="nav-link" href="https://github.com/rahuldave/jnterfaces" aria-label="github"><i class="bi bi-github" role="img"></i></a></li><li class="nav-item compact"><a class="quarto-color-scheme-toggle nav-link" href="" title="Toggle dark mode" onclick="window.smalldocsToggleScheme(); return false;"><i class="bi"></i></a></li></ul><div class="quarto-navbar-tools"><div class="smalldocs-search" id="quarto-search"><i class="bi bi-search" aria-hidden="true"></i><input type="search" class="form-control form-control-sm" placeholder="Search" aria-label="Search" autocomplete="off"><div class="smalldocs-search-results dropdown-menu"></div></div></div></div></div></nav></header><div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article has-margin"><div id="quarto-margin-sidebar" class="sidebar margin-sidebar"><nav id="TOC" role="doc-toc" class="toc-active"><h2 id="toc-title">On this page</h2><ul><li><a href="#terms" id="toc-terms" class="nav-link" data-scroll-target="#terms">Terms</a></li><li><a href="#one-record-for-each-project" id="toc-one-record-for-each-project" class="nav-link" data-scroll-target="#one-record-for-each-project">One record for each project</a></li><li><a href="#the-files-at-a-glance" id="toc-the-files-at-a-glance" class="nav-link" data-scroll-target="#the-files-at-a-glance">The files at a glance</a></li><li><a href="#how-one-run-uses-the-files" id="toc-how-one-run-uses-the-files" class="nav-link" data-scroll-target="#how-one-run-uses-the-files">How one run uses the files</a></li><li><a href="#in-the-packages" id="toc-in-the-packages" class="nav-link" data-scroll-target="#in-the-packages">In the packages</a><ul><li><a href="#the-catalog-stack.json-of-jnterfaces" id="toc-the-catalog-stack.json-of-jnterfaces" class="nav-link" data-scroll-target="#the-catalog-stack.json-of-jnterfaces">The catalog: stack.json of jnterfaces</a></li><li><a href="#a-package-skill-package.json" id="toc-a-package-skill-package.json" class="nav-link" data-scroll-target="#a-package-skill-package.json">A package: skill-package.json</a></li><li><a href="#a-profile-profile.json" id="toc-a-profile-profile.json" class="nav-link" data-scroll-target="#a-profile-profile.json">A profile: profile.json</a></li><li><a href="#the-formats-scriptsformats.json" id="toc-the-formats-scriptsformats.json" class="nav-link" data-scroll-target="#the-formats-scriptsformats.json">The formats: scripts/formats.json</a></li></ul></li><li><a href="#in-the-project" id="toc-in-the-project" class="nav-link" data-scroll-target="#in-the-project">In the project</a><ul><li><a href="#the-record-.agentsstack.json" id="toc-the-record-.agentsstack.json" class="nav-link" data-scroll-target="#the-record-.agentsstack.json">The record: .agents/stack.json</a></li><li><a href="#which-file-holds-a-part" id="toc-which-file-holds-a-part" class="nav-link" data-scroll-target="#which-file-holds-a-part">Which file holds a part</a></li><li><a href="#the-package-records-.agentspackage-install.json" id="toc-the-package-records-.agentspackage-install.json" class="nav-link" data-scroll-target="#the-package-records-.agentspackage-install.json">The package records: .agents/&lt;package&gt;-install.json</a></li><li><a href="#a-run-that-stops-.agentsstack-pending.json" id="toc-a-run-that-stops-.agentsstack-pending.json" class="nav-link" data-scroll-target="#a-run-that-stops-.agentsstack-pending.json">A run that stops: .agents/stack-pending.json</a></li><li><a href="#the-history-.agentsstack-log.jsonl" id="toc-the-history-.agentsstack-log.jsonl" class="nav-link" data-scroll-target="#the-history-.agentsstack-log.jsonl">The history: .agents/stack-log.jsonl</a></li></ul></li><li><a href="#what-you-can-edit" id="toc-what-you-can-edit" class="nav-link" data-scroll-target="#what-you-can-edit">What you can edit</a></li><li><a href="#check-the-files" id="toc-check-the-files" class="nav-link" data-scroll-target="#check-the-files">Check the files</a></li></ul></nav><div class="toc-actions"><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/blob/main/docs/stack-files.md" class="toc-action"><i class="bi bi-code"></i> View source</a></div><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/issues/new" class="toc-action"><i class="bi bi-chat-right"></i> Report an issue</a></div></div></div><main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block default"><div class="quarto-title"><h1 class="title">The files of the stack</h1></div><div class="quarto-title-meta"></div></header><p>This page tells you each file that the stack reads or writes, what each key
+in it means, and how the files work together. <a href="stack-guide.html">How the stack fits
+together</a> tells you what an install does. This page tells you
+the files behind it.</p>
+<p>The examples come from an install into an empty Python project on
+2026-10-31, with the command <code>just install --profile python --defaults</code>.</p>
+<section id="terms" class="level2">
+<h2 class="anchored" data-anchor-id="terms">Terms</h2>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Term</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>package</td>
+<td>A Git repository that ships skills, for example nossaifd.</td>
+</tr>
+<tr>
+<td>clone</td>
+<td>The local Git clone of a package. The installer reads each package from its clone.</td>
+</tr>
+<tr>
+<td>role</td>
+<td>The name of a job, for example <code>tasker</code>. One package does the job.</td>
+</tr>
+<tr>
+<td>profile</td>
+<td>A language setup, for example <code>python</code>. A profile package, such as jnprofile-python, ships it.</td>
+</tr>
+<tr>
+<td>tool</td>
+<td>One unit of a profile, for example <code>lint</code>. It brings packages, recipes and parts.</td>
+</tr>
+<tr>
+<td>owner</td>
+<td>A thing that adds to the files of a project: jnterfaces, a profile, a tool, or a role. A tool has the key <code>profile:tool</code>, for example <code>python:lint</code>.</td>
+</tr>
+<tr>
+<td>shared file</td>
+<td>A file that more than one owner, and you, can add to, for example <code>.gitignore</code> or <code>pyproject.toml</code>.</td>
+</tr>
+<tr>
+<td>part</td>
+<td>What one owner adds to one shared file.</td>
+</tr>
+<tr>
+<td>unit</td>
+<td>The smallest piece of a part: one line, one key, one list item or one hook.</td>
+</tr>
+<tr>
+<td>record</td>
+<td>A JSON file in <code>.agents/</code> that says what the installer wrote.</td>
+</tr>
+<tr>
+<td>own file</td>
+<td>A file that the installer writes whole under <code>.agents/</code>, for example <code>.agents/config/python/ruff.toml</code> or <code>.agents/instructions/tasker.md</code>. A shared file includes it or points to it.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="one-record-for-each-project" class="level2">
+<h2 class="anchored" data-anchor-id="one-record-for-each-project">One record for each project</h2>
+<p>A project has one record of the stack, <code>.agents/stack.json</code>. A profile or a
+role does not bring a record of its own. Each run of the installer reads what
+the packages declare, and writes all of it into this one file.</p>
+<p>Two other names can confuse you:</p>
+<ul>
+<li><strong><code>stack.json</code> at the top of jnterfaces</strong> is the catalog. It lists the
+packages, roles and profiles. It is not in your project.</li>
+<li><strong><code>.agents/&lt;package&gt;-install.json</code></strong> is one file for each package. It keeps
+the hashes of the skill files that the package copied in. It does not hold
+the shared files.</li>
+</ul>
+</section>
+<section id="the-files-at-a-glance" class="level2">
+<h2 class="anchored" data-anchor-id="the-files-at-a-glance">The files at a glance</h2>
+<p>The packages declare. The installer reads the declarations, then writes the
+project and its records.</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>File</th>
+<th>Where</th>
+<th>Who writes it</th>
+<th>What it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>stack.json</code></td>
+<td>jnterfaces</td>
+<td>the author of jnterfaces</td>
+<td>The catalog: each package, role and profile.</td>
+</tr>
+<tr>
+<td><code>scripts/formats.json</code></td>
+<td>jnterfaces</td>
+<td>the author of jnterfaces</td>
+<td>The format of each shared file that a part can go to.</td>
+</tr>
+<tr>
+<td><code>skill-package.json</code></td>
+<td>each package</td>
+<td>the author of the package</td>
+<td>The skills and the extras of the package.</td>
+</tr>
+<tr>
+<td><code>profile.json</code></td>
+<td>each profile package</td>
+<td>the author of the profile</td>
+<td>The tools of the profile, and the parts of each tool.</td>
+</tr>
+<tr>
+<td><code>.agents/stack.json</code></td>
+<td>the project</td>
+<td>the installer</td>
+<td>The record of the stack: your choices and each part.</td>
+</tr>
+<tr>
+<td><code>.agents/&lt;package&gt;-install.json</code></td>
+<td>the project</td>
+<td>the installer</td>
+<td>The record of one package: its revision and the hash of each of its files.</td>
+</tr>
+<tr>
+<td><code>.agents/stack-pending.json</code></td>
+<td>the project</td>
+<td>the installer</td>
+<td>The state of a run that has not finished. It is gone after a run that works.</td>
+</tr>
+<tr>
+<td><code>.agents/stack-log.jsonl</code></td>
+<td>the project</td>
+<td>the installer</td>
+<td>A history of the runs. Nothing reads it to decide what to do.</td>
+</tr>
+<tr>
+<td><code>.agents/just/index.just</code> and <code>.agents/just/&lt;profile&gt;.just</code></td>
+<td>the project</td>
+<td>the installer</td>
+<td>The modules that import the recipes of the installed tools. <code>generated</code> in the record keeps their hashes.</td>
+</tr>
+<tr>
+<td><code>.agents/just/&lt;profile&gt;/*.just</code> and <code>.agents/just/roles/&lt;package&gt;.just</code></td>
+<td>the project</td>
+<td>the packages, through <code>install_extras.files</code></td>
+<td>The recipe files of each tool and role. The package record keeps their hashes.</td>
+</tr>
+<tr>
+<td><code>.agents/config/&lt;profile&gt;/...</code></td>
+<td>the project</td>
+<td>the installer</td>
+<td>The own files of the tools.</td>
+</tr>
+<tr>
+<td><code>.agents/instructions/&lt;role&gt;.md</code></td>
+<td>the project</td>
+<td>the installer</td>
+<td>The own file of a role. A line in <code>AGENTS.md</code> points to it.</td>
+</tr>
+<tr>
+<td><code>.agents/install.just</code></td>
+<td>the project</td>
+<td>the installer</td>
+<td>The recipes <code>just install</code> and <code>just uninstall</code>.</td>
+</tr>
+<tr>
+<td><code>.agents/skills/</code> and <code>.claude/skills/</code></td>
+<td>the project</td>
+<td>the installer</td>
+<td>The skills, and a link to each one for Claude Code.</td>
+</tr>
+<tr>
+<td><code>.claude/hooks/</code> and <code>.codex/hooks/</code></td>
+<td>the project</td>
+<td>the tasker role, through <code>install_extras.files</code></td>
+<td>The hook scripts. The hook entries go in <code>.claude/settings.json</code> and <code>.codex/hooks.json</code> as parts.</td>
+</tr>
+<tr>
+<td><code>Justfile</code></td>
+<td>the project</td>
+<td>the installer once, then you</td>
+<td>The starter Justfile, when the project has none. It is yours from then on.</td>
+</tr>
+<tr>
+<td><code>.gitignore</code>, <code>.worktreedisposable</code>, <code>AGENTS.md</code></td>
+<td>the project</td>
+<td>the installer and you</td>
+<td>Line files. Each owner adds a block of lines.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="how-one-run-uses-the-files" class="level2">
+<h2 class="anchored" data-anchor-id="how-one-run-uses-the-files">How one run uses the files</h2>
+<ol>
+<li><code>just install</code> runs <code>scripts/install_stack.py</code> from the jnterfaces clone.</li>
+<li>The installer reads the catalog <code>stack.json</code>. It finds each role, profile
+and alias there.</li>
+<li>It reads <code>.agents/stack.json</code> of the project for your saved choices. Names
+on the command line change them.</li>
+<li>For each package that the run needs, it reads <code>skill-package.json</code> from
+the clone. For each profile, it also reads <code>profile.json</code>.</li>
+<li>It makes one owner from each profile, tool and role, with its lines, parts
+and units. <code>scripts/formats.json</code> tells it how to read and write each
+shared file. It does a dry pass over the shared files. A conflict of two
+owners stops the run here, before anything changes.</li>
+<li>It copies the skills and the extra files of each package. It writes
+<code>.agents/&lt;package&gt;-install.json</code> for each one.</li>
+<li>It saves your choices in <code>.agents/stack.json</code>, and writes the modules in
+<code>.agents/just</code>. It does this again each time that it saves the record.</li>
+<li>If the project has no Justfile, it writes the starter Justfile. If a tool
+needs the manifest and the project has none, it runs <code>init</code> of the
+profile.</li>
+<li>It runs the package commands of the tools, such as <code>uv add --group lint ruff</code>.</li>
+<li>It saves <code>.agents/stack-pending.json</code>, then it writes the shared files
+and the own files, and adds an entry to <code>.agents/stack-log.jsonl</code>.</li>
+<li>It saves the new parts in <code>.agents/stack.json</code>, and deletes
+<code>.agents/stack-pending.json</code>.</li>
+</ol>
+<p>A removal, such as <code>just uninstall lint</code>, runs the same steps. The owner is
+not active, so its parts go. The installer reads what to take out from the
+record, never from the files.</p>
+</section>
+<section id="in-the-packages" class="level2">
+<h2 class="anchored" data-anchor-id="in-the-packages">In the packages</h2>
+<section id="the-catalog-stack.json-of-jnterfaces" class="level3">
+<h3 class="anchored" data-anchor-id="the-catalog-stack.json-of-jnterfaces">The catalog: <code>stack.json</code> of jnterfaces</h3>
+<p>The catalog has four keys:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Key</th>
+<th>What it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>version</code></td>
+<td>The version of the format. It is <code>2</code> now.</td>
+</tr>
+<tr>
+<td><code>packages</code></td>
+<td>A list with one entry for each package. jnterfaces is first.</td>
+</tr>
+<tr>
+<td><code>aliases</code></td>
+<td>Other names for a role, for example <code>&quot;gest&quot;: &quot;tasker&quot;</code>.</td>
+</tr>
+<tr>
+<td><code>profiles</code></td>
+<td>One entry for each profile, keyed by its name.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An entry of <code>packages</code> has these keys:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Key</th>
+<th>What it means</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>The name of the package and of its clone folder.</td>
+</tr>
+<tr>
+<td><code>repository</code></td>
+<td>The URL to clone when the clone is missing.</td>
+</tr>
+<tr>
+<td><code>about</code></td>
+<td>One line for the questions and the help.</td>
+</tr>
+<tr>
+<td><code>choice</code></td>
+<td>The role that the package does, for example <code>tasker</code>. jnterfaces has none, because it is always installed.</td>
+</tr>
+<tr>
+<td><code>default</code></td>
+<td><code>true</code> when a new project turns the role on, unless the profile says otherwise.</td>
+</tr>
+<tr>
+<td><code>needs</code></td>
+<td>The packages that the role needs.</td>
+</tr>
+<tr>
+<td><code>record</code></td>
+<td>The path of the package record, when it is not <code>.agents/&lt;package&gt;-install.json</code>.</td>
+</tr>
+<tr>
+<td><code>variants</code> and <code>default_variant</code></td>
+<td>The forms of a role, for example <code>git</code> or <code>gitwt</code> for <code>tasker</code>. A variant with <code>&quot;ready&quot;: false</code> cannot be chosen yet.</td>
+</tr>
+<tr>
+<td><code>required_skills</code> and <code>optional_skills</code></td>
+<td>For jnterfaces only: the <code>just</code> skill is always installed. <code>cx</code> and <code>jagt-protocol</code> are roles of their own.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An entry of <code>profiles</code> has <code>package</code>, <code>repository</code>, <code>about</code>, and <code>detect</code>.
+<code>detect</code> lists the files that turn the profile on in a project with no saved
+profile, for example <code>pyproject.toml</code> or <code>uv.lock</code>.</p>
+</section>
+<section id="a-package-skill-package.json" class="level3">
+<h3 class="anchored" data-anchor-id="a-package-skill-package.json">A package: <code>skill-package.json</code></h3>
+<p>Each package has one <code>skill-package.json</code>. The installer reads these keys:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Key</th>
+<th>What it means</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>repository</code></td>
+<td>The owner, name and URL of the package.</td>
+</tr>
+<tr>
+<td><code>skills</code></td>
+<td>Each skill, with its name and its folder.</td>
+</tr>
+<tr>
+<td><code>install_extras.files</code></td>
+<td>Files and folders outside <code>.agents/skills</code> that the installer copies and records like a skill, for example <code>.agents/just/roles/nossaifd.just</code>.</td>
+</tr>
+<tr>
+<td><code>install_extras.parts</code></td>
+<td>The parts of a role: <code>{shared file: source file}</code>. For example, tasker adds a line to <code>AGENTS.md</code> and hooks to <code>.claude/settings.json</code>.</td>
+</tr>
+<tr>
+<td><code>install_extras.starter</code></td>
+<td>A file that the role writes once, when the project has none, for example the first <code>AGENTS.md</code>. It is yours from then on.</td>
+</tr>
+<tr>
+<td><code>install_extras.merge_hooks</code> and <code>install_extras.seed</code></td>
+<td>The same hooks and starter for an installer from before the parts. A newer installer leaves these files to the parts.</td>
+</tr>
+<tr>
+<td><code>executables</code></td>
+<td>The programs that the package needs, with a command that checks each one.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="a-profile-profile.json" class="level3">
+<h3 class="anchored" data-anchor-id="a-profile-profile.json">A profile: <code>profile.json</code></h3>
+<p>A profile package also has <code>profile.json</code>. Its top keys are these:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Key</th>
+<th>What it means</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>version</code></td>
+<td>The version of the format. It is <code>1</code> now.</td>
+</tr>
+<tr>
+<td><code>name</code>, <code>about</code>, <code>detect</code></td>
+<td>As in the catalog.</td>
+</tr>
+<tr>
+<td><code>manifest</code></td>
+<td>The file that lists the dependencies: <code>pyproject.toml</code> or <code>package.json</code>.</td>
+</tr>
+<tr>
+<td><code>init</code></td>
+<td>The manifest file and the command that makes it when it is missing: <code>{&quot;file&quot;: &quot;pyproject.toml&quot;, &quot;command&quot;: [&quot;uv&quot;, &quot;init&quot;, &quot;--bare&quot;, &quot;--no-workspace&quot;]}</code>.</td>
+</tr>
+<tr>
+<td><code>add</code> and <code>remove</code></td>
+<td>The commands that add or remove the packages of a tool. <code>{group}</code> takes the group of the tool.</td>
+</tr>
+<tr>
+<td><code>choices</code></td>
+<td>The default roles of the profile, for example <code>tasker</code> and <code>prose</code>.</td>
+</tr>
+<tr>
+<td><code>uv_default_groups</code></td>
+<td>For Python: the value of <code>tool.uv.default-groups</code> in <code>pyproject.toml</code>.</td>
+</tr>
+<tr>
+<td><code>base</code></td>
+<td>What the profile adds with no tool: its recipe file, and its <code>lines</code>, <code>parts</code> and <code>files</code>, as for a tool.</td>
+</tr>
+<tr>
+<td><code>tools</code></td>
+<td>Each tool, keyed by its name.</td>
+</tr>
+<tr>
+<td><code>default_tools</code></td>
+<td>The tools that a new project gets, for example <code>lint</code> and <code>test</code>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A tool has these keys:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Key</th>
+<th>What it means</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>packages</code></td>
+<td>The packages that the tool adds, for example <code>ruff</code> and <code>pre-commit</code>.</td>
+</tr>
+<tr>
+<td><code>group</code></td>
+<td>For Python: the dependency group of the packages.</td>
+</tr>
+<tr>
+<td><code>recipes</code></td>
+<td>The recipe file of the tool, for example <code>lint.just</code>.</td>
+</tr>
+<tr>
+<td><code>verify</code></td>
+<td>The recipes that <code>just verify</code> runs for the tool.</td>
+</tr>
+<tr>
+<td><code>lines</code></td>
+<td>Lines for line files: <code>{&quot;.gitignore&quot;: [&quot;.ruff_cache/&quot;]}</code>.</td>
+</tr>
+<tr>
+<td><code>parts</code></td>
+<td>Parts for unit files: <code>{&quot;ruff.toml&quot;: &quot;files/ruff.toml&quot;}</code>.</td>
+</tr>
+<tr>
+<td><code>files</code></td>
+<td>Whole files, for an installer from before the parts. A file that is also in <code>parts</code> goes as a part.</td>
+</tr>
+<tr>
+<td><code>skip_if</code></td>
+<td>A guard. A new part is left out when a file has a text, for example no <code>ruff.toml</code> part when <code>pyproject.toml</code> has <code>[tool.ruff</code>. A part that the record already holds stays.</td>
+</tr>
+<tr>
+<td><code>before_remove</code></td>
+<td>A command that runs before the packages go, for example <code>pre-commit uninstall</code>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="the-formats-scriptsformats.json" class="level3">
+<h3 class="anchored" data-anchor-id="the-formats-scriptsformats.json">The formats: <code>scripts/formats.json</code></h3>
+<p>This file names each shared file that a part can go to. A line file, such as
+<code>.gitignore</code>, needs no entry. Each entry has these keys:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Key</th>
+<th>What it means</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>format</code></td>
+<td><code>lines</code>, <code>toml</code>, <code>json</code>, <code>yaml</code> or <code>hooks</code>.</td>
+</tr>
+<tr>
+<td><code>include</code></td>
+<td>How the part reaches its own file. <code>extend</code> is the <code>extend</code> key of <code>ruff.toml</code>. <code>extends</code> is the <code>extends</code> list of <code>tsconfig.json</code> and <code>biome.json</code>. <code>pointer</code> is a line in <code>AGENTS.md</code> that names a file.</td>
+</tr>
+<tr>
+<td><code>instead</code></td>
+<td>Another name of the same file. A part of <code>biome.json</code> goes to <code>biome.jsonc</code> when only that file exists.</td>
+</tr>
+<tr>
+<td><code>create</code></td>
+<td><code>false</code> when the installer must not make the file. <code>pyproject.toml</code> comes from <code>uv init</code> only.</td>
+</tr>
+<tr>
+<td><code>list</code> and <code>key</code></td>
+<td>For YAML: the list that holds the units, and the key that names each item. <code>.pre-commit-config.yaml</code> has <code>repos</code>, named by <code>repo</code>.</td>
+</tr>
+<tr>
+<td><code>comments</code></td>
+<td>For a line file: <code>html</code> when the comments are HTML comments, as in <code>AGENTS.md</code>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</section>
+<section id="in-the-project" class="level2">
+<h2 class="anchored" data-anchor-id="in-the-project">In the project</h2>
+<section id="the-record-.agentsstack.json" class="level3">
+<h3 class="anchored" data-anchor-id="the-record-.agentsstack.json">The record: <code>.agents/stack.json</code></h3>
+<p>The record has these keys:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Key</th>
+<th>What it holds</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>version</code></td>
+<td>The version of the format.</td>
+<td><code>2</code></td>
+</tr>
+<tr>
+<td><code>profiles</code></td>
+<td>The installed profiles.</td>
+<td><code>[&quot;python&quot;]</code></td>
+</tr>
+<tr>
+<td><code>choices</code></td>
+<td>Each role, on or off.</td>
+<td><code>{&quot;cx&quot;: false, &quot;jagt-protocol&quot;: false, &quot;prose&quot;: true, &quot;reporter&quot;: false, &quot;tasker&quot;: true}</code></td>
+</tr>
+<tr>
+<td><code>tools</code></td>
+<td>The installed tools.</td>
+<td><code>[&quot;python:lint&quot;, &quot;python:test&quot;]</code></td>
+</tr>
+<tr>
+<td><code>variants</code></td>
+<td>The variant of each role that has variants.</td>
+<td><code>{&quot;tasker&quot;: &quot;git&quot;}</code></td>
+</tr>
+<tr>
+<td><code>owned_packages</code></td>
+<td>The packages that the installer added, keyed by their place in the manifest. A removal takes out only these. For Python the place is <code>profile:group</code>. For TypeScript it is the profile, because npm has no groups.</td>
+<td><code>{&quot;python:lint&quot;: [&quot;pre-commit&quot;, &quot;ruff&quot;]}</code></td>
+</tr>
+<tr>
+<td><code>generated</code></td>
+<td>The hash of <code>index.just</code> and of each <code>&lt;profile&gt;.just</code> that the installer wrote.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>started</code></td>
+<td><code>true</code> when the installer wrote the starter Justfile.</td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>parts</code></td>
+<td>Each unit of each shared file. See below.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>parts_version</code></td>
+<td>The version of the format of <code>parts</code>.</td>
+<td><code>1</code></td>
+</tr>
+<tr>
+<td><code>pending_tools</code>, <code>removing_tools</code>, <code>removing_profiles</code></td>
+<td>Work that a run that failed did not finish. The next run finishes it.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>parts_log_end</code></td>
+<td>The id of the last entry of the old log that moved into <code>parts</code>, for a project of an older installer.</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The installer keeps any other key that it finds in the record. One old key,
+<code>added_packages</code>, moves into <code>owned_packages</code> and goes.</p>
+<p><strong><code>parts</code></strong> is keyed by the shared file, then by the unit. For example:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode json code-with-copy"><code class="sourceCode json"><span class="kw">&quot;parts&quot;</span>: {
+  <span class="kw">&quot;.gitignore&quot;</span>: {
+    <span class="kw">&quot;.venv&quot;</span>: {<span class="kw">&quot;state&quot;</span>: <span class="st">&quot;added&quot;</span>, <span class="kw">&quot;needs&quot;</span>: [<span class="st">&quot;python&quot;</span>], <span class="kw">&quot;holder&quot;</span>: <span class="st">&quot;python&quot;</span>}
+  },
+  <span class="kw">&quot;pyproject.toml&quot;</span>: {
+    <span class="kw">&quot;tool.uv.default-groups&quot;</span>: {<span class="kw">&quot;state&quot;</span>: <span class="st">&quot;added&quot;</span>, <span class="kw">&quot;needs&quot;</span>: [<span class="st">&quot;python&quot;</span>], <span class="kw">&quot;holder&quot;</span>: <span class="st">&quot;python&quot;</span>,
+                               <span class="kw">&quot;value&quot;</span>: <span class="st">&quot;all&quot;</span>, <span class="kw">&quot;made&quot;</span>: [<span class="st">&quot;tool&quot;</span>, <span class="st">&quot;tool.uv&quot;</span>]}
+  },
+  <span class="kw">&quot;ruff.toml&quot;</span>: {
+    <span class="kw">&quot;extend&quot;</span>: {<span class="kw">&quot;state&quot;</span>: <span class="st">&quot;added&quot;</span>, <span class="kw">&quot;needs&quot;</span>: [<span class="st">&quot;python:lint&quot;</span>], <span class="kw">&quot;holder&quot;</span>: <span class="st">&quot;python:lint&quot;</span>,
+               <span class="kw">&quot;value&quot;</span>: <span class="st">&quot;.agents/config/python/ruff.toml&quot;</span>}
+  },
+  <span class="kw">&quot;.agents/config/python/ruff.toml&quot;</span>: {
+    <span class="kw">&quot;(own file)&quot;</span>: {<span class="kw">&quot;state&quot;</span>: <span class="st">&quot;added&quot;</span>, <span class="kw">&quot;holder&quot;</span>: <span class="st">&quot;python:lint&quot;</span>, <span class="kw">&quot;needs&quot;</span>: [<span class="st">&quot;python:lint&quot;</span>], <span class="kw">&quot;hash&quot;</span>: <span class="st">&quot;7ca1...&quot;</span>}
+  }
+}</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The name of a unit depends on the format of the file:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Format</th>
+<th>Unit name</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>lines</td>
+<td>The line, without a slash at the end.</td>
+<td><code>.venv</code></td>
+</tr>
+<tr>
+<td>TOML</td>
+<td>The dotted key.</td>
+<td><code>tool.uv.default-groups</code></td>
+</tr>
+<tr>
+<td>TOML include</td>
+<td>The include key.</td>
+<td><code>extend</code></td>
+</tr>
+<tr>
+<td>JSON include</td>
+<td>The include list with its value.</td>
+<td><code>extends[&quot;./.agents/config/typescript/tsconfig.json&quot;]</code></td>
+</tr>
+<tr>
+<td>YAML</td>
+<td>The list, and the key of the item.</td>
+<td><code>repos[repo=https://github.com/astral-sh/ruff-pre-commit]</code></td>
+</tr>
+<tr>
+<td>hooks</td>
+<td>The event, the group, and the command.</td>
+<td><code>hooks.PreToolUse {&quot;matcher&quot;: &quot;Bash&quot;} $CLAUDE_PROJECT_DIR/.claude/hooks/raw-git-write-guard.sh</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An entry has these fields:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Field</th>
+<th>What it means</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>state</code></td>
+<td>One of the states below.</td>
+</tr>
+<tr>
+<td><code>needs</code></td>
+<td>Each owner that needs the unit.</td>
+</tr>
+<tr>
+<td><code>holder</code></td>
+<td>The owner that holds the unit now. When it goes, the next owner in <code>needs</code> holds it.</td>
+</tr>
+<tr>
+<td><code>value</code></td>
+<td>The value that the installer wrote, for a unit file.</td>
+</tr>
+<tr>
+<td><code>made</code></td>
+<td>What the installer made for the unit, for example the tables <code>tool</code> and <code>tool.uv</code>. They go with the last unit inside them.</td>
+</tr>
+<tr>
+<td><code>file</code></td>
+<td>For a file with two names: the file that holds the unit. A part of <code>biome.json</code> has <code>biome.json</code> or <code>biome.jsonc</code>.</td>
+</tr>
+<tr>
+<td><code>hash</code></td>
+<td>For an own file or a whole file: the hash of what the installer wrote.</td>
+</tr>
+<tr>
+<td><code>earlier</code></td>
+<td>Only after a run that stopped: other values that the file can hold for the unit.</td>
+</tr>
+<tr>
+<td><code>unsure</code></td>
+<td>Only after a run that stopped and a later run that could not read the file. <code>just install --check</code> fails until a run reads the file.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The states are these:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>State</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>added</code></td>
+<td>The installer added the unit. It goes when no owner needs it.</td>
+</tr>
+<tr>
+<td><code>present</code></td>
+<td>The unit was in the file before its owner came. It is yours, and stays.</td>
+</tr>
+<tr>
+<td><code>declined</code></td>
+<td>You deleted the unit. The installer does not add it again.</td>
+</tr>
+<tr>
+<td><code>kept</code></td>
+<td>The whole file is yours, with no part. You changed a whole config file of an older installer, or you made again a file that you had deleted.</td>
+</tr>
+<tr>
+<td><code>seeded</code></td>
+<td>A starter, such as the first <code>AGENTS.md</code>. It is yours from the start.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Some keys of <code>parts</code> are not units. Each one starts with a bracket:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Key</th>
+<th>What it means</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>(own file)</code></td>
+<td>The file is an own file of an owner.</td>
+</tr>
+<tr>
+<td><code>(whole file)</code></td>
+<td>The file is a whole file of a package from before the parts.</td>
+</tr>
+<tr>
+<td><code>(file)</code></td>
+<td>The whole file is yours. The installer adds no part to it.</td>
+</tr>
+<tr>
+<td><code>(starter)</code></td>
+<td>A role wrote the file from its starter.</td>
+</tr>
+<tr>
+<td><code>(seed)</code></td>
+<td>An older installer wrote the file from its seed.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="which-file-holds-a-part" class="level3">
+<h3 class="anchored" data-anchor-id="which-file-holds-a-part">Which file holds a part</h3>
+<p>A part has one name in the record, the name in <code>profile.json</code>, for example
+<code>biome.json</code>. The file that holds it can have another name. Biome reads
+<code>biome.json</code>, else <code>biome.jsonc</code>, and it uses <code>biome.json</code> when both are
+there.</p>
+<ul>
+<li>Each entry of the part saves the file that holds it, in <code>file</code>. The
+installer accepts only <code>biome.json</code> or <code>biome.jsonc</code> there.</li>
+<li>When only <code>biome.jsonc</code> is there, the part goes to <code>biome.jsonc</code>.</li>
+<li>When you add a <code>biome.json</code> later, the next run moves the part. It takes
+the units out of <code>biome.jsonc</code> and adds them to <code>biome.json</code>. A unit that
+you deleted stays out.</li>
+<li><code>just install --check</code> names a part that the next run will move.</li>
+<li>A record of an older installer has no <code>file</code>. The installer then looks for
+the units in <code>biome.json</code> first, then in <code>biome.jsonc</code>.</li>
+</ul>
+</section>
+<section id="the-package-records-.agentspackage-install.json" class="level3">
+<h3 class="anchored" data-anchor-id="the-package-records-.agentspackage-install.json">The package records: <code>.agents/&lt;package&gt;-install.json</code></h3>
+<p>The installer writes one record for each package, for example
+<code>.agents/jnterfaces-install.json</code>. The tasker role uses
+<code>.agents/gest-git-install.json</code>, the name in the catalog. A profile package
+gets one too, for example <code>.agents/jnprofile-python-install.json</code>. The main
+keys are these:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Key</th>
+<th>What it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>schema_version</code></td>
+<td>The version of the format.</td>
+</tr>
+<tr>
+<td><code>package</code>, <code>source_repository</code></td>
+<td>The package and the repository of its clone.</td>
+</tr>
+<tr>
+<td><code>source_revision</code></td>
+<td>The commit of the clone that the run installed.</td>
+</tr>
+<tr>
+<td><code>source_worktree_dirty</code></td>
+<td><code>true</code> when the clone had changes that are not committed.</td>
+</tr>
+<tr>
+<td><code>source_requested_commit</code></td>
+<td>The commit that the run asked for, if any.</td>
+</tr>
+<tr>
+<td><code>skills</code>, <code>skill_folders</code></td>
+<td>The installed skills.</td>
+</tr>
+<tr>
+<td><code>extras</code></td>
+<td>The extra files and folders of <code>install_extras.files</code>.</td>
+</tr>
+<tr>
+<td><code>managed_files</code></td>
+<td>The hash of each file that the package copied in. A file whose hash is not the recorded hash is yours, and the installer does not overwrite it.</td>
+</tr>
+<tr>
+<td><code>claude_links</code></td>
+<td>The links in <code>.claude/skills</code> that the installer made.</td>
+</tr>
+<tr>
+<td><code>merged_hooks</code>, <code>created_settings</code>, <code>seeds</code></td>
+<td>For an installer from before the parts.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="a-run-that-stops-.agentsstack-pending.json" class="level3">
+<h3 class="anchored" data-anchor-id="a-run-that-stops-.agentsstack-pending.json">A run that stops: <code>.agents/stack-pending.json</code></h3>
+<p>Before a run writes a shared file, it saves this file:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode json code-with-copy"><code class="sourceCode json">{<span class="kw">&quot;files&quot;</span>: {<span class="kw">&quot;biome.json&quot;</span>: {<span class="kw">&quot;old&quot;</span>: {<span class="er">.</span><span class="er">.</span><span class="er">.</span>}, <span class="kw">&quot;new&quot;</span>: {<span class="er">.</span><span class="er">.</span><span class="er">.</span>}}}}</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>For each file, <code>old</code> is the record before the run and <code>new</code> is the record
+that the run is writing. <code>&quot;starter&quot;: true</code> marks a file that the run writes
+from a starter. The key is the name of the record, also when the
+file is <code>biome.jsonc</code>.</p>
+<p>When a run stops, the next run reads this file. So it
+can still take out a part that the stopped run added. A run that works
+deletes the file. Git ignores it.</p>
+</section>
+<section id="the-history-.agentsstack-log.jsonl" class="level3">
+<h3 class="anchored" data-anchor-id="the-history-.agentsstack-log.jsonl">The history: <code>.agents/stack-log.jsonl</code></h3>
+<p>Each run that changes a file adds one line:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode json code-with-copy"><code class="sourceCode json">{<span class="kw">&quot;kind&quot;</span>: <span class="st">&quot;history&quot;</span>, <span class="kw">&quot;id&quot;</span>: <span class="st">&quot;2026-10-31T14:04:22Z-47bb&quot;</span>,
+ <span class="kw">&quot;command&quot;</span>: <span class="st">&quot;just install --profile python --defaults&quot;</span>,
+ <span class="kw">&quot;changes&quot;</span>: {<span class="kw">&quot;ruff.toml&quot;</span>: <span class="st">&quot;units&quot;</span>, <span class="kw">&quot;.gitignore&quot;</span>: <span class="st">&quot;lines&quot;</span>, <span class="kw">&quot;...&quot;</span>: <span class="st">&quot;...&quot;</span>},
+ <span class="kw">&quot;sources&quot;</span>: {<span class="kw">&quot;jnterfaces&quot;</span>: <span class="st">&quot;b4c8b65...&quot;</span>, <span class="kw">&quot;jnprofile-python&quot;</span>: <span class="st">&quot;3a2a1e0...&quot;</span>}}</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p><code>changes</code> gives the kind of change of each file. The kinds are <code>lines</code>,
+<code>units</code>, <code>whole</code> and <code>own</code>.
+<code>sources</code> gives the commit of each package. Nothing reads this file to decide
+what to do. Git ignores it.</p>
+</section>
+</section>
+<section id="what-you-can-edit" class="level2">
+<h2 class="anchored" data-anchor-id="what-you-can-edit">What you can edit</h2>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>File</th>
+<th>Can you edit it?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Justfile</code></td>
+<td>Yes. It is yours. Put the recipes of the project in it.</td>
+</tr>
+<tr>
+<td>A shared file, such as <code>.gitignore</code> or <code>ruff.toml</code></td>
+<td>Yes. A unit that you change or delete is yours, and the installer keeps your change.</td>
+</tr>
+<tr>
+<td><code>.agents/config/...</code> and <code>.agents/instructions/...</code></td>
+<td>No. The installer writes them again. Put your settings in the shared file, for example <code>ruff.toml</code> or <code>AGENTS.md</code>.</td>
+</tr>
+<tr>
+<td><code>.agents/just/...</code></td>
+<td>No. A file that you change is yours, and the installer stops changing it. Put your recipes in the Justfile.</td>
+</tr>
+<tr>
+<td><code>.agents/skills/...</code></td>
+<td>Only if you want to keep the change. The installer then leaves the file alone and names it.</td>
+</tr>
+<tr>
+<td><code>.agents/stack.json</code></td>
+<td>Only to resolve a Git conflict. Run <code>just install --check</code> after.</td>
+</tr>
+<tr>
+<td><code>.agents/*-install.json</code>, <code>.agents/stack-pending.json</code>, <code>.agents/stack-log.jsonl</code></td>
+<td>No.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="check-the-files" class="level2">
+<h2 class="anchored" data-anchor-id="check-the-files">Check the files</h2>
+<p><code>just install --check</code> compares <code>parts</code> in <code>.agents/stack.json</code> with the
+shared files, and changes nothing. It prints each difference, for example:</p>
+<ul>
+<li>a unit that is gone, or that you changed;</li>
+<li>a block that lacks its begin or end comment;</li>
+<li>a part that the next run will move;</li>
+<li>a run that stopped.</li>
+</ul>
+<p>It fails in these cases:</p>
+<ul>
+<li>a block lacks its begin or end comment;</li>
+<li>a run stopped, or <code>.agents/stack-pending.json</code> is not a file that the
+installer wrote;</li>
+<li>an entry is <code>unsure</code>, because a later run could not read its file.</li>
+</ul>
+<p>Run <code>just install</code> again to finish a run that stopped.</p>
+<p><code>just install --dry-run</code> prints each file that a run would change, and writes
+nothing.</p>
+</section>
+</main></div><footer class="footer"><div class="nav-footer"><div class="nav-footer-left">Part of <a href="https://rahuldave.github.io/jnterfaces/">jnterfaces</a> and its packages.</div><div class="nav-footer-center"></div><div class="nav-footer-right">Built with <a href="https://docs.smallish.dev/">smalldocs</a>.</div></div></footer></body></html>

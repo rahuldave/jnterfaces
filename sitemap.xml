@@ -2,10 +2,14 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://rahuldave.github.io/jnterfaces/index.html</loc>
-    <lastmod>2026-10-31T01:52:38Z</lastmod>
+    <lastmod>2026-10-31T12:32:51Z</lastmod>
+  </url>
+  <url>
+    <loc>https://rahuldave.github.io/jnterfaces/stack-files.html</loc>
+    <lastmod>2026-10-31T15:00:06Z</lastmod>
   </url>
   <url>
     <loc>https://rahuldave.github.io/jnterfaces/stack-guide.html</loc>
-    <lastmod>2026-10-31T01:52:38Z</lastmod>
+    <lastmod>2026-10-31T15:00:06Z</lastmod>
   </url>
 </urlset>
