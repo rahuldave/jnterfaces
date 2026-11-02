@@ -4,6 +4,7 @@ project:
 
 website:
   title: jnterfaces
+  favicon: favicon.svg
   description: "The installer of the stack, and the just, jagt-protocol and cx skills"
   site-url: https://rahuldave.github.io/jnterfaces/
   repo-url: https://github.com/rahuldave/jnterfaces
