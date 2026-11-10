@@ -49,7 +49,7 @@
       "name": "nossaifd",
       "choice": "prose",
       "repository": "https://github.com/rahuldave/nossaifd",
-      "about": "write plain English, with its guide and checker",
+      "about": "write plain English, with its guide and checker, and the declauding skill by Oskar Austegard",
       "default": true
     },
     {
