@@ -238,8 +238,14 @@ scripts, which an agent runs when it revises a draft.
 
 An agent finds the nossaifd and declauding skills by their descriptions,
 through the links in `.claude/skills` or the copies in `.agents/skills`. So it
-needs no line in an `AGENTS.md`. The declauding skill also has a Stop hook in
-`hooks/hooks.json`. The installer does not turn that hook on.
+needs no line in an `AGENTS.md`.
+
+In its description, the declauding skill tells an agent to load it without a
+request, for each task whose result is prose for another person. So in a
+project with the `prose` role, which is on by default, an agent loads it on its
+own. `just uninstall prose` takes it out, and the nossaifd skill with it. The
+declauding skill also has a Stop hook in `hooks/hooks.json`. The installer does
+not turn that hook on.
 
 **What does not work:**
 
