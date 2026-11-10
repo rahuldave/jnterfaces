@@ -42,7 +42,7 @@ The packages and their roles are in this table:
 | none, always installed | jnterfaces | the `just` skill, the installer file `.agents/install.just` | always |
 | `cx` | jnterfaces | the `cx` skill | no |
 | `jagt-protocol` | jnterfaces | the `jagt-protocol` skill | no |
-| `prose` | nossaifd | the `nossaifd` skill, its guide and `check.py` | yes |
+| `prose` | nossaifd | the `nossaifd` skill, its guide and `check.py`; the `declauding` skill by Oskar Austegard | yes |
 | `tasker` | agent_gest_git_skills | the `g*` skills, the agent hooks, the starter `AGENTS.md` | yes |
 | `reporter` | sklanes | the `lanes` skill | no |
 
@@ -205,7 +205,7 @@ mkdir notes && cd notes && git init
 
 The project has no code, no manifest and no Justfile.
 
-### Layer 1: the writing skill
+### Layer 1: the writing skills
 
 ```bash
 uv run ~/Projects/jnterfaces/scripts/install_stack.py --target . prose
@@ -215,6 +215,11 @@ uv run ~/Projects/jnterfaces/scripts/install_stack.py --target . prose
 
 - `.agents/skills/just` and `.agents/skills/nossaifd`, with `check.py`, and
   their links in `.claude/skills`.
+- `.agents/skills/declauding` and its link in `.claude/skills`. The
+  declauding skill is by Oskar Austegard, from
+  [oaustegard/claude-skills](https://github.com/oaustegard/claude-skills/tree/6baa7290da972191749acda03c63297e67b3fc26/declauding),
+  version 0.14.0, under the MIT licence. nossaifd records each change to its
+  copy in `sources/declauding.json`.
 - `.agents/install.just`, the records, and `.agents/stack.json`.
 - The starter Justfile, which imports `.agents/install.just`. So `just
   install`, `just uninstall` and `just install --help` work.
@@ -228,9 +233,13 @@ just prose
 just prose -v README.md
 ```
 
-An agent finds the nossaifd skill by its description, through the link in
-`.claude/skills` or the copy in `.agents/skills`. So it needs no line in an
-`AGENTS.md`.
+`just prose` runs only the nossaifd checker. The declauding skill has its own
+scripts, which an agent runs when it revises a draft.
+
+An agent finds the nossaifd and declauding skills by their descriptions,
+through the links in `.claude/skills` or the copies in `.agents/skills`. So it
+needs no line in an `AGENTS.md`. The declauding skill also has a Stop hook in
+`hooks/hooks.json`. The installer does not turn that hook on.
 
 **What does not work:**
 
@@ -556,7 +565,7 @@ again.
 
 | Mixin | Command | Works now | Does not work |
 |---|---|---|---|
-| Writing skill | `install_stack.py prose` | The skill, the starter Justfile and `just prose` | none |
+| Writing skills | `install_stack.py prose` | The nossaifd and declauding skills, the starter Justfile and `just prose` | none |
 | Task tracker | `just install tasker` | The skills, the hooks, `AGENTS.md`, the variant, the worktree recipes | Needs `gest`, which `uv` does not give |
 | Python profile | `just install --profile python` | The package, the manifest, `.gitignore`, the defaults | none |
 | TypeScript profile | `just install --profile typescript` | The package, the manifest, `.gitignore`, the defaults | none |

@@ -66,7 +66,7 @@ for both. At a terminal, the installer asks about each role. Add
 | Role | Default | What it gives |
 |---|---|---|
 | `tasker` | yes | The `g*` skills, which track work with Gest, the agent hooks, a starter `AGENTS.md` and the worktree recipes |
-| `prose` | yes | The nossaifd writing guide, its checker, and `just prose` |
+| `prose` | yes | The nossaifd writing guide, its checker, `just prose`, and the declauding skill by Oskar Austegard |
 | `cx` | no | The `cx` skill: run the file stages of a recipe only when they are out of date. It needs the `cx` program. |
 | `jagt-protocol` | no | The `jagt-protocol` skill: the packets of agentic recipes. It needs the `jagt` program. |
 | `reporter` | no | The sklanes skill: report requests for human attention to a Lanes inbox |

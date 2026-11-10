@@ -52,7 +52,7 @@ Enter to keep the default:
 | `cx` | the cx skill | jnterfaces | no |
 | `jagt-protocol` | the jagt-protocol skill | jnterfaces | no |
 | `tasker` | the Gest `g*` skills, which track work | agent_gest_git_skills | yes |
-| `prose` | the writing guide and its checker | nossaifd | yes |
+| `prose` | the writing guide, its checker, and the declauding skill by Oskar Austegard | nossaifd | yes |
 | `reporter` | the `lanes` skill, which reports requests for human attention | sklanes | no |
 
 The old names `gest`, `nossaifd` and `sklanes` still work.
