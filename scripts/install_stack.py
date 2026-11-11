@@ -1092,17 +1092,19 @@ def write_justfile(target, dry_run):
 
 
 CLAUDE_IMPORT = '@AGENTS.md'
-# An import of AGENTS.md in a CLAUDE.md, outside a code block: @AGENTS.md or @./AGENTS.md.
+# An import of AGENTS.md in a CLAUDE.md, outside a code block: @AGENTS.md or @./AGENTS.md. An import resolves from the
+# folder of its file, so .claude/CLAUDE.md imports AGENTS.md as @../AGENTS.md.
 CLAUDE_IMPORTS = re.compile(r'(^|\s)@(\./)?AGENTS\.md([\s.,;:)]|$)')
+INNER_IMPORTS = re.compile(r'(^|\s)@\.\./AGENTS\.md([\s.,;:)]|$)')
 
 
-def imports_agents(path):
-    """Whether a CLAUDE.md imports AGENTS.md. A line in a code block is not an import."""
+def imports_agents(path, imports=CLAUDE_IMPORTS):
+    """Whether a CLAUDE.md imports AGENTS.md. A line in a code block, fenced or indented, is not an import."""
     fenced = False
     for line in path.read_text(errors='replace').splitlines():
         if line.lstrip().startswith(('```', '~~~')):
             fenced = not fenced
-        elif not fenced and CLAUDE_IMPORTS.search(line):
+        elif not fenced and not line.startswith(('\t', '    ')) and imports.search(line):
             return True
     return False
 
@@ -1126,7 +1128,8 @@ def write_claude_md(target, dry_run, after):
                       f'after this run. Delete CLAUDE.md if you do not need it.', file=sys.stderr)
             return False
         # Claude Code also reads .claude/CLAUDE.md, so an import there is enough.
-        if any(path.is_file() and not path.is_symlink() and imports_agents(path) for path in (claude, inner)):
+        if any(path.is_file() and not path.is_symlink() and imports_agents(path, imports)
+               for path, imports in ((claude, CLAUDE_IMPORTS), (inner, INNER_IMPORTS))):
             return False
         if claude.exists():
             print(f'CLAUDE.md does not import AGENTS.md, so Claude Code does not read the instructions of the roles. '
