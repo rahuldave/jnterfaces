@@ -66,7 +66,7 @@ for both. At a terminal, the installer asks about each role. Add
 | Role | Default | What it gives |
 |---|---|---|
 | `tasker` | yes | The `g*` skills, which track work with Gest, the agent hooks, a starter `AGENTS.md` and the worktree recipes |
-| `prose` | yes | The nossaifd writing guide, its checker, `just prose`, and the declaude skill, from the declauding skill by Oskar Austegard |
+| `prose` | yes | The nossaifd writing guide, its checker, `just prose`, the declaude skill, from the declauding skill by Oskar Austegard, and the [writing flow](https://rahuldave.github.io/nossaifd/): an instruction, two hooks and a GitHub workflow |
 | `cx` | no | The `cx` skill: run the file stages of a recipe only when they are out of date. It needs the `cx` program. |
 | `jagt-protocol` | no | The `jagt-protocol` skill: the packets of agentic recipes. It needs the `jagt` program. |
 | `reporter` | no | The sklanes skill: report requests for human attention to a Lanes inbox |
@@ -80,8 +80,9 @@ The installer then:
    init --yes`, when the project has none;
 2. adds the default tools of the profile, with `uv add --group` or `npm
    install --save-dev`;
-3. writes the starter `Justfile` and the starter `AGENTS.md`. Both are yours
-   from then on;
+3. writes the starter `Justfile` and the starter `AGENTS.md`, a `CLAUDE.md`
+   that imports `AGENTS.md`, and, with the `prose` role, the workflow
+   `.github/workflows/nossaifd-prose.yml`. Each one is yours from then on;
 4. saves the choices in `.agents/stack.json`.
 
 Run `just` alone to list the recipes. Run `just verify`. A project with no
@@ -281,7 +282,8 @@ Commit these files:
 
 - `.agents/`, `.claude/` and `.codex/`, which hold the skills, the records and
   the hooks;
-- `AGENTS.md` and the `Justfile`;
+- `AGENTS.md`, `CLAUDE.md` and the `Justfile`;
+- `.github/workflows/nossaifd-prose.yml`, if the `prose` role is on;
 - `pyproject.toml` and `uv.lock`, or `package.json` and `package-lock.json`;
 - the config files: `ruff.toml`, `.pre-commit-config.yaml`, `ty.toml`,
   `biome.json`, `tsconfig.json`;
@@ -317,8 +319,9 @@ the file and installs the rest.
 
 Add these parts yourself:
 
-- **CI.** No profile writes a GitHub Actions workflow. A workflow can run
-  `just setup` and `just verify`.
+- **CI.** No profile writes a GitHub Actions workflow. The `prose` role writes
+  only one that checks the prose of a pull request. A workflow can run `just
+  setup` and `just verify`.
 - **A locked setup.** `just setup` runs `uv sync`, not `uv sync --locked`.
 - **`testpaths`.** pytest searches the whole project for tests. Set
   `testpaths = ["tests"]` under `[tool.pytest.ini_options]` to search one

@@ -1252,10 +1252,12 @@ def ignored(target, paths):
     return found
 
 
-def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_run=False, migrating=False):
+def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_run=False, migrating=False,
+         after=None):
     """Bring the shared files of the target to the active owners. parts is the record of the parts in
     .agents/stack.json. Return the notes, the new parts and the files that changed. Unless dry_run, write the files,
-    with .agents/stack-pending.json while they change. The caller saves the parts, then calls finish."""
+    with .agents/stack-pending.json while they change. The caller saves the parts, then calls finish. after, when
+    given, gets {path: whether the file is there after the run} for each file that the run writes or removes."""
     pending = {}
     # A pending file of an older installer may name the file that a part went to, such as biome.jsonc.
     for path, change in read_pending(target).items():
@@ -1614,6 +1616,8 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
         for key in (FILE, STARTER, SEED):
             if path not in new_parts and key in units:
                 new_parts[path] = {key: units[key]}
+    if after is not None:
+        after.update({path: data is not None for path, data in writes.items()})
     if dry_run:
         return messages, new_parts, changes
     if writes or pending:

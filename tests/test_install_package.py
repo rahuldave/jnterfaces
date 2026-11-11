@@ -314,6 +314,49 @@ class InstallTest(unittest.TestCase):
         result = self.install()
         self.assertIn('Kept .agents/skills/cx/SKILL.md', result.stderr)
         self.assertEqual(os.readlink(self.target / '.claude/skills/cx'), '../../.agents/skills/cx')
+        self.assertIn('Left .agents/skills/cx: jnterfaces no longer ships the cx skill', result.stderr)
+        self.assertIn('Delete .agents/skills/cx and .claude/skills/cx yourself.', result.stderr)
+
+    def test_a_dropped_skill_names_its_folder_only_when_the_folder_stays(self):
+        self.install()
+        (self.target / '.agents/skills/cx/mine.txt').write_text('mine\n')
+        # A folder of the user in place of the link is the user's, so the warning does not name it.
+        (self.target / '.claude/skills/cx').unlink()
+        (self.target / '.claude/skills/cx').mkdir()
+        manifest = json.loads((self.source / 'skill-package.json').read_text())
+        manifest['skills'] = [skill for skill in manifest['skills'] if skill['name'] != 'cx']
+        (self.source / 'skill-package.json').write_text(json.dumps(manifest))
+        shutil.rmtree(self.source / '.agents/skills/cx')
+        self.commit_source()
+        result = self.install()
+        # A file that you added keeps the folder, with no Kept line, so the installer names the folder.
+        self.assertEqual(os.listdir(self.target / '.agents/skills/cx'), ['mine.txt'])
+        self.assertIn('Left .agents/skills/cx: jnterfaces no longer ships the cx skill', result.stderr)
+        self.assertIn('Delete .agents/skills/cx yourself.', result.stderr)
+        self.assertTrue((self.target / '.claude/skills/cx').is_dir())
+        self.assertNotIn('Left', self.install().stderr)
+        # A dropped skill that nobody changed goes whole, and the installer says nothing about it.
+        manifest['skills'] = [skill for skill in manifest['skills'] if skill['name'] != 'jagt-protocol']
+        (self.source / 'skill-package.json').write_text(json.dumps(manifest))
+        shutil.rmtree(self.source / '.agents/skills/jagt-protocol')
+        self.commit_source()
+        result = self.install()
+        self.assertFalse((self.target / '.agents/skills/jagt-protocol').exists())
+        self.assertNotIn('Left', result.stderr)
+
+    def test_a_dropped_skill_that_another_package_records_is_not_named(self):
+        self.install()
+        files = {name: value for name, value in self.record()['managed_files'].items()
+                 if name.startswith('.agents/skills/cx/')}
+        (self.target / '.agents/other-install.json').write_text(json.dumps({'managed_files': files}))
+        manifest = json.loads((self.source / 'skill-package.json').read_text())
+        manifest['skills'] = [skill for skill in manifest['skills'] if skill['name'] != 'cx']
+        (self.source / 'skill-package.json').write_text(json.dumps(manifest))
+        shutil.rmtree(self.source / '.agents/skills/cx')
+        self.commit_source()
+        result = self.install()
+        self.assertIn('another package records it', result.stderr)
+        self.assertNotIn('Left', result.stderr)
 
     def test_a_dropped_skill_whose_folder_goes_later_loses_its_link(self):
         self.install()

@@ -63,6 +63,7 @@ project and its records.
 | `.agents/skills/` and `.claude/skills/` | the project | the installer | The skills, and a link to each one for Claude Code. |
 | `.claude/hooks/` and `.codex/hooks/` | the project | the tasker role, through `install_extras.files` | The hook scripts. The hook entries go in `.claude/settings.json` and `.codex/hooks.json` as parts. |
 | `Justfile` | the project | the installer once, then you | The starter Justfile, when the project has none. It is yours from then on. |
+| `CLAUDE.md` | the project | the installer once, then you | The line `@AGENTS.md`, when the project has `AGENTS.md` and no `CLAUDE.md`. Claude Code reads `CLAUDE.md` and not `AGENTS.md`, and the line imports `AGENTS.md`. It is yours from then on. |
 | `.gitignore`, `.worktreedisposable`, `AGENTS.md` | the project | the installer and you | Line files. Each owner adds a block of lines. |
 
 ## How one run uses the files
@@ -89,7 +90,10 @@ project and its records.
    ruff`.
 10. It saves `.agents/stack-pending.json`, then it writes the shared files
     and the own files, and adds an entry to `.agents/stack-log.jsonl`.
-11. It saves the new parts in `.agents/stack.json`, and deletes
+11. If the project now has `AGENTS.md` and no `CLAUDE.md`, it writes a
+    `CLAUDE.md` with the line `@AGENTS.md`. If your `CLAUDE.md` does not
+    import `AGENTS.md`, it says so and leaves the file alone.
+12. It saves the new parts in `.agents/stack.json`, and deletes
     `.agents/stack-pending.json`.
 
 A removal, such as `just uninstall lint`, runs the same steps. The owner is
@@ -394,6 +398,7 @@ what to do. Git ignores it.
 | File | Can you edit it? |
 |---|---|
 | `Justfile` | Yes. It is yours. Put the recipes of the project in it. |
+| `CLAUDE.md` | Yes. It is yours. Keep the line `@AGENTS.md`, so that Claude Code reads the instructions of the roles. |
 | A shared file, such as `.gitignore` or `ruff.toml` | Yes. A unit that you change or delete is yours, and the installer keeps your change. |
 | `.agents/config/...` and `.agents/instructions/...` | No. The installer writes them again. Put your settings in the shared file, for example `ruff.toml` or `AGENTS.md`. |
 | `.agents/just/...` | No. A file that you change is yours, and the installer stops changing it. Put your recipes in the Justfile. |

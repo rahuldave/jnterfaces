@@ -957,6 +957,20 @@ def main():
               f'of {package} takes it out only while nobody has changed it.')
     write_hooks(target, settings)
     metadata['claude_links'] = sorted(link_skills(target, link_folders, present, old_links))
+    # A skill that the package no longer ships goes with its files. A file that you edited or added keeps its folder,
+    # and an agent may still read it, so say which folder to delete. A folder that another package records is that
+    # package's.
+    if not partial:
+        gone = (skill_folders(old_hashes) & owned) - selected_folders - all_skills - skill_folders(known)
+        for folder in sorted(gone):
+            if (target / '.agents/skills' / folder).exists():
+                link = Path('.claude/skills') / folder
+                # Only the link that the installer makes is named. Another file there is the user's.
+                ours = (target / link).is_symlink() and os.readlink(target / link) == f'../../.agents/skills/{folder}'
+                also = f' and {link.as_posix()}' if ours else ''
+                print(f'Left .agents/skills/{folder}: {package} no longer ships the {folder} skill, but the folder '
+                      f'holds files that you edited or added. Delete .agents/skills/{folder}{also} yourself.',
+                      file=sys.stderr)
     atomic_write(target / provenance, (json.dumps(metadata, indent=2) + '\n').encode())
     print(f'Installed {package} in {target} from {revision} (dirty source: {metadata["source_worktree_dirty"]})')
 
