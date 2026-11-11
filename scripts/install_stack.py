@@ -402,10 +402,11 @@ def role_owners(packages, clones):
 
 
 def sync_files(target, profiles, kept, kept_tools, every, dry_run, parts, roles=(), gone_roles=(), unsure=(),
-               migrating=False, quiet=False):
+               migrating=False, quiet=False, after=None):
     """Bring the shared files to the owners that stay: kept profiles, kept_tools and roles. every holds each profile
     of the run, also the ones that go, and gone_roles each role that goes. Return the new parts. quiet prints no
-    notes, for the dry pass that checks the files before the package commands run."""
+    notes, for the dry pass that checks the files before the package commands run. after gets the files that the
+    run writes or removes, as shared_files.sync says."""
     commits = {name: commit_of(profiles[name]['root']) for name in every}
     known = owners_of(profiles, every, {f'{n}:{t}' for n in every for t in profiles[n]['tools']}, commits, target,
                       parts)
@@ -422,7 +423,7 @@ def sync_files(target, profiles, kept, kept_tools, every, dry_run, parts, roles=
     sources['jnterfaces'] = commit_of(ROOT)
     try:
         notes, new_parts, _ = shared_files.sync(target, active, known, command, sources, parts, unsure, dry_run,
-                                                migrating)
+                                                migrating, after)
     except (OSError, shared_files.SharedError) as exc:
         raise StackError(f'Cannot update the shared files: {exc}')
     for note in [] if quiet else notes:
@@ -1090,6 +1091,59 @@ def write_justfile(target, dry_run):
     return True
 
 
+CLAUDE_IMPORT = '@AGENTS.md'
+# An import of AGENTS.md in a CLAUDE.md, outside a code block: @AGENTS.md or @./AGENTS.md.
+CLAUDE_IMPORTS = re.compile(r'(^|\s)@(\./)?AGENTS\.md([\s.,;:)]|$)')
+
+
+def imports_agents(path):
+    """Whether a CLAUDE.md imports AGENTS.md. A line in a code block is not an import."""
+    fenced = False
+    for line in path.read_text(errors='replace').splitlines():
+        if line.lstrip().startswith(('```', '~~~')):
+            fenced = not fenced
+        elif not fenced and CLAUDE_IMPORTS.search(line):
+            return True
+    return False
+
+
+def write_claude_md(target, dry_run, after):
+    """Write a CLAUDE.md that imports AGENTS.md, when the target has AGENTS.md and no CLAUDE.md. Claude Code reads
+    CLAUDE.md and not AGENTS.md, so the import gives it the instructions of the roles, from one copy. A CLAUDE.md that
+    is there is the user's: the installer only says when it does not import AGENTS.md. after holds the shared files
+    that the run writes or removes, as shared_files.sync says, so a dry run knows whether AGENTS.md stays. The file is
+    not needed for the install, so a problem with it is a warning and never stops the run."""
+    claude, inner = target / 'CLAUDE.md', target / '.claude/CLAUDE.md'
+    agents = after.get('AGENTS.md', (target / 'AGENTS.md').is_file())
+    try:
+        if claude.is_symlink():
+            return False
+        mine = claude.is_file() and claude.read_text(errors='replace').strip() == CLAUDE_IMPORT
+        if not agents:
+            # Only the run that removes AGENTS.md says so, once.
+            if mine and after.get('AGENTS.md') is False:
+                print(f'CLAUDE.md imports AGENTS.md, and the project {"would have" if dry_run else "has"} no AGENTS.md '
+                      f'after this run. Delete CLAUDE.md if you do not need it.', file=sys.stderr)
+            return False
+        # Claude Code also reads .claude/CLAUDE.md, so an import there is enough.
+        if any(path.is_file() and not path.is_symlink() and imports_agents(path) for path in (claude, inner)):
+            return False
+        if claude.exists():
+            print(f'CLAUDE.md does not import AGENTS.md, so Claude Code does not read the instructions of the roles. '
+                  f'Add this line to CLAUDE.md: {CLAUDE_IMPORT}', file=sys.stderr)
+            return False
+        if dry_run:
+            print(f'Would write CLAUDE.md, which imports AGENTS.md with the line {CLAUDE_IMPORT}')
+            return False
+        write_new(target, Path('CLAUDE.md'), (CLAUDE_IMPORT + '\n').encode())
+    except (OSError, StackError) as exc:
+        print(f'Cannot read or write CLAUDE.md: {exc}. Claude Code needs the line {CLAUDE_IMPORT} in it.',
+              file=sys.stderr)
+        return False
+    print('Wrote CLAUDE.md, which imports AGENTS.md for Claude Code; it is yours now.')
+    return True
+
+
 RECIPES = Path('.agents/just')
 HEADER = '# Written by just install. Do not edit: the next just install writes it again.'
 
@@ -1466,9 +1520,11 @@ def main(argv=None):
             for first in entry.get('before', []):
                 print('Would run: ' + ' '.join(first))
             print('Would run: ' + ' '.join(command) if command else f'The project already has the packages of {tool}')
+        after = {}
         sync_files(target, profiles, [n for n in active if n not in leaving], tools, active, True, parts, roles,
-                   gone_roles, unsure, migrating)
+                   gone_roles, unsure, migrating, after=after)
         write_justfile(target, True)
+        write_claude_md(target, True, after)
         write_recipes(target, profiles, [n for n in active if n not in leaving], tools, True, {}, False)
         if any(step[7] for step in commands):
             print('Dry run: the real run would fail at the steps above.')
@@ -1615,10 +1671,12 @@ def main(argv=None):
         progress()
     # The line files and the whole files change after the package commands succeeded, as D12 of
     # notes/plan-shared-files.md says.
+    after = {}
     state['parts'] = sync_files(target, profiles, [name for name in active if name not in leaving], tools, active,
-                                False, parts, roles, gone_roles, unsure, migrating)
+                                False, parts, roles, gone_roles, unsure, migrating, after=after)
     save(tools, [])
     shared_files.finish(target)
+    write_claude_md(target, False, after)
     print(f'Installed in {target}:')
     for package, _ in steps:
         own = target / record_path(package)

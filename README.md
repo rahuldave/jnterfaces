@@ -52,7 +52,7 @@ Enter to keep the default:
 | `cx` | the cx skill | jnterfaces | no |
 | `jagt-protocol` | the jagt-protocol skill | jnterfaces | no |
 | `tasker` | the Gest `g*` skills, which track work | agent_gest_git_skills | yes |
-| `prose` | the writing guide, its checker, and the declaude skill, from the declauding skill by Oskar Austegard | nossaifd | yes |
+| `prose` | the writing guide, its checker, the declaude skill, from the declauding skill by Oskar Austegard, and the [writing flow](https://rahuldave.github.io/nossaifd/): an instruction, two hooks and a GitHub workflow | nossaifd | yes |
 | `reporter` | the `lanes` skill, which reports requests for human attention | sklanes | no |
 
 The old names `gest`, `nossaifd` and `sklanes` still work.
@@ -115,7 +115,7 @@ file stays.
 
 7. Run `just fmt` to format the code, then `just verify` again.
 8. Commit the project, with `.agents/`, `.claude/`, `.codex/`, `AGENTS.md`,
-   the `Justfile` and the config files. `.gitignore` already leaves out what a
+   `CLAUDE.md`, `.github/workflows/`, the `Justfile` and the config files. `.gitignore` already leaves out what a
    command makes again, such as `.venv/` or `node_modules/`.
 
 Later, `just install --update` gets the new commits of each package, and

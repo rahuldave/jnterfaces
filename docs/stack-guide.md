@@ -42,7 +42,7 @@ The packages and their roles are in this table:
 | none, always installed | jnterfaces | the `just` skill, the installer file `.agents/install.just` | always |
 | `cx` | jnterfaces | the `cx` skill | no |
 | `jagt-protocol` | jnterfaces | the `jagt-protocol` skill | no |
-| `prose` | nossaifd | the `nossaifd` skill, its guide and `check.py`; the `declaude` skill, from the declauding skill by Oskar Austegard | yes |
+| `prose` | nossaifd | the `nossaifd` skill, its guide and `check.py`; the `declaude` skill, from the declauding skill by Oskar Austegard; the writing flow: an instruction, two hooks and a GitHub workflow | yes |
 | `tasker` | agent_gest_git_skills | the `g*` skills, the agent hooks, the starter `AGENTS.md` | yes |
 | `reporter` | sklanes | the `lanes` skill | no |
 
@@ -220,6 +220,17 @@ uv run ~/Projects/jnterfaces/scripts/install_stack.py --target . prose
   [oaustegard/claude-skills](https://github.com/oaustegard/claude-skills/tree/6baa7290da972191749acda03c63297e67b3fc26/declauding),
   version 0.14.0, under the MIT licence. nossaifd ships it as `declaude`, and
   records each change to its copy in `sources/declaude.json`.
+- The writing flow of nossaifd, which
+  [the nossaifd site](https://rahuldave.github.io/nossaifd/) describes:
+  - an instruction for agents, in `.agents/instructions/prose.md`, and a line
+    in `AGENTS.md` that points to it;
+  - a UserPromptSubmit hook and a Stop hook, in `.claude/settings.json` and in
+    `.codex/hooks.json`;
+  - the workflow `.github/workflows/nossaifd-prose.yml`, which checks the
+    prose of each pull request.
+- `CLAUDE.md`, with the line `@AGENTS.md`, when the project has none. Claude
+  Code reads `CLAUDE.md` and not `AGENTS.md`, so the line gives it the
+  instruction.
 - `.agents/install.just`, the records, and `.agents/stack.json`.
 - The starter Justfile, which imports `.agents/install.just`. So `just
   install`, `just uninstall` and `just install --help` work.
@@ -237,14 +248,23 @@ just prose -v README.md
 scripts, which an agent runs when it revises a draft.
 
 An agent finds the nossaifd and declaude skills by their descriptions,
-through the links in `.claude/skills` or the copies in `.agents/skills`. So it
-needs no line in an `AGENTS.md`.
+through the links in `.claude/skills` or the copies in `.agents/skills`. The
+instruction in `AGENTS.md` tells it when to use them.
 
 The nossaifd skill calls the declaude skill at its step 6, after the draft
 passes the checker. The declaude skill says to run it in an agent that did not
-write the draft, and not to load it before the draft exists. `just uninstall
-prose` takes out both skills. The declaude skill also has a Stop hook
-in `hooks/hooks.json`. The installer does not turn that hook on.
+write the draft, and not to load it before the draft exists. The declaude
+skill also has a Stop hook in `hooks/hooks.json`. The installer does not turn
+that hook on.
+
+`just uninstall prose` takes out both skills, the line in `AGENTS.md`, the
+instruction file and the two hooks of `prose`. The hooks of other roles stay.
+The workflow stays too, because a starter is yours from the start. Delete
+`.github/workflows/nossaifd-prose.yml` yourself if you do not want it.
+
+`CLAUDE.md` also stays. If `prose` was the only role with a line in
+`AGENTS.md`, the installer removes `AGENTS.md`. Then it says that `CLAUDE.md`
+imports a file that is gone, so that you can delete `CLAUDE.md`.
 
 An install from before the rename has the folder `.agents/skills/declauding`.
 `just install --update` pulls the new nossaifd and installs `declaude`. It also
@@ -253,9 +273,10 @@ you did not change or add a file in them.
 
 The installer keeps a file that you edited or added, so the folder stays. For
 an edited file, it prints "Kept" with its path. When the kept file is
-`SKILL.md`, the link stays too, and an agent sees both skills. Then delete
-`.agents/skills/declauding` and `.claude/skills/declauding` yourself. Do the
-same for a copy that npx installed.
+`SKILL.md`, the link stays too, and an agent sees both skills. In both cases
+the installer prints a line that starts with "Left .agents/skills/declauding".
+Then delete `.agents/skills/declauding` and `.claude/skills/declauding`
+yourself. Do the same for a copy that npx installed.
 
 **What does not work:**
 
@@ -279,6 +300,8 @@ just install tasker
 - A starter `AGENTS.md`, if the project has none. The starter is yours from
   then on. `just uninstall tasker` takes out only the lines of the role, and
   the rest of the file stays.
+- `CLAUDE.md`, with the line `@AGENTS.md`, if the project has none. Layer 1
+  tells why.
 
 **Variants.** `just install tasker=gitwt` works on each task in its own Git
 worktree, and keeps the main checkout on `main`. The default, `tasker=git`,
@@ -421,7 +444,7 @@ cheesecracker has these parts, and no profile or tool adds them:
 | Async tests | The group `test` has pytest-asyncio and httpx2. |
 | Coverage of one package | `just cov` names the package, `--cov=api`. |
 | Test paths | `pyproject.toml` sets `testpaths` and `pythonpath` for pytest. The `test` tool now sets `pythonpath`, but not `testpaths`. |
-| CI | The class repository cheese-app-ci-cd has a GitHub Actions workflow. No profile writes one. |
+| CI | The class repository cheese-app-ci-cd has a GitHub Actions workflow. No profile writes one. The `prose` role writes only a workflow that checks prose. |
 
 ## How the mixins behave
 
@@ -581,7 +604,7 @@ again.
 
 | Mixin | Command | Works now | Does not work |
 |---|---|---|---|
-| Writing skills | `install_stack.py prose` | The nossaifd and declaude skills, the starter Justfile and `just prose` | none |
+| Writing skills | `install_stack.py prose` | The nossaifd and declaude skills, the writing flow, `CLAUDE.md`, the starter Justfile and `just prose` | none |
 | Task tracker | `just install tasker` | The skills, the hooks, `AGENTS.md`, the variant, the worktree recipes | Needs `gest`, which `uv` does not give |
 | Python profile | `just install --profile python` | The package, the manifest, `.gitignore`, the defaults | none |
 | TypeScript profile | `just install --profile typescript` | The package, the manifest, `.gitignore`, the defaults | none |

@@ -1763,7 +1763,9 @@ class RealPackagesTest(unittest.TestCase):
             run = stack('--without', 'cx,tasker')
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertFalse((target / '.agents/skills/cx').exists() or (target / '.agents/skills/gtw').exists())
-            self.assertFalse((target / '.codex').exists())
+            # The hooks of tasker go. A role that stays, such as prose, may keep its own hooks in the file.
+            codex = target / '.codex/hooks.json'
+            self.assertTrue(not codex.exists() or 'session-start' not in codex.read_text())
 
 
 @unittest.skipUnless(shutil.which('just') and shutil.which('uv'), 'needs just and uv')
@@ -2057,6 +2059,120 @@ class PartsTests(StackTests):
         run = self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose')
         self.assertNotEqual(run.returncode, 0)
         self.assertIn('profile.json of the python profile is malformed', run.stderr)
+
+    def test_a_claude_md_imports_agents_md_once_and_stays_yours(self):
+        self.role_with_parts()
+        claude = self.target / 'CLAUDE.md'
+        run = self.stack('tasker', '--without', 'prose', '--dry-run')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('Would write CLAUDE.md, which imports AGENTS.md with the line @AGENTS.md', run.stdout)
+        self.assertFalse(claude.exists())
+        run = self.stack('tasker', '--without', 'prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(claude.read_text(), '@AGENTS.md\n')
+        self.assertIn('Wrote CLAUDE.md, which imports AGENTS.md', run.stdout)
+        claude.write_text('@AGENTS.md\n\nMy notes.\n')
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('CLAUDE.md', run.stdout + run.stderr)
+        # The role goes, and AGENTS.md and CLAUDE.md stay: both are the user's files.
+        run = self.stack('--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual((self.target / 'AGENTS.md').read_text(), '# Project\n')
+        self.assertEqual(claude.read_text(), '@AGENTS.md\n\nMy notes.\n')
+
+    def test_a_claude_md_of_the_user_is_named_when_it_does_not_import_agents_md(self):
+        self.role_with_parts()
+        claude = self.target / 'CLAUDE.md'
+        claude.write_text('# Mine\n')
+        run = self.stack('tasker', '--without', 'prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('CLAUDE.md does not import AGENTS.md', run.stderr)
+        self.assertEqual(claude.read_text(), '# Mine\n')
+        # A symlink is a choice of the user, so the installer neither writes it nor names it.
+        claude.unlink()
+        claude.symlink_to('AGENTS.md')
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('CLAUDE.md', run.stdout + run.stderr)
+        self.assertTrue(claude.is_symlink())
+
+    def role_with_only_a_part(self):
+        """tasker with a part in AGENTS.md and no starter, so that AGENTS.md goes when the role goes."""
+        root = self.packages / 'agent_gest_git_skills'
+        manifest = json.loads((root / 'skill-package.json').read_text())
+        (root / 'rules.md').write_text('# Rules\n')
+        manifest['install_extras'].update({'parts': {'AGENTS.md': 'rules.md'}})
+        manifest['install_extras'].pop('seed', None)
+        (root / 'skill-package.json').write_text(json.dumps(manifest))
+        commit(root)
+
+    def test_a_dry_run_says_claude_md_only_when_agents_md_stays(self):
+        self.role_with_only_a_part()
+        self.assertEqual(self.stack('tasker', '--without', 'prose').returncode, 0)
+        self.assertTrue((self.target / 'AGENTS.md').is_file())
+        (self.target / 'CLAUDE.md').unlink()
+        run = self.stack('--without', 'tasker', '--dry-run')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('Would write CLAUDE.md', run.stdout)
+        run = self.stack('--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertFalse((self.target / 'AGENTS.md').exists())
+        self.assertFalse((self.target / 'CLAUDE.md').exists())
+
+    def test_a_claude_md_that_imports_a_gone_agents_md_is_named(self):
+        self.role_with_only_a_part()
+        self.assertEqual(self.stack('tasker', '--without', 'prose').returncode, 0)
+        run = self.stack('--without', 'tasker', '--dry-run')
+        self.assertIn('CLAUDE.md imports AGENTS.md, and the project would have no AGENTS.md', run.stderr)
+        run = self.stack('--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertFalse((self.target / 'AGENTS.md').exists())
+        self.assertIn('CLAUDE.md imports AGENTS.md, and the project has no AGENTS.md after this run', run.stderr)
+        self.assertEqual((self.target / 'CLAUDE.md').read_text(), '@AGENTS.md\n')
+        # Only the run that removes AGENTS.md says so.
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('CLAUDE.md', run.stdout + run.stderr)
+
+    def test_a_claude_md_that_cannot_be_read_never_stops_the_run(self):
+        self.role_with_parts()
+        claude = self.target / 'CLAUDE.md'
+        claude.write_text('# Mine\n')
+        claude.chmod(0)
+        self.addCleanup(claude.chmod, 0o644)
+        run = self.stack('tasker', '--without', 'prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('Cannot read or write CLAUDE.md', run.stderr)
+        self.assertNotIn('Traceback', run.stderr)
+        self.assertFalse((self.target / '.agents/stack-pending.json').exists())
+        self.assertTrue(self.saved()['choices']['tasker'])
+
+    def test_an_import_in_dot_claude_or_with_a_dot_slash_counts(self):
+        self.role_with_parts()
+        inner = self.target / '.claude/CLAUDE.md'
+        inner.parent.mkdir()
+        inner.write_text('See @./AGENTS.md for the rules.\n')
+        run = self.stack('tasker', '--without', 'prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertFalse((self.target / 'CLAUDE.md').exists())
+        self.assertNotIn('CLAUDE.md', run.stdout + run.stderr)
+        # An import in a code block is an example, not an import.
+        inner.unlink()
+        (self.target / 'CLAUDE.md').write_text('```\n@AGENTS.md\n```\n')
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('CLAUDE.md does not import AGENTS.md', run.stderr)
+        # An import at the end of a sentence counts.
+        (self.target / 'CLAUDE.md').write_text('Read @AGENTS.md.\n')
+        run = self.stack()
+        self.assertNotIn('CLAUDE.md', run.stdout + run.stderr)
+
+    def test_no_claude_md_without_agents_md(self):
+        run = self.stack('cx')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertFalse((self.target / 'AGENTS.md').exists())
+        self.assertFalse((self.target / 'CLAUDE.md').exists())
 
 
 
