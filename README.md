@@ -1,9 +1,14 @@
 # jnterfaces
 
 jnterfaces is a package of agent skills for the command interface of a project.
-The interface is the Justfile, the packets that agentic Just targets emit, and
-the incremental file stages of `cx`. An agent skill is a folder with a
-`SKILL.md` file that Codex, Claude and other agents read.
+An agent skill is a folder with a `SKILL.md` file that Codex, Claude and other
+agents read. The interface has three parts:
+
+- **The Justfile.** Its recipes are the commands of the project.
+- **The packets of `jagt`.** A packet is a block of text in a fixed format. A
+  Just target emits one to hand a task to an agent, or to return a result.
+- **The file stages of `cx`.** A stage is a recipe line that runs again only
+  when its inputs, its outputs or its command change.
 
 The documentation site is https://rahuldave.github.io/jnterfaces/. It is built from `docs/`.
 `just docs` previews it, and `just docs-publish` publishes it to the branch `gh-pages`.
@@ -35,11 +40,15 @@ uv run ~/.local/share/skill-packages/jnterfaces/scripts/install_stack.py --profi
 [Start a new project](#start-a-new-project) gives each step, from an empty
 folder to a project whose checks pass.
 
-On a terminal, the installer asks which roles to install, and it saves the
-answers in `.agents/stack.json`. A named role asks nothing, and named roles
-alone turn on only those roles. Without a terminal, a named profile takes the
-default roles. A later `just install` installs the same set again, with
-no questions. So `just install` also updates a project.
+On the first install at a terminal, the installer asks which roles to
+install. It saves the answers in `.agents/stack.json`. If you name only roles, the
+installer asks nothing and turns on only the named roles. If you also name a
+profile or a tool, it turns on the default roles too. Without a terminal, a
+named profile takes the default roles.
+
+A later `just install` installs the same set again, so `just install` also
+updates a project. At a terminal, it asks only about a role that is newer than
+the saved set.
 
 ### Roles
 
@@ -55,7 +64,8 @@ Enter to keep the default:
 | `prose` | the writing guide, its checker, the declaude skill, from the declauding skill by Oskar Austegard, and the [writing flow](https://rahuldave.github.io/nossaifd/): an instruction, two hooks and a GitHub workflow | nossaifd | yes |
 | `reporter` | the `lanes` skill, which reports requests for human attention | sklanes | no |
 
-The old names `gest`, `nossaifd` and `sklanes` still work.
+The old names `gest`, `nossaifd` and `sklanes` still work for `tasker`, `prose`
+and `reporter`.
 
 **Variants.** A role can have variants, such as `just install tasker=gitwt`.
 The record saves the variant, so a later `just install` keeps it:
@@ -64,7 +74,7 @@ The record saves the variant, so a later `just install` keeps it:
 |---|---|
 | `git`, the default | on a branch in the main checkout |
 | `gitwt` | each task in its own Git worktree, and the main checkout stays on `main` |
-| `jj` | with jj; not ready yet, so the installer refuses it |
+| `jj` | with jj. It is not ready yet, so the installer refuses it. |
 
 The `g*` skills and the hooks of agent_gest_git_skills read the variant with
 `just tasker-mode`. In a project that jnterfaces started, the role also adds
@@ -74,7 +84,8 @@ the worktree recipes `just worktree-new NAME`, `just worktree-sync`,
 **The recipes of a role.** A role package can ship a recipe file,
 `.agents/just/roles/<package>.just`. In a project that jnterfaces started, the
 index imports it. For example, `prose` gives `just prose`, which checks the
-Markdown of the project. Another project gets the line to add to its Justfile.
+Markdown of the project. For another project, the installer names the line to
+add to its Justfile.
 
 **Starter files.** A role can write a starter file, such as the `AGENTS.md` of
 `tasker`, once, when the project has none. The starter is yours from then on.
@@ -138,7 +149,8 @@ of its own, and `stack.json` names it:
 
 On the first install, the installer finds the profile from the files of the
 project, such as `pyproject.toml`, or you name it with `--profile`. After that,
-the saved record keeps the profiles, also when it has none.
+the installer uses the profiles of the saved record, also when the record has
+no profile.
 
 **The recipes follow the tools.** The profile package has one recipe file for
 each tool. `just install` writes a module for each profile in `.agents/just`,
@@ -159,12 +171,15 @@ file that `just install` writes in `.agents/just`, and the installer changes
 only a file whose hash is the recorded one. With more than one language, a
 combined recipe gives the same arguments to each language.
 
-**The other files.** A profile, a tool or a role adds a part to each shared
-file that it needs, and takes out only its part. A part is one of three kinds:
+**The other files.** A shared file, such as `.gitignore`, is a file that you
+and the installer both add to. A profile, a tool or a role
+adds a part to each shared file that it needs, and takes out only its part. A part is one
+of three kinds:
 
-- a block of lines, as in `.gitignore`;
-- an include that reads an own file, as the `extend` of `ruff.toml`;
-- units, such as the items of `.pre-commit-config.yaml`.
+- a block of lines, as in `.gitignore`
+- an include, as the `extend` of `ruff.toml`, which reads an own file, a file
+  that the installer writes whole under `.agents/`
+- units, such as the items of `.pre-commit-config.yaml`
 
 `scripts/formats.json` lists the shared files and the format of each. A
 package names its parts with the key `parts`. A profile and its tools have it
@@ -173,8 +188,9 @@ in `profile.json`, and a role has it in `install_extras.parts` of
 `install_extras.starter`.
 
 The key `parts` in `.agents/stack.json` records each part. `just uninstall`
-reads it to take the parts out again. The "Shared files and the record"
-section of `docs/stack-guide.md` tells how. If the project has no Justfile,
+reads it to take the parts out again.
+[Shared files and the record](https://rahuldave.github.io/jnterfaces/stack-guide.html#shared-files-and-the-record),
+in `docs/stack-guide.md`, tells how. If the project has no Justfile,
 the installer writes a starter Justfile. Otherwise it names the line to add to
 your Justfile.
 
@@ -182,6 +198,7 @@ If the project has no `pyproject.toml` or `package.json`, the installer makes
 one with `uv init --bare` or `npm init --yes`. For Python, the profile also
 adds `default-groups = "all"` to `pyproject.toml` as a part, so that `uv run`
 has the tools.
+
 If a tool fails, a later `just install` tries it again. When the last package
 of a dependency group goes, the installer takes out the empty group.
 
@@ -194,8 +211,8 @@ of a dependency group goes, the installer takes out the empty group.
 - **`just uninstall reporter lint`** turns them off. It removes the files of
   the role and the packages that `just install` added for the tool. It keeps
   each file that you edited, and each package that the project had before.
-  You may remove a package by hand and add it back with no install between.
-  Then it still counts as added. To keep it, take it out of
+  If you remove a package by hand and add it back with no install between,
+  it still counts as added. To keep it, take it out of
   `owned_packages` in `.agents/stack.json`.
 - **`--profile python,typescript`** sets the profiles. A saved profile that
   the list leaves out is turned off.
@@ -224,8 +241,8 @@ of each file.
 
 The installer never overwrites or removes a file that you edited. It names
 the file and installs the rest. For each installed skill, it also makes the
-link `.claude/skills/NAME` for Claude Code. First it
-checks every package. If one check fails, it writes nothing.
+link `.claude/skills/NAME` for Claude Code. Before it writes, it checks every
+package. If one check fails, it writes nothing.
 
 A record from an older installer lists no skills and no hooks. The installer
 then reads the files of the old source revision in the clone. So it removes

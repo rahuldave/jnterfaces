@@ -3,12 +3,12 @@
 This guide describes the skill stack on the `main` branch of jnterfaces. It
 says where each part lives, what a machine needs, and how an install works.
 Then it builds a project in layers, from a project with no code to a project
-with the checks of cheesecracker. Each layer says what works now and what does
-not. The results come from installs into empty Git repositories on
-2026-10-29.
+with the checks of cheesecracker. cheesecracker is another project, and this
+guide compares the stack with it. Each layer lists the parts that work now and the parts that do not work. The results come
+from installs into empty Git repositories on 2026-10-29.
 
-On 2026-10-31, a new project of each profile was checked again,
-with code and tests, up to a passing `just verify`. The section "Gaps to
+On 2026-10-31, a new project of each profile was checked again with code and
+tests, and `just verify` passed. The section "Gaps to
 close" says which gaps a later change closed.
 
 ## Terms
@@ -60,7 +60,8 @@ clones it from GitHub. Each run prints the folder.
 names the clone. Otherwise, the clone is in `SKILL_PACKAGES_DIR`, by default
 `~/.local/share/skill-packages`. The project does not save the folder, so
 export the variable in your shell profile, for example `export
-SKILL_PACKAGES_DIR=~/Projects` on this machine. If you set none, `just
+SKILL_PACKAGES_DIR=~/Projects`. `~/Projects` is the folder on the machine
+that ran the commands of this page. If you set none, `just
 install` clones new copies into `~/.local/share/skill-packages`.
 
 ## What a machine needs
@@ -88,13 +89,13 @@ The installer runs these steps:
    project, and it writes one record for each package.
 4. It saves the choices in `.agents/stack.json`.
 5. If the project has no Justfile, it writes the starter Justfile.
-6. If a tool of a profile is to be added and the project has no manifest, it
+6. If the run adds a tool of a profile and the project has no manifest, it
    makes one, with `uv init --bare` or `npm init --yes`.
 7. It adds the packages of each tool, with `uv add --group` or `npm install
    --save-dev`.
 8. After the package commands succeed, it writes the shared files, such as
-   `.gitignore`, and the config files of the tools. "Shared files and the
-   log" below tells how.
+   `.gitignore`, and the config files of the tools.
+   [Shared files and the record](#shared-files-and-the-record) tells how.
 9. It writes the recipes of the installed tools in `.agents/just`. After each
    step, it saves the record and writes the recipes again.
 
@@ -109,11 +110,11 @@ only when nobody changed it.
 **An edited file stays as you left it.** The installer does not overwrite a
 file of a package that you edited. It names the file, and it installs the
 other files. The record keeps the hash of the install, so the next run and a
-removal still see the edit. To get the new version, undo the edit, or remove
-the file, and run `just install` again.
+removal still see the edit. To get the new version, undo the edit or remove
+the file. Then run `just install` again.
 
-A file that no install wrote, in the place of a file of a package, still stops
-the install, and the installer writes nothing.
+A file that no install wrote can be in the place of a file of a package. In
+that case the install stops, and the installer writes nothing.
 
 **The first install.** A new project has no Justfile, so it has no `just
 install`. Run the installer from the clone for the first install:
@@ -178,8 +179,8 @@ recipe or a module of the index. Then the Justfile does not parse.
 
 The installer checks the Justfile after it writes the index. If it does not
 parse, the installer writes the index with the modules only, then with none,
-and it names the clash. So `just install` keeps working. Rename the name of
-the project to get the recipes back.
+and it names the clash. So `just install` keeps working. To get the recipes
+back, rename the alias, module or recipe of the project.
 
 **The record.** `.agents/stack.json` holds the hash of each file that `just
 install` wrote in `.agents/just`, under `generated`. The installer changes or
@@ -223,9 +224,9 @@ uv run ~/Projects/jnterfaces/scripts/install_stack.py --target . prose
 - The writing flow of nossaifd, which
   [the nossaifd site](https://rahuldave.github.io/nossaifd/) describes:
   - an instruction for agents, in `.agents/instructions/prose.md`, and a line
-    in `AGENTS.md` that points to it;
+    in `AGENTS.md` that points to it
   - a UserPromptSubmit hook and a Stop hook, in `.claude/settings.json` and in
-    `.codex/hooks.json`;
+    `.codex/hooks.json`
   - the workflow `.github/workflows/nossaifd-prose.yml`, which checks the
     prose of each pull request.
 - `CLAUDE.md`, with the line `@AGENTS.md`, when the project has none. Claude
@@ -235,9 +236,9 @@ uv run ~/Projects/jnterfaces/scripts/install_stack.py --target . prose
 - The starter Justfile, which imports `.agents/install.just`. So `just
   install`, `just uninstall` and `just install --help` work.
 
-Run the checker on the Markdown files that git tracks, or on the pages that
-you name. Alone, it leaves out `AGENTS.md` and `CLAUDE.md`, which are
-instructions for agents:
+`just prose` runs the checker on the Markdown files that Git tracks, or on the
+pages that you name. With no names, it leaves out `AGENTS.md` and `CLAUDE.md`,
+which are instructions for agents:
 
 ```bash
 just prose
@@ -266,7 +267,8 @@ The workflow stays too, because a starter is yours from the start. Delete
 `AGENTS.md`, the installer removes `AGENTS.md`. Then it says that `CLAUDE.md`
 imports a file that is gone, so that you can delete `CLAUDE.md`.
 
-An install from before the rename has the folder `.agents/skills/declauding`.
+An install from before nossaifd renamed `declauding` to `declaude` has the
+folder `.agents/skills/declauding`.
 `just install --update` pulls the new nossaifd and installs `declaude`. It also
 removes the folder `declauding` and its link, if the installer made them and
 you did not change or add a file in them.
@@ -318,12 +320,12 @@ these recipes:
 | `just worktrees` | Lists the worktrees: clean or dirty, merged or not, and the ignored files that a removal deletes |
 | `just worktrees-prune` | Removes the clean, merged worktrees that were idle for 2 hours, with no `--force`. A worktree with outputs or other ignored files that setup did not put there stays |
 
-A worktree has only the files that Git tracks. So setup follows two files in
+A worktree has only the files that Git tracks. So setup reads two files in
 the main checkout. `.worktreeinclude` has gitignore patterns, and each ignored
 file that matches is copied, for example `.env`. `.worktreelink` has one path
 on each line, and each path becomes a symbolic link to the main checkout, for
 example a large `data` folder. Claude Code and Conductor read
-`.worktreeinclude`; PostHog uses `.worktreelink`.
+`.worktreeinclude`, and PostHog uses `.worktreelink`.
 
 Commands in a worktree also make ignored files, such as `.venv` and test
 caches. `just worktrees-prune` keeps a worktree with ignored files, so that
@@ -333,7 +335,7 @@ not keep a worktree. Each profile adds its lines to this file, in a block of
 its own. The Python profile names `.venv/` and the caches, and the
 TypeScript profile names `node_modules/`.
 
-**What works.** The install, the variant and the worktree recipes. The
+**What works.** The install, the variant and the worktree recipes work. The
 GitButler text of the hooks appears only when `but` is installed and GitButler
 owns the checkout. The session-start hook reports worktrees that are ready to
 prune, and removes nothing. In `gitwt`, a `git commit` in the main checkout
@@ -353,8 +355,8 @@ gets a warning.
 just install --profile python
 ```
 
-Use `--profile typescript` for TypeScript. Name a profile once. The installer
-saves it.
+Use `--profile typescript` for TypeScript. Name a profile once, because the
+installer saves it.
 
 **What you get with `python`:**
 
@@ -364,8 +366,8 @@ saves it.
   that `uv run` has the tools.
 - Its lines in `.gitignore` and `.worktreedisposable`, in a block of their
   own at the start of each file.
-- The default tools `lint` and `test`, which the next layers describe, and the
-  recipe `just setup`.
+- The recipe `just setup`.
+- The default tools `lint` and `test`, which the next layers describe.
 
 **What you get with `typescript`:**
 
@@ -448,22 +450,22 @@ cheesecracker has these parts, and no profile or tool adds them:
 
 ## How the mixins behave
 
-**Adding a mixin.** `just install NAME` adds a role, a tool or a profile, and
+**Add a mixin.** `just install NAME` adds a role, a tool or a profile, and
 it saves the choice. A tool that fails runs again at the next install.
 
-**Removing a mixin.** `just uninstall NAME` takes out a role, a tool or a
+**Remove a mixin.** `just uninstall NAME` takes out a role, a tool or a
 profile:
 
 - **A role** loses its files. Each file that you edited stays.
 - **A tool** loses the packages that `just install` added, and its recipes.
-  Each package that the project had before stays. A dependency group that is
-  left empty goes too. A config file of the tool goes when nobody changed
-  it. The lines of the tool go from the shared files, unless another owner
-  needs them.
+  Each package that the project had before stays. A dependency group that the
+  removal leaves empty goes too. A config file of the tool goes when nobody changed
+  it. The lines of the tool go from the shared files, if no other owner needs
+  them.
 - **A profile** loses each of its tools, its recipe files and its package.
   The project keeps `pyproject.toml` or `package.json`. If a step fails, the
-  next `just install` goes on with the removal, unless you name the profile
-  again. `--profile` with a list that leaves out a saved profile also turns
+  next `just install` goes on with the removal. A run that names the profile
+  again stops the removal instead. `--profile` with a list that leaves out a saved profile also turns
   that profile off.
 
 ## Shared files and the record
@@ -486,8 +488,7 @@ the files that the packages ship.
 | Units | `ty.toml`, `pyproject.toml`, `.pre-commit-config.yaml`, `.claude/settings.json`, `.codex/hooks.json` | Keys, items of a list, or hooks |
 
 An own file is a file that only the installer writes. Do not edit it. To
-change a setting, set it in the shared file. Your settings
-win over the
+change a setting, set it in the shared file. Your settings win over the
 settings of the own file. For example, `line-length = 99` in your
 `ruff.toml` wins over the `line-length = 120` of
 `.agents/config/python/ruff.toml`.
@@ -508,8 +509,9 @@ part has one comment on the line before it, which names its owner.
 
 **The record.** The key `parts` in `.agents/stack.json` records each unit
 that the installer added. For each unit, it records the state, the owner
-that holds the unit, and each owner that needs it. The files are the output of the record. A removal reads the
-record, never the files, to know what to take out. The states are:
+that holds the unit, and each owner that needs it. The files are the output of
+the record. A removal reads the record, never the files, to know what to take
+out. The states are:
 
 | State | Meaning |
 |---|---|
@@ -530,25 +532,22 @@ record, never the files, to know what to take out. The states are:
 - Two owners that need one unit with two values stop the run, which names
   both owners. `ruff.toml` takes one `extend`, so it has one owner.
 - A line that you add inside a block moves after the blocks at the next run.
-- When the last part goes and nothing else is left in the file, the file
-  goes.
+- When the last part goes and the file holds nothing else, the file goes.
 
 **Files that the installer leaves alone.** A `tsconfig.json` or a
 `biome.jsonc` with comments is not plain JSON. The installer does not change
 it, and the output prints the include to add by hand. An `extend` of your own
-in `ruff.toml` stays, and the installer writes no own file. If git ignores an
-own file, the run stops, because a fresh clone
-needs the own file.
+in `ruff.toml` stays, and the installer writes no own file. If Git ignores an
+own file, the run stops, because a fresh clone needs the own file.
 
-**A guard.** The lint tool of the python profile adds no part to `ruff.toml` when `pyproject.toml` has a `[tool.ruff]`
-table. An `extend` there would change your settings and the format of the whole code base.
-The guard stops a new part only. A part that is there stays when you add
+**A guard.** The lint tool of the python profile adds no part to `ruff.toml`
+when `pyproject.toml` has a `[tool.ruff]` table. An `extend` there would change
+your settings and the format of the whole code base. The guard stops a new part only. A part that is there stays when you add
 `[tool.ruff]` later.
 
 **Roles.** A role adds its parts in the same way. The `tasker` role adds a
 starter `AGENTS.md` once. If you delete it while the role is installed, it
-stays deleted. The role also
-adds a line to `AGENTS.md` that points to `.agents/instructions/tasker.md`.
+stays deleted. The role also adds a line to `AGENTS.md` that points to `.agents/instructions/tasker.md`.
 Its hooks are units of `.claude/settings.json` and `.codex/hooks.json`.
 
 The line in `AGENTS.md` is
@@ -556,9 +555,11 @@ The line in `AGENTS.md` is
 Claude Code imports the file through `AGENTS.md`, which it reads through
 `@AGENTS.md` in `CLAUDE.md`.
 
-An install from before writes the path in backticks, which Claude Code does
-not import. The next `just install` changes the line in the block of the
-role. If you deleted the line, it stays deleted. Two cases need your hand:
+An older installer wrote the path in backticks, which Claude Code does not
+import. The next `just install` changes the line in the block of the
+role. If you deleted the line, it stays deleted. You must fix two cases by
+hand:
+
 - A copy of the old line that you wrote outside the blocks stays. Delete it.
 - If `AGENTS.md` is a symlink, the installer leaves it alone. Change the line
   yourself.
@@ -569,18 +570,18 @@ a preview and a file. So the first line of the output asks the agent to read
 the whole file.
 
 **The log is a history.** `.agents/stack-log.jsonl` gets one entry for each
-run that changes a file. Nothing reads it to decide what to do. The `jnterfaces` block of
-`.gitignore` names it, so git does not keep it.
+run that changes a file. Nothing reads it to decide what to do. The
+`jnterfaces` block of `.gitignore` names it, so Git does not keep it.
 
 **A run that stops.** Before a run writes a file, it saves
 `.agents/stack-pending.json` with the old and new record of each file. The
 next run reads it, so it can still take out a part that the stopped run
-added. git does not keep this file either.
+added. Git does not keep this file either.
 
 **Branches.** When two branches change `.agents/stack.json`, git gives a
-conflict in it. Resolve it as for any file. A merge can keep the blocks of both sides and the record
-of one side. Then the next run takes each block of a
-known owner into the record.
+conflict in it. Resolve it as for any file. A merge can keep the blocks of both
+sides and the record of one side. Then the next run takes each block of a known
+owner into the record.
 
 **Check and dry run.** `just install --check` compares the record with the
 files, prints each difference, and changes nothing. It fails for a block
@@ -606,7 +607,7 @@ If an older installer on another branch adds an entry to the log after the
 move, the run stops. Run the new installer on that branch first. Each person
 on a project moves to the new installer at the same time.
 
-**Removing lint takes out the Git hook.** Before `just uninstall lint`
+**`just uninstall lint` takes out the Git hook.** Before `just uninstall lint`
 removes pre-commit, it runs `uv run --group lint pre-commit uninstall`. It
 runs only when the `pre-commit` Git hook runs the Python of the project. If
 the command fails, the removal stops, and the next `just install` tries it
@@ -650,7 +651,7 @@ The installer fixes closed these gaps:
 - **A named role** asks no questions.
 - **The installer script reads `SKILL_PACKAGES_DIR`**, and each run prints
   the folder.
-- **Removing lint** takes out the Git hook.
+- **`just uninstall lint`** takes out the Git hook.
 
 The role recipes closed these gaps:
 

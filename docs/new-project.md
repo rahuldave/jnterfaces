@@ -2,7 +2,7 @@
 title: Start a Python or TypeScript project
 ---
 
-This page sets up a new project with every part that the stack gives. The
+This page tells how to set up a new project with every part that the stack gives. The
 parts are the agent skills, the task tracker, the writing checker, format,
 lint, tests, coverage, types, a Git hook and one full check. Each step and each
 example was run on 2026-10-31 in an empty folder.
@@ -74,19 +74,21 @@ for both. At a terminal, the installer asks about each role. Add
 The `just` skill of jnterfaces is always installed. Name a role to add it
 later, for example `just install cx`.
 
-The installer then:
+The installer then does these steps:
 
-1. makes `pyproject.toml` with `uv init --bare`, or `package.json` with `npm
-   init --yes`, when the project has none;
-2. adds the default tools of the profile, with `uv add --group` or `npm
-   install --save-dev`;
-3. writes the starter `Justfile` and the starter `AGENTS.md`, a `CLAUDE.md`
-   that imports `AGENTS.md`, and, with the `prose` role, the workflow
-   `.github/workflows/nossaifd-prose.yml`. Each one is yours from then on;
-4. saves the choices in `.agents/stack.json`.
+1. If the project has no manifest, it makes one. The manifest is
+   `pyproject.toml`, from `uv init --bare`, or `package.json`, from `npm init
+   --yes`.
+2. It adds the default tools of the profile, with `uv add --group` or `npm
+   install --save-dev`.
+3. It writes the starter `Justfile`, the starter `AGENTS.md`, and a
+   `CLAUDE.md` that imports `AGENTS.md`. With the `prose` role, it also writes
+   the workflow `.github/workflows/nossaifd-prose.yml`. Each of these files is
+   yours from then on.
+4. It saves the choices in `.agents/stack.json`.
 
-Run `just` alone to list the recipes. Run `just verify`. A project with no
-code yet passes.
+Run `just` alone to list the recipes. Then run `just verify`, which passes in a
+project with no code yet.
 
 ## A Python project
 
@@ -105,8 +107,8 @@ just install typecheck
 ```
 
 `pyproject.toml` gets `default-groups = "all"` under `[tool.uv]`, so that
-`uv run` has every tool. The project uses the Python that `uv` picks; `uv
-init` writes it as `requires-python`.
+`uv run` has every tool. The project uses the Python that `uv` picks, and `uv
+init` writes that version as `requires-python`.
 
 ### The recipes
 
@@ -121,8 +123,9 @@ init` writes it as `requires-python`.
 | `just typecheck` | `ty check` | |
 | `just verify` | `fmt --check`, `lint`, `test`, `typecheck`, then `git diff --check` | Runs the checks of the installed tools only. It stops at the first failure. |
 
-Each recipe also has a form for one language, such as `just python lint`.
-That form matters in a project with two profiles.
+Each recipe also has a form for one language, such as `just python lint`. In
+a project with two profiles, use that form to run the recipe of one language
+only.
 
 ### The code and the tests
 
@@ -157,11 +160,11 @@ just cov
 `just hook` writes `.git/hooks/pre-commit`. Before each commit, it runs the
 checks of `.pre-commit-config.yaml` on the staged files:
 
-- trailing whitespace and the end of each file;
-- the syntax of YAML and JSON files;
-- files larger than 1000 KB;
-- merge conflict markers and private keys;
-- `ruff check` and `ruff format`.
+- spaces at the end of a line, and the newline at the end of each file
+- the syntax of YAML and JSON files
+- files larger than 1000 KB
+- merge conflict markers and private keys
+- `ruff check` and `ruff format`
 
 A check that changes a file stops the commit. Add the change and commit again.
 `uv run pre-commit run --all-files` runs the checks on every file.
@@ -169,7 +172,8 @@ A check that changes a file stops the commit. Add the change and commit again.
 ### Change a setting
 
 - **ruff.** `ruff.toml` reads the settings of the profile with `extend`. Add
-  your settings below that line. They win.
+  your settings below that line. Your settings win over the settings of the
+  profile.
 - **ty.** Add your settings to `ty.toml`.
 - **pytest.** Add your settings under `[tool.pytest.ini_options]` in
   `pyproject.toml`, beside `pythonpath`. If the project already has a pytest
@@ -241,13 +245,15 @@ just verify
 ### Change a setting
 
 `biome.json` and `tsconfig.json` read the settings of the profile with
-`extends`. Add your keys beside `extends`. They win. For example, the profile
+`extends`. Add your keys beside `extends`. Your keys win over the settings of
+the profile. For example, the profile
 sets a line width of 120 for Biome.
 
 ## The task tracker
 
-The `tasker` role works on a branch in the main checkout. To work on each task
-in its own Git worktree, and keep the main checkout on `main`:
+The `tasker` role works on a branch in the main checkout. A Git worktree is a
+second checkout of the same repository, in another folder. To work on each
+task in its own worktree, and keep the main checkout on `main`, run:
 
 ```bash
 just install tasker=gitwt
@@ -281,25 +287,24 @@ just prose -v README.md
 Commit these files:
 
 - `.agents/`, `.claude/` and `.codex/`, which hold the skills, the records and
-  the hooks;
-- `AGENTS.md`, `CLAUDE.md` and the `Justfile`;
-- `.github/workflows/nossaifd-prose.yml`, if the `prose` role is on;
-- `pyproject.toml` and `uv.lock`, or `package.json` and `package-lock.json`;
-- the config files: `ruff.toml`, `.pre-commit-config.yaml`, `ty.toml`,
-  `biome.json`, `tsconfig.json`;
-- `.gitignore` and `.worktreedisposable`.
+  the hooks
+- `AGENTS.md`, `CLAUDE.md` and the `Justfile`
+- `.github/workflows/nossaifd-prose.yml`, if the `prose` role is on
+- `pyproject.toml` and `uv.lock`, or `package.json` and `package-lock.json`
+- the config files `ruff.toml`, `.pre-commit-config.yaml`, `ty.toml`,
+  `biome.json` and `tsconfig.json`
+- `.gitignore` and `.worktreedisposable`
 
 `.gitignore` already leaves out what a command makes again, such as `.venv/`,
 `node_modules/`, `dist/`, the caches and the logs of the installer.
 
-A person who clones the project runs:
+A person who clones the project runs these commands. `just hook` is for Python
+only:
 
 ```bash
 just setup
 just hook
 ```
-
-`just hook` is for Python only.
 
 ## Keep it up to date
 

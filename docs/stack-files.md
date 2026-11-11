@@ -2,10 +2,10 @@
 title: The files of the stack
 ---
 
-This page tells you each file that the stack reads or writes, what each key
-in it means, and how the files work together. [How the stack fits
-together](stack-guide.md) tells you what an install does. This page tells you
-the files behind it.
+This page lists each file that the stack reads or writes, the meaning of each
+key in it, and how the files work together. [How the stack fits
+together](stack-guide.md) tells what an install does, and this page gives the
+files behind it.
 
 The examples come from an install into an empty Python project on
 2026-10-31, with the command `just install --profile python --defaults`.
@@ -42,8 +42,8 @@ Two other names can confuse you:
 
 ## The files at a glance
 
-The packages declare. The installer reads the declarations, then writes the
-project and its records.
+Each package declares what it installs. The installer reads the
+declarations, then writes the project and its records.
 
 | File | Where | Who writes it | What it holds |
 |---|---|---|---|
@@ -215,7 +215,8 @@ The installer keeps any other key that it finds in the record. One old key,
 `added_packages`, goes. An entry moves into `owned_packages` when its tool
 is a tool of a profile that the run turns on, keeps or turns off. The installer drops the other entries.
 
-**`parts`** is keyed by the shared file, then by the unit. For example:
+The keys of **`parts`** are the shared files, and under each file, the
+units. For example:
 
 ```json
 "parts": {
@@ -307,12 +308,12 @@ The installer writes each JSON file that it changes as the Biome formatter
 writes it. So `just lint` passes on the file. It reads the Biome config of
 the project to find the layout:
 
-- the config in `biome.json`, else `biome.jsonc`, with its comments;
-- each local file that its `extends` names, from the folder of the file that
-  names it. A local file is a name that starts with `./` or `../`, or ends
-  with `.json` or `.jsonc`. Any other name is a package, and the installer
-  does not read it;
-- each entry of `overrides` whose `includes` match the file.
+- **The config** in `biome.json`, else in `biome.jsonc`, with its comments.
+- **Each local file that its `extends` names**, from the folder of the file
+  that names it. A local file is a name that starts with `./` or `../`, or
+  ends with `.json` or `.jsonc`. Any other name is a package, and the
+  installer does not read it.
+- **Each entry of `overrides`** whose `includes` match the file.
 
 It takes these settings, as Biome does:
 
@@ -373,8 +374,8 @@ that the run is writing. `"starter": true` marks a file that the run writes
 from a starter. The key is the name of the record, also when the
 file is `biome.jsonc`.
 
-When a run stops, the next run reads this file. So it
-can still take out a part that the stopped run added. A run that works
+When a run stops, the next run reads this file, so it can still take out a
+part that the stopped run added. A run that works
 deletes the file. Git ignores it.
 
 ### The history: `.agents/stack-log.jsonl`
@@ -388,9 +389,8 @@ Each run that changes a file adds one line:
  "sources": {"jnterfaces": "b4c8b65...", "jnprofile-python": "3a2a1e0..."}}
 ```
 
-`changes` gives the kind of change of each file. The kinds are `lines`,
-`units`, `whole` and `own`.
-`sources` gives the commit of each package. Nothing reads this file to decide
+`changes` gives the kind of change of each file, which is `lines`, `units`,
+`whole` or `own`. `sources` gives the commit of each package. Nothing reads this file to decide
 what to do. Git ignores it.
 
 ## What you can edit
@@ -411,19 +411,19 @@ what to do. Git ignores it.
 `just install --check` compares `parts` in `.agents/stack.json` with the
 shared files, and changes nothing. It prints each difference, for example:
 
-- a unit that is gone, or that you changed;
-- a block that lacks its begin or end comment;
-- a part that the next run will move;
-- a run that stopped.
+- a unit that is gone, or that you changed
+- a block that lacks its begin or end comment
+- a part that the next run will move
+- a run that stopped
 
- It fails in these cases:
+It fails in these cases:
 
-- a block lacks its begin or end comment;
-- a run stopped, or `.agents/stack-pending.json` is not a file that the
-  installer wrote;
-- an entry is `unsure`, because a later run could not read its file.
+- A block lacks its begin or end comment.
+- A run stopped, or `.agents/stack-pending.json` is not a file that the
+  installer wrote.
+- An entry is `unsure`, because a later run could not read its file.
 
-Run `just install` again to finish a run that stopped.
+To finish a run that stopped, run `just install` again.
 
 `just install --dry-run` prints each file that a run would change, and writes
 nothing.
