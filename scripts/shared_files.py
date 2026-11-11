@@ -183,7 +183,8 @@ def include_value(path, own):
     if include == 'extends':
         return './' + own
     if include == 'pointer':
-        return f'Read and follow `{own}`.'
+        # Claude Code imports @path, but not in a code span, and nothing after the path may join it.
+        return f'Read and follow @{own}'
     return own
 
 
@@ -478,6 +479,9 @@ def plan_line_file(path, text, active, known, claims, unsure, style=HASH):
     # D4 step 3: a line that the record knows, from a run that finished, and that the file lacks, was deleted by you.
     deleted = {key for owner_key, owner_claims in claims.items() for key in owner_claims
                if key not in anywhere and sure(owner_key, key)}
+    # An install from before wrote the pointer of AGENTS.md with its path in a code span. A person who deleted that
+    # line declined the new line too.
+    deleted |= {f'Read and follow @{key[17:-2]}' for key in deleted if re.fullmatch(r'Read and follow `[^`]+`\.', key)}
     homed, wanted, new_claims = {}, set(), {}
     for owner in active:
         mine = claims.get(owner.key, {})

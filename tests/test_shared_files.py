@@ -1414,7 +1414,7 @@ class RoleTests(Base):
         self.sync([role])
         text = self.text('AGENTS.md')
         self.assertTrue(text.startswith('<!-- begin lines of tasker, the owner tasker'), text)
-        self.assertIn('\nRead and follow `.agents/instructions/tasker.md`.\n', text)
+        self.assertIn('\nRead and follow @.agents/instructions/tasker.md\n', text)
         self.assertTrue(text.endswith('\n\n# Project\nProject name: <replace-me>\n'))
         self.assertEqual(self.text('.agents/instructions/tasker.md'), '# Rules\nWork on a branch.\n')
         self.assertEqual(self.parts['AGENTS.md']['(starter)']['state'], 'seeded')
@@ -1461,7 +1461,7 @@ class RoleTests(Base):
         self.assertFalse((self.target / 'AGENTS.md').exists())
         self.sync([role])
         text = self.text('AGENTS.md')
-        self.assertIn('Read and follow `.agents/instructions/tasker.md`.', text)
+        self.assertIn('Read and follow @.agents/instructions/tasker.md', text)
         self.assertTrue(text.endswith('# Project\nProject name: <replace-me>\n'), text)
 
     def test_a_kept_agents_md_that_you_delete_gets_the_starter_and_the_pointer(self):
@@ -1473,7 +1473,7 @@ class RoleTests(Base):
         (self.target / 'AGENTS.md').unlink()
         self.sync([role])
         text = self.text('AGENTS.md')
-        self.assertIn('Read and follow `.agents/instructions/tasker.md`.', text)
+        self.assertIn('Read and follow @.agents/instructions/tasker.md', text)
         self.assertTrue(text.endswith('# Project\nProject name: <replace-me>\n'), text)
 
     def test_a_new_install_of_a_role_writes_its_starter_while_another_role_stays(self):
@@ -1552,9 +1552,55 @@ class RoleTests(Base):
     def test_a_second_role_adds_its_own_pointer(self):
         self.sync([self.role(), self.role('reporter', '# Report\n')])
         self.assertEqual([line for line in self.text('AGENTS.md').splitlines() if line.startswith('Read')],
-                         ['Read and follow `.agents/instructions/tasker.md`.',
-                          'Read and follow `.agents/instructions/reporter.md`.'])
+                         ['Read and follow @.agents/instructions/tasker.md',
+                          'Read and follow @.agents/instructions/reporter.md'])
 
+
+    def test_an_old_pointer_in_a_code_span_becomes_an_import_with_no_second_line(self):
+        # The old installer wrote the path in a code span, which Claude Code does not import.
+        old = lambda path, own: f'Read and follow `{own}`.' if path == 'AGENTS.md' else real(path, own)
+        real = shared_files.include_value
+        role = self.role()
+        with mock.patch.object(shared_files, 'include_value', old):
+            self.sync([role])
+        self.assertIn('Read and follow `.agents/instructions/tasker.md`.', self.text('AGENTS.md'))
+        self.sync([role])
+        text = self.text('AGENTS.md')
+        self.assertEqual([line for line in text.splitlines() if 'tasker.md' in line],
+                         ['Read and follow @.agents/instructions/tasker.md'])
+        self.assertEqual(self.parts['AGENTS.md']['Read and follow @.agents/instructions/tasker.md']['state'], 'added')
+        self.assertNotIn('Read and follow `.agents/instructions/tasker.md`.', self.parts['AGENTS.md'])
+        self.sync([], [role])
+        self.assertEqual(self.text('AGENTS.md'), '# Project\nProject name: <replace-me>\n')
+
+    def old_pointer_sync(self, role, drop=False, runs=1):
+        real = shared_files.include_value
+        old = lambda path, own: f'Read and follow `{own}`.' if path == 'AGENTS.md' else real(path, own)
+        with mock.patch.object(shared_files, 'include_value', old):
+            self.sync([role])
+            if drop:
+                file = self.target / 'AGENTS.md'
+                file.write_text(''.join(row for row in file.read_text().splitlines(keepends=True)
+                                        if 'tasker.md' not in row))
+            for _ in range(runs - 1):
+                self.sync([role])
+
+    def test_an_old_pointer_that_you_deleted_stays_deleted_after_the_change(self):
+        role = self.role()
+        self.old_pointer_sync(role, drop=True)
+        self.sync([role])
+        self.sync([role])
+        self.assertNotIn('tasker.md', self.text('AGENTS.md'))
+        self.assertEqual(self.parts['AGENTS.md']['Read and follow @.agents/instructions/tasker.md']['state'],
+                         'declined')
+
+    def test_an_old_pointer_that_an_old_run_declined_stays_deleted_after_the_change(self):
+        role = self.role()
+        self.old_pointer_sync(role, drop=True, runs=2)
+        self.assertEqual(self.parts['AGENTS.md']['Read and follow `.agents/instructions/tasker.md`.']['state'],
+                         'declined')
+        self.sync([role])
+        self.assertNotIn('tasker.md', self.text('AGENTS.md'))
 
 class MoveTests(Base):
     """The first run after the old installer: the record from the old log and the records of the packages."""

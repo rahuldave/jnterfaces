@@ -1960,7 +1960,7 @@ class PartsTests(StackTests):
         run = self.stack('tasker', '--without', 'prose')
         self.assertEqual(run.returncode, 0, run.stderr)
         agents = (self.target / 'AGENTS.md').read_text()
-        self.assertIn('Read and follow `.agents/instructions/tasker.md`.', agents)
+        self.assertIn('Read and follow @.agents/instructions/tasker.md', agents)
         self.assertTrue(agents.endswith('\n\n# Project\n'))
         self.assertEqual((self.target / '.agents/instructions/tasker.md').read_text(), '# Rules\n')
         data = json.loads(settings.read_text())
