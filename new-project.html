@@ -117,7 +117,7 @@ for both. At a terminal, the installer asks about each role. Add
 <tr>
 <td><code>prose</code></td>
 <td>yes</td>
-<td>The nossaifd writing guide, its checker, <code>just prose</code>, and the declaude skill, from the declauding skill by Oskar Austegard</td>
+<td>The nossaifd writing guide, its checker, <code>just prose</code>, the declaude skill, from the declauding skill by Oskar Austegard, and the <a href="https://rahuldave.github.io/nossaifd/">writing flow</a>: an instruction, two hooks and a GitHub workflow</td>
 </tr>
 <tr>
 <td><code>cx</code></td>
@@ -143,8 +143,9 @@ later, for example <code>just install cx</code>.</p>
 <ol>
 <li>makes <code>pyproject.toml</code> with <code>uv init --bare</code>, or <code>package.json</code> with <code>npm init --yes</code>, when the project has none;</li>
 <li>adds the default tools of the profile, with <code>uv add --group</code> or <code>npm install --save-dev</code>;</li>
-<li>writes the starter <code>Justfile</code> and the starter <code>AGENTS.md</code>. Both are yours
-from then on;</li>
+<li>writes the starter <code>Justfile</code> and the starter <code>AGENTS.md</code>, a <code>CLAUDE.md</code>
+that imports <code>AGENTS.md</code>, and, with the <code>prose</code> role, the workflow
+<code>.github/workflows/nossaifd-prose.yml</code>. Each one is yours from then on;</li>
 <li>saves the choices in <code>.agents/stack.json</code>.</li>
 </ol>
 <p>Run <code>just</code> alone to list the recipes. Run <code>just verify</code>. A project with no
@@ -473,7 +474,8 @@ installer. Name pages to check only them, and add <code>-v</code> to see the sof
 <ul>
 <li><code>.agents/</code>, <code>.claude/</code> and <code>.codex/</code>, which hold the skills, the records and
 the hooks;</li>
-<li><code>AGENTS.md</code> and the <code>Justfile</code>;</li>
+<li><code>AGENTS.md</code>, <code>CLAUDE.md</code> and the <code>Justfile</code>;</li>
+<li><code>.github/workflows/nossaifd-prose.yml</code>, if the <code>prose</code> role is on;</li>
 <li><code>pyproject.toml</code> and <code>uv.lock</code>, or <code>package.json</code> and <code>package-lock.json</code>;</li>
 <li>the config files: <code>ruff.toml</code>, <code>.pre-commit-config.yaml</code>, <code>ty.toml</code>,
 <code>biome.json</code>, <code>tsconfig.json</code>;</li>
@@ -531,8 +533,8 @@ the file and installs the rest.</p>
 <h2 class="anchored" data-anchor-id="what-the-stack-does-not-give">What the stack does not give</h2>
 <p>Add these parts yourself:</p>
 <ul>
-<li><strong>CI.</strong> No profile writes a GitHub Actions workflow. A workflow can run
-<code>just setup</code> and <code>just verify</code>.</li>
+<li><strong>CI.</strong> No profile writes a GitHub Actions workflow. The <code>prose</code> role writes
+only one that checks the prose of a pull request. A workflow can run <code>just setup</code> and <code>just verify</code>.</li>
 <li><strong>A locked setup.</strong> <code>just setup</code> runs <code>uv sync</code>, not <code>uv sync --locked</code>.</li>
 <li><strong><code>testpaths</code>.</strong> pytest searches the whole project for tests. Set
 <code>testpaths = [&quot;tests&quot;]</code> under <code>[tool.pytest.ini_options]</code> to search one

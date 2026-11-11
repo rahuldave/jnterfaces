@@ -118,7 +118,7 @@ close” says which gaps a later change closed.</p>
 <tr>
 <td><code>prose</code></td>
 <td>nossaifd</td>
-<td>the <code>nossaifd</code> skill, its guide and <code>check.py</code>; the <code>declaude</code> skill, from the declauding skill by Oskar Austegard</td>
+<td>the <code>nossaifd</code> skill, its guide and <code>check.py</code>; the <code>declaude</code> skill, from the declauding skill by Oskar Austegard; the writing flow: an instruction, two hooks and a GitHub workflow</td>
 <td>yes</td>
 </tr>
 <tr>
@@ -306,6 +306,20 @@ wrote the skill, and he calls it declauding. It is in his repository
 <a href="https://github.com/oaustegard/claude-skills/tree/6baa7290da972191749acda03c63297e67b3fc26/declauding">oaustegard/claude-skills</a>,
 version 0.14.0, under the MIT licence. nossaifd ships it as <code>declaude</code>, and
 records each change to its copy in <code>sources/declaude.json</code>.</li>
+<li>The writing flow of nossaifd, which
+<a href="https://rahuldave.github.io/nossaifd/">the nossaifd site</a> describes:
+<ul>
+<li>an instruction for agents, in <code>.agents/instructions/prose.md</code>, and a line
+in <code>AGENTS.md</code> that points to it;</li>
+<li>a UserPromptSubmit hook and a Stop hook, in <code>.claude/settings.json</code> and in
+<code>.codex/hooks.json</code>;</li>
+<li>the workflow <code>.github/workflows/nossaifd-prose.yml</code>, which checks the
+prose of each pull request.</li>
+</ul>
+</li>
+<li><code>CLAUDE.md</code>, with the line <code>@AGENTS.md</code>, when the project has none. Claude
+Code reads <code>CLAUDE.md</code> and not <code>AGENTS.md</code>, so the line gives it the
+instruction.</li>
 <li><code>.agents/install.just</code>, the records, and <code>.agents/stack.json</code>.</li>
 <li>The starter Justfile, which imports <code>.agents/install.just</code>. So <code>just install</code>, <code>just uninstall</code> and <code>just install --help</code> work.</li>
 </ul>
@@ -317,21 +331,30 @@ just prose -v README.md</code></pre></div><button title="Copy to Clipboard" clas
 <p><code>just prose</code> runs only the nossaifd checker. The declaude skill has its own
 scripts, which an agent runs when it revises a draft.</p>
 <p>An agent finds the nossaifd and declaude skills by their descriptions,
-through the links in <code>.claude/skills</code> or the copies in <code>.agents/skills</code>. So it
-needs no line in an <code>AGENTS.md</code>.</p>
+through the links in <code>.claude/skills</code> or the copies in <code>.agents/skills</code>. The
+instruction in <code>AGENTS.md</code> tells it when to use them.</p>
 <p>The nossaifd skill calls the declaude skill at its step 6, after the draft
 passes the checker. The declaude skill says to run it in an agent that did not
-write the draft, and not to load it before the draft exists. <code>just uninstall prose</code> takes out both skills. The declaude skill also has a Stop hook
-in <code>hooks/hooks.json</code>. The installer does not turn that hook on.</p>
+write the draft, and not to load it before the draft exists. The declaude
+skill also has a Stop hook in <code>hooks/hooks.json</code>. The installer does not turn
+that hook on.</p>
+<p><code>just uninstall prose</code> takes out both skills, the line in <code>AGENTS.md</code>, the
+instruction file and the two hooks of <code>prose</code>. The hooks of other roles stay.
+The workflow stays too, because a starter is yours from the start. Delete
+<code>.github/workflows/nossaifd-prose.yml</code> yourself if you do not want it.</p>
+<p><code>CLAUDE.md</code> also stays. If <code>prose</code> was the only role with a line in
+<code>AGENTS.md</code>, the installer removes <code>AGENTS.md</code>. Then it says that <code>CLAUDE.md</code>
+imports a file that is gone, so that you can delete <code>CLAUDE.md</code>.</p>
 <p>An install from before the rename has the folder <code>.agents/skills/declauding</code>.
 <code>just install --update</code> pulls the new nossaifd and installs <code>declaude</code>. It also
 removes the folder <code>declauding</code> and its link, if the installer made them and
 you did not change or add a file in them.</p>
 <p>The installer keeps a file that you edited or added, so the folder stays. For
 an edited file, it prints “Kept” with its path. When the kept file is
-<code>SKILL.md</code>, the link stays too, and an agent sees both skills. Then delete
-<code>.agents/skills/declauding</code> and <code>.claude/skills/declauding</code> yourself. Do the
-same for a copy that npx installed.</p>
+<code>SKILL.md</code>, the link stays too, and an agent sees both skills. In both cases
+the installer prints a line that starts with “Left .agents/skills/declauding”.
+Then delete <code>.agents/skills/declauding</code> and <code>.claude/skills/declauding</code>
+yourself. Do the same for a copy that npx installed.</p>
 <p><strong>What does not work:</strong></p>
 <ul>
 <li><strong>A project with a manifest gets a profile.</strong> If the project has
@@ -352,6 +375,8 @@ in <code>.claude/settings.json</code> and <code>.codex/hooks.json</code>.</li>
 <li>A starter <code>AGENTS.md</code>, if the project has none. The starter is yours from
 then on. <code>just uninstall tasker</code> takes out only the lines of the role, and
 the rest of the file stays.</li>
+<li><code>CLAUDE.md</code>, with the line <code>@AGENTS.md</code>, if the project has none. Layer 1
+tells why.</li>
 </ul>
 <p><strong>Variants.</strong> <code>just install tasker=gitwt</code> works on each task in its own Git
 worktree, and keeps the main checkout on <code>main</code>. The default, <code>tasker=git</code>,
@@ -547,7 +572,7 @@ default tools, <code>just verify</code> passes, for Python and for TypeScript.</
 </tr>
 <tr>
 <td>CI</td>
-<td>The class repository cheese-app-ci-cd has a GitHub Actions workflow. No profile writes one.</td>
+<td>The class repository cheese-app-ci-cd has a GitHub Actions workflow. No profile writes one. The <code>prose</code> role writes only a workflow that checks prose.</td>
 </tr>
 </tbody>
 </table>
@@ -693,6 +718,18 @@ starter <code>AGENTS.md</code> once. If you delete it while the role is installe
 stays deleted. The role also
 adds a line to <code>AGENTS.md</code> that points to <code>.agents/instructions/tasker.md</code>.
 Its hooks are units of <code>.claude/settings.json</code> and <code>.codex/hooks.json</code>.</p>
+<p>The line in <code>AGENTS.md</code> is
+<code>Read and follow @.agents/instructions/tasker.md</code>. Codex reads the path.
+Claude Code imports the file through <code>AGENTS.md</code>, which it reads through
+<code>@AGENTS.md</code> in <code>CLAUDE.md</code>.</p>
+<p>An install from before writes the path in backticks, which Claude Code does
+not import. The next <code>just install</code> changes the line in the block of the
+role. If you deleted the line, it stays deleted. Two cases need your hand:</p>
+<ul>
+<li>A copy of the old line that you wrote outside the blocks stays. Delete it.</li>
+<li>If <code>AGENTS.md</code> is a symlink, the installer leaves it alone. Change the line
+yourself.</li>
+</ul>
 <p>The SessionStart hook of the role prints the rules file, so both Claude and
 Codex read the rules. Claude Code and Codex show a long hook output only as
 a preview and a file. So the first line of the output asks the agent to read
@@ -751,7 +788,7 @@ again.</p>
 <tr>
 <td>Writing skills</td>
 <td><code>install_stack.py prose</code></td>
-<td>The nossaifd and declaude skills, the starter Justfile and <code>just prose</code></td>
+<td>The nossaifd and declaude skills, the writing flow, <code>CLAUDE.md</code>, the starter Justfile and <code>just prose</code></td>
 <td>none</td>
 </tr>
 <tr>

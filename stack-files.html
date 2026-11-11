@@ -189,6 +189,12 @@ project and its records.</p>
 <td>The starter Justfile, when the project has none. It is yours from then on.</td>
 </tr>
 <tr>
+<td><code>CLAUDE.md</code></td>
+<td>the project</td>
+<td>the installer once, then you</td>
+<td>The line <code>@AGENTS.md</code>, when the project has <code>AGENTS.md</code> and no <code>CLAUDE.md</code>. Claude Code reads <code>CLAUDE.md</code> and not <code>AGENTS.md</code>, and the line imports <code>AGENTS.md</code>. It is yours from then on.</td>
+</tr>
+<tr>
 <td><code>.gitignore</code>, <code>.worktreedisposable</code>, <code>AGENTS.md</code></td>
 <td>the project</td>
 <td>the installer and you</td>
@@ -222,6 +228,9 @@ profile.</li>
 <li>It runs the package commands of the tools, such as <code>uv add --group lint ruff</code>.</li>
 <li>It saves <code>.agents/stack-pending.json</code>, then it writes the shared files
 and the own files, and adds an entry to <code>.agents/stack-log.jsonl</code>.</li>
+<li>If the project now has <code>AGENTS.md</code> and no <code>CLAUDE.md</code>, it writes a
+<code>CLAUDE.md</code> with the line <code>@AGENTS.md</code>. If your <code>CLAUDE.md</code> does not
+import <code>AGENTS.md</code>, it says so and leaves the file alone.</li>
 <li>It saves the new parts in <code>.agents/stack.json</code>, and deletes
 <code>.agents/stack-pending.json</code>.</li>
 </ol>
@@ -948,6 +957,10 @@ what to do. Git ignores it.</p>
 <tr>
 <td><code>Justfile</code></td>
 <td>Yes. It is yours. Put the recipes of the project in it.</td>
+</tr>
+<tr>
+<td><code>CLAUDE.md</code></td>
+<td>Yes. It is yours. Keep the line <code>@AGENTS.md</code>, so that Claude Code reads the instructions of the roles.</td>
 </tr>
 <tr>
 <td>A shared file, such as <code>.gitignore</code> or <code>ruff.toml</code></td>
