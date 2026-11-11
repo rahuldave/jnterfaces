@@ -118,7 +118,7 @@ close” says which gaps a later change closed.</p>
 <tr>
 <td><code>prose</code></td>
 <td>nossaifd</td>
-<td>the <code>nossaifd</code> skill, its guide and <code>check.py</code>; the <code>declauding</code> skill by Oskar Austegard</td>
+<td>the <code>nossaifd</code> skill, its guide and <code>check.py</code>; the <code>declaude</code> skill, from the declauding skill by Oskar Austegard</td>
 <td>yes</td>
 </tr>
 <tr>
@@ -301,11 +301,11 @@ project needs. Each command after layer 1 is a recipe of the project.</p>
 <ul>
 <li><code>.agents/skills/just</code> and <code>.agents/skills/nossaifd</code>, with <code>check.py</code>, and
 their links in <code>.claude/skills</code>.</li>
-<li><code>.agents/skills/declauding</code> and its link in <code>.claude/skills</code>. The
-declauding skill is by Oskar Austegard, from
+<li><code>.agents/skills/declaude</code> and its link in <code>.claude/skills</code>. Oskar Austegard
+wrote the skill, and he calls it declauding. It is in his repository
 <a href="https://github.com/oaustegard/claude-skills/tree/6baa7290da972191749acda03c63297e67b3fc26/declauding">oaustegard/claude-skills</a>,
-version 0.14.0, under the MIT licence. nossaifd records each change to its
-copy in <code>sources/declauding.json</code>.</li>
+version 0.14.0, under the MIT licence. nossaifd ships it as <code>declaude</code>, and
+records each change to its copy in <code>sources/declaude.json</code>.</li>
 <li><code>.agents/install.just</code>, the records, and <code>.agents/stack.json</code>.</li>
 <li>The starter Justfile, which imports <code>.agents/install.just</code>. So <code>just install</code>, <code>just uninstall</code> and <code>just install --help</code> work.</li>
 </ul>
@@ -314,17 +314,24 @@ you name. Alone, it leaves out <code>AGENTS.md</code> and <code>CLAUDE.md</code>
 instructions for agents:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just prose
 just prose -v README.md</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<p><code>just prose</code> runs only the nossaifd checker. The declauding skill has its own
+<p><code>just prose</code> runs only the nossaifd checker. The declaude skill has its own
 scripts, which an agent runs when it revises a draft.</p>
-<p>An agent finds the nossaifd and declauding skills by their descriptions,
+<p>An agent finds the nossaifd and declaude skills by their descriptions,
 through the links in <code>.claude/skills</code> or the copies in <code>.agents/skills</code>. So it
 needs no line in an <code>AGENTS.md</code>.</p>
-<p>In its description, the declauding skill tells an agent to load it without a
-request, for each task whose result is prose for another person. So in a
-project with the <code>prose</code> role, which is on by default, an agent loads it on its
-own. <code>just uninstall prose</code> takes it out, and the nossaifd skill with it. The
-declauding skill also has a Stop hook in <code>hooks/hooks.json</code>. The installer does
-not turn that hook on.</p>
+<p>The nossaifd skill calls the declaude skill at its step 6, after the draft
+passes the checker. The declaude skill says to run it in an agent that did not
+write the draft, and not to load it before the draft exists. <code>just uninstall prose</code> takes out both skills. The declaude skill also has a Stop hook
+in <code>hooks/hooks.json</code>. The installer does not turn that hook on.</p>
+<p>An install from before the rename has the folder <code>.agents/skills/declauding</code>.
+<code>just install --update</code> pulls the new nossaifd and installs <code>declaude</code>. It also
+removes the folder <code>declauding</code> and its link, if the installer made them and
+you did not change or add a file in them.</p>
+<p>The installer keeps a file that you edited or added, so the folder stays. For
+an edited file, it prints “Kept” with its path. When the kept file is
+<code>SKILL.md</code>, the link stays too, and an agent sees both skills. Then delete
+<code>.agents/skills/declauding</code> and <code>.claude/skills/declauding</code> yourself. Do the
+same for a copy that npx installed.</p>
 <p><strong>What does not work:</strong></p>
 <ul>
 <li><strong>A project with a manifest gets a profile.</strong> If the project has
@@ -744,7 +751,7 @@ again.</p>
 <tr>
 <td>Writing skills</td>
 <td><code>install_stack.py prose</code></td>
-<td>The nossaifd and declauding skills, the starter Justfile and <code>just prose</code></td>
+<td>The nossaifd and declaude skills, the starter Justfile and <code>just prose</code></td>
 <td>none</td>
 </tr>
 <tr>
