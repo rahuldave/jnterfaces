@@ -42,7 +42,7 @@ The packages and their roles are in this table:
 | none, always installed | jnterfaces | the `just` skill, the installer file `.agents/install.just` | always |
 | `cx` | jnterfaces | the `cx` skill | no |
 | `jagt-protocol` | jnterfaces | the `jagt-protocol` skill | no |
-| `prose` | nossaifd | the `nossaifd` skill, its guide and `check.py`; the `declauding` skill by Oskar Austegard | yes |
+| `prose` | nossaifd | the `nossaifd` skill, its guide and `check.py`; the `declaude` skill, from the declauding skill by Oskar Austegard | yes |
 | `tasker` | agent_gest_git_skills | the `g*` skills, the agent hooks, the starter `AGENTS.md` | yes |
 | `reporter` | sklanes | the `lanes` skill | no |
 
@@ -215,11 +215,11 @@ uv run ~/Projects/jnterfaces/scripts/install_stack.py --target . prose
 
 - `.agents/skills/just` and `.agents/skills/nossaifd`, with `check.py`, and
   their links in `.claude/skills`.
-- `.agents/skills/declauding` and its link in `.claude/skills`. The
-  declauding skill is by Oskar Austegard, from
+- `.agents/skills/declaude` and its link in `.claude/skills`. Oskar Austegard
+  wrote the skill, and he calls it declauding. It is in his repository
   [oaustegard/claude-skills](https://github.com/oaustegard/claude-skills/tree/6baa7290da972191749acda03c63297e67b3fc26/declauding),
-  version 0.14.0, under the MIT licence. nossaifd records each change to its
-  copy in `sources/declauding.json`.
+  version 0.14.0, under the MIT licence. nossaifd ships it as `declaude`, and
+  records each change to its copy in `sources/declaude.json`.
 - `.agents/install.just`, the records, and `.agents/stack.json`.
 - The starter Justfile, which imports `.agents/install.just`. So `just
   install`, `just uninstall` and `just install --help` work.
@@ -233,19 +233,29 @@ just prose
 just prose -v README.md
 ```
 
-`just prose` runs only the nossaifd checker. The declauding skill has its own
+`just prose` runs only the nossaifd checker. The declaude skill has its own
 scripts, which an agent runs when it revises a draft.
 
-An agent finds the nossaifd and declauding skills by their descriptions,
+An agent finds the nossaifd and declaude skills by their descriptions,
 through the links in `.claude/skills` or the copies in `.agents/skills`. So it
 needs no line in an `AGENTS.md`.
 
-In its description, the declauding skill tells an agent to load it without a
-request, for each task whose result is prose for another person. So in a
-project with the `prose` role, which is on by default, an agent loads it on its
-own. `just uninstall prose` takes it out, and the nossaifd skill with it. The
-declauding skill also has a Stop hook in `hooks/hooks.json`. The installer does
-not turn that hook on.
+The nossaifd skill calls the declaude skill at its step 6, after the draft
+passes the checker. The declaude skill says to run it in an agent that did not
+write the draft, and not to load it before the draft exists. `just uninstall
+prose` takes out both skills. The declaude skill also has a Stop hook
+in `hooks/hooks.json`. The installer does not turn that hook on.
+
+An install from before the rename has the folder `.agents/skills/declauding`.
+`just install --update` pulls the new nossaifd and installs `declaude`. It also
+removes the folder `declauding` and its link, if the installer made them and
+you did not change or add a file in them.
+
+The installer keeps a file that you edited or added, so the folder stays. For
+an edited file, it prints "Kept" with its path. When the kept file is
+`SKILL.md`, the link stays too, and an agent sees both skills. Then delete
+`.agents/skills/declauding` and `.claude/skills/declauding` yourself. Do the
+same for a copy that npx installed.
 
 **What does not work:**
 
@@ -571,7 +581,7 @@ again.
 
 | Mixin | Command | Works now | Does not work |
 |---|---|---|---|
-| Writing skills | `install_stack.py prose` | The nossaifd and declauding skills, the starter Justfile and `just prose` | none |
+| Writing skills | `install_stack.py prose` | The nossaifd and declaude skills, the starter Justfile and `just prose` | none |
 | Task tracker | `just install tasker` | The skills, the hooks, `AGENTS.md`, the variant, the worktree recipes | Needs `gest`, which `uv` does not give |
 | Python profile | `just install --profile python` | The package, the manifest, `.gitignore`, the defaults | none |
 | TypeScript profile | `just install --profile typescript` | The package, the manifest, `.gitignore`, the defaults | none |
