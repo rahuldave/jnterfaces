@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="generator" content="smalldocs-0.5.5"><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"><title>Start a Python or TypeScript project – jnterfaces</title><link rel="icon" href="favicon.svg"><link rel="stylesheet" href="site_libs/themes/folio/folio.css" data-mode="light" class="quarto-color-scheme" id="quarto-bootstrap-light" media="not all and (prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/themes/folio/folio-dark.css" data-mode="dark" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap-dark" media="(prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/bootstrap-icons/bootstrap-icons.min.css"><link rel="stylesheet" href="site_libs/smalldocs.css"><meta name="smalldocs:offset" content="./"><script src="site_libs/bootstrap/bootstrap.bundle.min.js"></script><script src="site_libs/fuse/fuse.min.js"></script><script src="site_libs/smalldocs.js" defer></script><script>(function(){var d=document.documentElement,s=null;try{s=localStorage.getItem('smalldocs-scheme')}catch(e){}var alt=s?s==='alternate':!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);var ls=document.querySelectorAll('link.quarto-color-scheme');if(alt)d.dataset.scheme='alternate';if(s)ls.forEach(function(l){var on=l.classList.contains('quarto-color-alternate')===alt;if(on)l.setAttribute('blocking','render');l.media=on?'all':'not all'});var on=ls[alt?1:0];if(on&&on.dataset.mode==='dark')d.classList.add('quarto-dark')})();</script></head><body class="nav-fixed"><header id="quarto-header" class="headroom sticky-top"><nav class="navbar navbar-expand-lg sd-navbar-default"><div class="navbar-container container-fluid"><div class="navbar-brand-container mx-auto"><a class="navbar-brand" href="index.html"><span class="navbar-title">jnterfaces</span></a></div><button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button><div class="collapse navbar-collapse" id="navbarCollapse"><ul class="navbar-nav navbar-nav-scroll me-auto"><li class="nav-item"><a class="nav-link" href="index.html"><span class="menu-text">Home</span></a></li><li class="nav-item"><a class="nav-link active" href="new-project.html" aria-current="page"><span class="menu-text">New project</span></a></li><li class="nav-item"><a class="nav-link" href="stack-guide.html"><span class="menu-text">Stack guide</span></a></li><li class="nav-item"><a class="nav-link" href="stack-files.html"><span class="menu-text">Stack files</span></a></li></ul><ul class="navbar-nav navbar-nav-scroll ms-auto"><li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" id="nav-menu-1" role="link" data-bs-toggle="dropdown" aria-expanded="false"><span class="menu-text">Projects</span></a><ul class="dropdown-menu" aria-labelledby="nav-menu-1"><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnterfaces/"><span class="menu-text">jnterfaces</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-python/"><span class="menu-text">jnprofile-python</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-typescript/"><span class="menu-text">jnprofile-typescript</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/agent_gest_git_skills/"><span class="menu-text">agent_gest_git_skills</span></a></li></ul></li><li class="nav-item compact"><a class="nav-link" href="https://github.com/rahuldave/jnterfaces" aria-label="github"><i class="bi bi-github" role="img"></i></a></li><li class="nav-item compact"><a class="quarto-color-scheme-toggle nav-link" href="" title="Toggle dark mode" onclick="window.smalldocsToggleScheme(); return false;"><i class="bi"></i></a></li></ul><div class="quarto-navbar-tools"><div class="smalldocs-search" id="quarto-search"><i class="bi bi-search" aria-hidden="true"></i><input type="search" class="form-control form-control-sm" placeholder="Search" aria-label="Search" autocomplete="off"><div class="smalldocs-search-results dropdown-menu"></div></div></div></div></div></nav></header><div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article has-margin"><div id="quarto-margin-sidebar" class="sidebar margin-sidebar"><nav id="TOC" role="doc-toc" class="toc-active"><h2 id="toc-title">On this page</h2><ul><li><a href="#terms" id="toc-terms" class="nav-link" data-scroll-target="#terms">Terms</a></li><li><a href="#what-the-machine-needs" id="toc-what-the-machine-needs" class="nav-link" data-scroll-target="#what-the-machine-needs">What the machine needs</a></li><li><a href="#step-1-clone-jnterfaces-once" id="toc-step-1-clone-jnterfaces-once" class="nav-link" data-scroll-target="#step-1-clone-jnterfaces-once">Step 1: clone jnterfaces once</a></li><li><a href="#step-2-make-the-project-and-install" id="toc-step-2-make-the-project-and-install" class="nav-link" data-scroll-target="#step-2-make-the-project-and-install">Step 2: make the project and install</a></li><li><a href="#a-python-project" id="toc-a-python-project" class="nav-link" data-scroll-target="#a-python-project">A Python project</a><ul><li><a href="#the-tools" id="toc-the-tools" class="nav-link" data-scroll-target="#the-tools">The tools</a></li><li><a href="#the-recipes" id="toc-the-recipes" class="nav-link" data-scroll-target="#the-recipes">The recipes</a></li><li><a href="#the-code-and-the-tests" id="toc-the-code-and-the-tests" class="nav-link" data-scroll-target="#the-code-and-the-tests">The code and the tests</a></li><li><a href="#the-git-hook" id="toc-the-git-hook" class="nav-link" data-scroll-target="#the-git-hook">The Git hook</a></li><li><a href="#change-a-setting" id="toc-change-a-setting" class="nav-link" data-scroll-target="#change-a-setting">Change a setting</a></li></ul></li><li><a href="#a-typescript-project" id="toc-a-typescript-project" class="nav-link" data-scroll-target="#a-typescript-project">A TypeScript project</a><ul><li><a href="#the-tools-1" id="toc-the-tools-1" class="nav-link" data-scroll-target="#the-tools-1">The tools</a></li><li><a href="#the-recipes-1" id="toc-the-recipes-1" class="nav-link" data-scroll-target="#the-recipes-1">The recipes</a></li><li><a href="#the-code-and-the-tests-1" id="toc-the-code-and-the-tests-1" class="nav-link" data-scroll-target="#the-code-and-the-tests-1">The code and the tests</a></li><li><a href="#change-a-setting-1" id="toc-change-a-setting-1" class="nav-link" data-scroll-target="#change-a-setting-1">Change a setting</a></li></ul></li><li><a href="#the-task-tracker" id="toc-the-task-tracker" class="nav-link" data-scroll-target="#the-task-tracker">The task tracker</a></li><li><a href="#the-writing-checker" id="toc-the-writing-checker" class="nav-link" data-scroll-target="#the-writing-checker">The writing checker</a></li><li><a href="#what-to-commit" id="toc-what-to-commit" class="nav-link" data-scroll-target="#what-to-commit">What to commit</a></li><li><a href="#keep-it-up-to-date" id="toc-keep-it-up-to-date" class="nav-link" data-scroll-target="#keep-it-up-to-date">Keep it up to date</a></li><li><a href="#what-the-stack-does-not-give" id="toc-what-the-stack-does-not-give" class="nav-link" data-scroll-target="#what-the-stack-does-not-give">What the stack does not give</a></li></ul></nav><div class="toc-actions"><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/blob/main/docs/new-project.md" class="toc-action"><i class="bi bi-code"></i> View source</a></div><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/issues/new" class="toc-action"><i class="bi bi-chat-right"></i> Report an issue</a></div></div></div><main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block default"><div class="quarto-title"><h1 class="title">Start a Python or TypeScript project</h1></div><div class="quarto-title-meta"></div></header><p>This page sets up a new project with every part that the stack gives. The
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="generator" content="smalldocs-0.5.5"><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"><title>Start a Python or TypeScript project – jnterfaces</title><link rel="icon" href="favicon.svg"><link rel="stylesheet" href="site_libs/themes/folio/folio.css" data-mode="light" class="quarto-color-scheme" id="quarto-bootstrap-light" media="not all and (prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/themes/folio/folio-dark.css" data-mode="dark" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap-dark" media="(prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/bootstrap-icons/bootstrap-icons.min.css"><link rel="stylesheet" href="site_libs/smalldocs.css"><meta name="smalldocs:offset" content="./"><script src="site_libs/bootstrap/bootstrap.bundle.min.js"></script><script src="site_libs/fuse/fuse.min.js"></script><script src="site_libs/smalldocs.js" defer></script><script>(function(){var d=document.documentElement,s=null;try{s=localStorage.getItem('smalldocs-scheme')}catch(e){}var alt=s?s==='alternate':!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);var ls=document.querySelectorAll('link.quarto-color-scheme');if(alt)d.dataset.scheme='alternate';if(s)ls.forEach(function(l){var on=l.classList.contains('quarto-color-alternate')===alt;if(on)l.setAttribute('blocking','render');l.media=on?'all':'not all'});var on=ls[alt?1:0];if(on&&on.dataset.mode==='dark')d.classList.add('quarto-dark')})();</script></head><body class="nav-fixed"><header id="quarto-header" class="headroom sticky-top"><nav class="navbar navbar-expand-lg sd-navbar-default"><div class="navbar-container container-fluid"><div class="navbar-brand-container mx-auto"><a class="navbar-brand" href="index.html"><span class="navbar-title">jnterfaces</span></a></div><button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button><div class="collapse navbar-collapse" id="navbarCollapse"><ul class="navbar-nav navbar-nav-scroll me-auto"><li class="nav-item"><a class="nav-link" href="index.html"><span class="menu-text">Home</span></a></li><li class="nav-item"><a class="nav-link active" href="new-project.html" aria-current="page"><span class="menu-text">New project</span></a></li><li class="nav-item"><a class="nav-link" href="stack-guide.html"><span class="menu-text">Stack guide</span></a></li><li class="nav-item"><a class="nav-link" href="stack-files.html"><span class="menu-text">Stack files</span></a></li></ul><ul class="navbar-nav navbar-nav-scroll ms-auto"><li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" id="nav-menu-1" role="link" data-bs-toggle="dropdown" aria-expanded="false"><span class="menu-text">Projects</span></a><ul class="dropdown-menu" aria-labelledby="nav-menu-1"><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnterfaces/"><span class="menu-text">jnterfaces</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-python/"><span class="menu-text">jnprofile-python</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-typescript/"><span class="menu-text">jnprofile-typescript</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/agent_gest_git_skills/"><span class="menu-text">agent_gest_git_skills</span></a></li></ul></li><li class="nav-item compact"><a class="nav-link" href="https://github.com/rahuldave/jnterfaces" aria-label="github"><i class="bi bi-github" role="img"></i></a></li><li class="nav-item compact"><a class="quarto-color-scheme-toggle nav-link" href="" title="Toggle dark mode" onclick="window.smalldocsToggleScheme(); return false;"><i class="bi"></i></a></li></ul><div class="quarto-navbar-tools"><div class="smalldocs-search" id="quarto-search"><i class="bi bi-search" aria-hidden="true"></i><input type="search" class="form-control form-control-sm" placeholder="Search" aria-label="Search" autocomplete="off"><div class="smalldocs-search-results dropdown-menu"></div></div></div></div></div></nav></header><div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article has-margin"><div id="quarto-margin-sidebar" class="sidebar margin-sidebar"><nav id="TOC" role="doc-toc" class="toc-active"><h2 id="toc-title">On this page</h2><ul><li><a href="#terms" id="toc-terms" class="nav-link" data-scroll-target="#terms">Terms</a></li><li><a href="#what-the-machine-needs" id="toc-what-the-machine-needs" class="nav-link" data-scroll-target="#what-the-machine-needs">What the machine needs</a></li><li><a href="#step-1-clone-jnterfaces-once" id="toc-step-1-clone-jnterfaces-once" class="nav-link" data-scroll-target="#step-1-clone-jnterfaces-once">Step 1: clone jnterfaces once</a></li><li><a href="#step-2-make-the-project-and-install" id="toc-step-2-make-the-project-and-install" class="nav-link" data-scroll-target="#step-2-make-the-project-and-install">Step 2: make the project and install</a></li><li><a href="#a-python-project" id="toc-a-python-project" class="nav-link" data-scroll-target="#a-python-project">A Python project</a><ul><li><a href="#the-tools" id="toc-the-tools" class="nav-link" data-scroll-target="#the-tools">The tools</a></li><li><a href="#the-recipes" id="toc-the-recipes" class="nav-link" data-scroll-target="#the-recipes">The recipes</a></li><li><a href="#the-code-and-the-tests" id="toc-the-code-and-the-tests" class="nav-link" data-scroll-target="#the-code-and-the-tests">The code and the tests</a></li><li><a href="#the-git-hook" id="toc-the-git-hook" class="nav-link" data-scroll-target="#the-git-hook">The Git hook</a></li><li><a href="#change-a-setting" id="toc-change-a-setting" class="nav-link" data-scroll-target="#change-a-setting">Change a setting</a></li></ul></li><li><a href="#a-typescript-project" id="toc-a-typescript-project" class="nav-link" data-scroll-target="#a-typescript-project">A TypeScript project</a><ul><li><a href="#the-tools-1" id="toc-the-tools-1" class="nav-link" data-scroll-target="#the-tools-1">The tools</a></li><li><a href="#the-recipes-1" id="toc-the-recipes-1" class="nav-link" data-scroll-target="#the-recipes-1">The recipes</a></li><li><a href="#the-code-and-the-tests-1" id="toc-the-code-and-the-tests-1" class="nav-link" data-scroll-target="#the-code-and-the-tests-1">The code and the tests</a></li><li><a href="#change-a-setting-1" id="toc-change-a-setting-1" class="nav-link" data-scroll-target="#change-a-setting-1">Change a setting</a></li></ul></li><li><a href="#the-task-tracker" id="toc-the-task-tracker" class="nav-link" data-scroll-target="#the-task-tracker">The task tracker</a></li><li><a href="#the-writing-checker" id="toc-the-writing-checker" class="nav-link" data-scroll-target="#the-writing-checker">The writing checker</a></li><li><a href="#what-to-commit" id="toc-what-to-commit" class="nav-link" data-scroll-target="#what-to-commit">What to commit</a></li><li><a href="#keep-it-up-to-date" id="toc-keep-it-up-to-date" class="nav-link" data-scroll-target="#keep-it-up-to-date">Keep it up to date</a></li><li><a href="#what-the-stack-does-not-give" id="toc-what-the-stack-does-not-give" class="nav-link" data-scroll-target="#what-the-stack-does-not-give">What the stack does not give</a></li></ul></nav><div class="toc-actions"><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/blob/main/docs/new-project.md" class="toc-action"><i class="bi bi-code"></i> View source</a></div><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/issues/new" class="toc-action"><i class="bi bi-chat-right"></i> Report an issue</a></div></div></div><main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block default"><div class="quarto-title"><h1 class="title">Start a Python or TypeScript project</h1></div><div class="quarto-title-meta"></div></header><p>This page tells how to set up a new project with every part that the stack gives. The
 parts are the agent skills, the task tracker, the writing checker, format,
 lint, tests, coverage, types, a Git hook and one full check. Each step and each
 example was run on 2026-10-31 in an empty folder.</p>
@@ -139,17 +139,19 @@ for both. At a terminal, the installer asks about each role. Add
 </div>
 <p>The <code>just</code> skill of jnterfaces is always installed. Name a role to add it
 later, for example <code>just install cx</code>.</p>
-<p>The installer then:</p>
+<p>The installer then does these steps:</p>
 <ol>
-<li>makes <code>pyproject.toml</code> with <code>uv init --bare</code>, or <code>package.json</code> with <code>npm init --yes</code>, when the project has none;</li>
-<li>adds the default tools of the profile, with <code>uv add --group</code> or <code>npm install --save-dev</code>;</li>
-<li>writes the starter <code>Justfile</code> and the starter <code>AGENTS.md</code>, a <code>CLAUDE.md</code>
-that imports <code>AGENTS.md</code>, and, with the <code>prose</code> role, the workflow
-<code>.github/workflows/nossaifd-prose.yml</code>. Each one is yours from then on;</li>
-<li>saves the choices in <code>.agents/stack.json</code>.</li>
+<li>If the project has no manifest, it makes one. The manifest is
+<code>pyproject.toml</code>, from <code>uv init --bare</code>, or <code>package.json</code>, from <code>npm init --yes</code>.</li>
+<li>It adds the default tools of the profile, with <code>uv add --group</code> or <code>npm install --save-dev</code>.</li>
+<li>It writes the starter <code>Justfile</code>, the starter <code>AGENTS.md</code>, and a
+<code>CLAUDE.md</code> that imports <code>AGENTS.md</code>. With the <code>prose</code> role, it also writes
+the workflow <code>.github/workflows/nossaifd-prose.yml</code>. Each of these files is
+yours from then on.</li>
+<li>It saves the choices in <code>.agents/stack.json</code>.</li>
 </ol>
-<p>Run <code>just</code> alone to list the recipes. Run <code>just verify</code>. A project with no
-code yet passes.</p>
+<p>Run <code>just</code> alone to list the recipes. Then run <code>just verify</code>, which passes in a
+project with no code yet.</p>
 </section>
 <section id="a-python-project" class="level2">
 <h2 class="anchored" data-anchor-id="a-python-project">A Python project</h2>
@@ -194,7 +196,7 @@ code yet passes.</p>
 <p>Add the type check:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install typecheck</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p><code>pyproject.toml</code> gets <code>default-groups = &quot;all&quot;</code> under <code>[tool.uv]</code>, so that
-<code>uv run</code> has every tool. The project uses the Python that <code>uv</code> picks; <code>uv init</code> writes it as <code>requires-python</code>.</p>
+<code>uv run</code> has every tool. The project uses the Python that <code>uv</code> picks, and <code>uv init</code> writes that version as <code>requires-python</code>.</p>
 </section>
 <section id="the-recipes" class="level3">
 <h3 class="anchored" data-anchor-id="the-recipes">The recipes</h3>
@@ -251,8 +253,9 @@ code yet passes.</p>
 </tbody>
 </table>
 </div>
-<p>Each recipe also has a form for one language, such as <code>just python lint</code>.
-That form matters in a project with two profiles.</p>
+<p>Each recipe also has a form for one language, such as <code>just python lint</code>. In
+a project with two profiles, use that form to run the recipe of one language
+only.</p>
 </section>
 <section id="the-code-and-the-tests" class="level3">
 <h3 class="anchored" data-anchor-id="the-code-and-the-tests">The code and the tests</h3>
@@ -277,11 +280,11 @@ just cov</code></pre></div><button title="Copy to Clipboard" class="code-copy-bu
 <p><code>just hook</code> writes <code>.git/hooks/pre-commit</code>. Before each commit, it runs the
 checks of <code>.pre-commit-config.yaml</code> on the staged files:</p>
 <ul>
-<li>trailing whitespace and the end of each file;</li>
-<li>the syntax of YAML and JSON files;</li>
-<li>files larger than 1000 KB;</li>
-<li>merge conflict markers and private keys;</li>
-<li><code>ruff check</code> and <code>ruff format</code>.</li>
+<li>spaces at the end of a line, and the newline at the end of each file</li>
+<li>the syntax of YAML and JSON files</li>
+<li>files larger than 1000 KB</li>
+<li>merge conflict markers and private keys</li>
+<li><code>ruff check</code> and <code>ruff format</code></li>
 </ul>
 <p>A check that changes a file stops the commit. Add the change and commit again.
 <code>uv run pre-commit run --all-files</code> runs the checks on every file.</p>
@@ -290,7 +293,8 @@ checks of <code>.pre-commit-config.yaml</code> on the staged files:</p>
 <h3 class="anchored" data-anchor-id="change-a-setting">Change a setting</h3>
 <ul>
 <li><strong>ruff.</strong> <code>ruff.toml</code> reads the settings of the profile with <code>extend</code>. Add
-your settings below that line. They win.</li>
+your settings below that line. Your settings win over the settings of the
+profile.</li>
 <li><strong>ty.</strong> Add your settings to <code>ty.toml</code>.</li>
 <li><strong>pytest.</strong> Add your settings under <code>[tool.pytest.ini_options]</code> in
 <code>pyproject.toml</code>, beside <code>pythonpath</code>. If the project already has a pytest
@@ -419,14 +423,16 @@ just verify</code></pre></div><button title="Copy to Clipboard" class="code-copy
 <section id="change-a-setting-1" class="level3">
 <h3 class="anchored" data-anchor-id="change-a-setting-1">Change a setting</h3>
 <p><code>biome.json</code> and <code>tsconfig.json</code> read the settings of the profile with
-<code>extends</code>. Add your keys beside <code>extends</code>. They win. For example, the profile
+<code>extends</code>. Add your keys beside <code>extends</code>. Your keys win over the settings of
+the profile. For example, the profile
 sets a line width of 120 for Biome.</p>
 </section>
 </section>
 <section id="the-task-tracker" class="level2">
 <h2 class="anchored" data-anchor-id="the-task-tracker">The task tracker</h2>
-<p>The <code>tasker</code> role works on a branch in the main checkout. To work on each task
-in its own Git worktree, and keep the main checkout on <code>main</code>:</p>
+<p>The <code>tasker</code> role works on a branch in the main checkout. A Git worktree is a
+second checkout of the same repository, in another folder. To work on each
+task in its own worktree, and keep the main checkout on <code>main</code>, run:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install <span class="va">tasker</span><span class="op">=</span>gitwt
 just tasker-mode</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>These recipes manage the worktrees:</p>
@@ -473,20 +479,20 @@ installer. Name pages to check only them, and add <code>-v</code> to see the sof
 <p>Commit these files:</p>
 <ul>
 <li><code>.agents/</code>, <code>.claude/</code> and <code>.codex/</code>, which hold the skills, the records and
-the hooks;</li>
-<li><code>AGENTS.md</code>, <code>CLAUDE.md</code> and the <code>Justfile</code>;</li>
-<li><code>.github/workflows/nossaifd-prose.yml</code>, if the <code>prose</code> role is on;</li>
-<li><code>pyproject.toml</code> and <code>uv.lock</code>, or <code>package.json</code> and <code>package-lock.json</code>;</li>
-<li>the config files: <code>ruff.toml</code>, <code>.pre-commit-config.yaml</code>, <code>ty.toml</code>,
-<code>biome.json</code>, <code>tsconfig.json</code>;</li>
-<li><code>.gitignore</code> and <code>.worktreedisposable</code>.</li>
+the hooks</li>
+<li><code>AGENTS.md</code>, <code>CLAUDE.md</code> and the <code>Justfile</code></li>
+<li><code>.github/workflows/nossaifd-prose.yml</code>, if the <code>prose</code> role is on</li>
+<li><code>pyproject.toml</code> and <code>uv.lock</code>, or <code>package.json</code> and <code>package-lock.json</code></li>
+<li>the config files <code>ruff.toml</code>, <code>.pre-commit-config.yaml</code>, <code>ty.toml</code>,
+<code>biome.json</code> and <code>tsconfig.json</code></li>
+<li><code>.gitignore</code> and <code>.worktreedisposable</code></li>
 </ul>
 <p><code>.gitignore</code> already leaves out what a command makes again, such as <code>.venv/</code>,
 <code>node_modules/</code>, <code>dist/</code>, the caches and the logs of the installer.</p>
-<p>A person who clones the project runs:</p>
+<p>A person who clones the project runs these commands. <code>just hook</code> is for Python
+only:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just setup
 just hook</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<p><code>just hook</code> is for Python only.</p>
 </section>
 <section id="keep-it-up-to-date" class="level2">
 <h2 class="anchored" data-anchor-id="keep-it-up-to-date">Keep it up to date</h2>
