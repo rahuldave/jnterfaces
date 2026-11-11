@@ -551,6 +551,18 @@ stays deleted. The role also
 adds a line to `AGENTS.md` that points to `.agents/instructions/tasker.md`.
 Its hooks are units of `.claude/settings.json` and `.codex/hooks.json`.
 
+The line in `AGENTS.md` is
+`Read and follow @.agents/instructions/tasker.md`. Codex reads the path.
+Claude Code imports the file through `AGENTS.md`, which it reads through
+`@AGENTS.md` in `CLAUDE.md`.
+
+An install from before writes the path in backticks, which Claude Code does
+not import. The next `just install` changes the line in the block of the
+role. If you deleted the line, it stays deleted. Two cases need your hand:
+- A copy of the old line that you wrote outside the blocks stays. Delete it.
+- If `AGENTS.md` is a symlink, the installer leaves it alone. Change the line
+  yourself.
+
 The SessionStart hook of the role prints the rules file, so both Claude and
 Codex read the rules. Claude Code and Codex show a long hook output only as
 a preview and a file. So the first line of the output asks the agent to read
