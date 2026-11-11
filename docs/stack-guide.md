@@ -564,10 +564,22 @@ hand:
 - If `AGENTS.md` is a symlink, the installer leaves it alone. Change the line
   yourself.
 
-The SessionStart hook of the role prints the rules file, so both Claude and
-Codex read the rules. Claude Code and Codex show a long hook output only as
-a preview and a file. So the first line of the output asks the agent to read
-the whole file.
+The SessionStart hook of the role prints the rules file for Codex, which does
+not import it. The Claude hook leaves the file out when it is sure that
+Claude Code imports it, so the rules are not in the context twice. It is
+sure only of the files that the installer writes:
+- `CLAUDE.md` at the top of the project holds only the line `@AGENTS.md`, or
+  is a symlink to `AGENTS.md`.
+- `AGENTS.md` is not a symlink. Before the line of the role, it has only
+  blank lines, comments of one line and the lines of other roles.
+- No settings file that the hook can read names `claudeMdExcludes`. The hook
+  cannot see `claude --settings`.
+
+In other cases, such as an import in `.claude/CLAUDE.md`, it prints the file,
+so the rules can be in the context twice.
+
+Claude Code and Codex show a long hook output only as a preview and a file.
+So the first line of the output asks the agent to read the whole file.
 
 **The log is a history.** `.agents/stack-log.jsonl` gets one entry for each
 run that changes a file. Nothing reads it to decide what to do. The

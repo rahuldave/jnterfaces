@@ -2148,12 +2148,18 @@ class PartsTests(StackTests):
         self.assertFalse((self.target / '.agents/stack-pending.json').exists())
         self.assertTrue(self.saved()['choices']['tasker'])
 
-    def test_an_import_in_dot_claude_or_with_a_dot_slash_counts(self):
+    def test_an_import_in_dot_claude_counts_only_from_its_folder(self):
         self.role_with_parts()
         inner = self.target / '.claude/CLAUDE.md'
         inner.parent.mkdir()
-        inner.write_text('See @./AGENTS.md for the rules.\n')
+        # An import resolves from the folder of its file, so @AGENTS.md in .claude/ is .claude/AGENTS.md.
+        inner.write_text('See @AGENTS.md and @./AGENTS.md for the rules.\n')
         run = self.stack('tasker', '--without', 'prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual((self.target / 'CLAUDE.md').read_text(), '@AGENTS.md\n')
+        (self.target / 'CLAUDE.md').unlink()
+        inner.write_text('See @../AGENTS.md for the rules.\n')
+        run = self.stack()
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertFalse((self.target / 'CLAUDE.md').exists())
         self.assertNotIn('CLAUDE.md', run.stdout + run.stderr)
@@ -2162,6 +2168,9 @@ class PartsTests(StackTests):
         (self.target / 'CLAUDE.md').write_text('```\n@AGENTS.md\n```\n')
         run = self.stack()
         self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('CLAUDE.md does not import AGENTS.md', run.stderr)
+        (self.target / 'CLAUDE.md').write_text('# Mine\n\n    @AGENTS.md\n')
+        run = self.stack()
         self.assertIn('CLAUDE.md does not import AGENTS.md', run.stderr)
         # An import at the end of a sentence counts.
         (self.target / 'CLAUDE.md').write_text('Read @AGENTS.md.\n')
