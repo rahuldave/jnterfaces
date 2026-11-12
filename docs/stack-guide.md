@@ -3,8 +3,8 @@
 This guide describes the skill stack on the `main` branch of jnterfaces. It
 says where each part lives, what a machine needs, and how an install works.
 Then it builds a project in layers, from a project with no code to a project
-with the checks of cheesecracker. cheesecracker is another project, and this
-guide compares the stack with it. Each layer lists the parts that work now and the parts that do not work. The results come
+with lint, tests and types. Each layer lists the parts that work now and the
+parts that do not work. The results come
 from installs into empty Git repositories on 2026-10-29.
 
 On 2026-10-31, a new project of each profile was checked again with code and
@@ -430,23 +430,21 @@ typecheck` runs `tsc --noEmit`. With no `.ts` file in `src` yet, it passes.
 `git diff --check`, which finds whitespace errors. On a new project with the
 default tools, `just verify` passes, for Python and for TypeScript.
 
-cheesecracker calls this recipe `just check`. The command contract of the
-`just` skill names it `verify`, and it lets a project map the name.
-
 ### Layers that the stack does not have yet
 
-cheesecracker has these parts, and no profile or tool adds them:
+A project such as a web service can need these parts, and no profile or tool
+adds them. The rows describe the Python profile:
 
-| Part | In cheesecracker |
+| Part | What the stack does now |
 |---|---|
-| A locked setup | `just setup` runs `uv sync --locked`. The profile runs `uv sync`. |
-| A server | `just serve` and `just stop` start and stop uvicorn in the background. |
-| System tests | `just test-system` runs tests against the running server. |
-| Docker | `just docker-build`, `just docker-serve`, `just docker-stop`, `just docker-shell` and `just docker-test`, with a `.dockerignore`. |
-| Async tests | The group `test` has pytest-asyncio and httpx2. |
-| Coverage of one package | `just cov` names the package, `--cov=api`. |
-| Test paths | `pyproject.toml` sets `testpaths` and `pythonpath` for pytest. The `test` tool now sets `pythonpath`, but not `testpaths`. |
-| CI | The class repository cheese-app-ci-cd has a GitHub Actions workflow. No profile writes one. The `prose` role writes only a workflow that checks prose. |
+| A locked setup | `just setup` runs `uv sync`, not `uv sync --locked`. |
+| A server | No recipe starts or stops a server, such as uvicorn. |
+| System tests | No recipe runs tests against a running server. |
+| Docker | No recipe builds or runs a Docker image, and no tool writes a `.dockerignore`. |
+| Async tests | The group `test` does not have pytest-asyncio or an HTTP client. |
+| Coverage of one package | `just cov` does not name a package. The TypeScript profile has no `just cov`. |
+| Test paths | The `test` tool sets `pythonpath` for pytest, but not `testpaths`. |
+| CI | No profile writes a GitHub Actions workflow for the code. The `prose` role writes only a workflow that checks prose. |
 
 ## How the mixins behave
 
