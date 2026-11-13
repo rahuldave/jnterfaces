@@ -287,7 +287,7 @@ The skills use these executables:
 
 - **`just`** runs the recipes, and **`uv`** runs the installer and the tools.
 - **`jagt`** renders and checks packets, from https://github.com/rahuldave/jagt.
-  The draft commands need a build that has `jagt draft lint`.
+  The skill needs jagt 0.3.0 or later, which gives each packet a nonce.
 - **`cx`** runs incremental stages, from https://github.com/rahuldave/cx.
 
 ## How the packages stay apart
@@ -314,8 +314,8 @@ Each package works alone, and each skill works without the optional skills:
 | `just package-lint` | Checks `skill-package.json` with skill-package-maker. |
 | `just prose <check.py>` | Checks the Markdown with the nossaifd writing checker. |
 
-The test of the jagt demo runs only with a `jagt` that has `jagt draft lint`. If
-the `jagt` on your PATH is older, set `JAGT_BIN` to a newer binary.
+The test of the jagt demo runs only with jagt 0.3.0 or later. If the `jagt`
+on your PATH is older, set `JAGT_BIN` to a newer binary.
 
 The skill `jagt-protocol` came from the jagt repository, and the `just` and `cx`
 references came from agent_gest_git_skills. This repository is now the source

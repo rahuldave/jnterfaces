@@ -72,7 +72,6 @@ tools and Node all come through `uv`. The roles need more programs:
 | Role or tool | Program | How the stack handles a missing program |
 |---|---|---|
 | `tasker` | `gest` | The installer prints a warning and installs the skills. |
-| `tasker` hooks | `but` (GitButler) | The hooks check for it, and they work without it. |
 | `cx` | `cx` | The skill describes a fallback. |
 | `jagt-protocol` | `jagt` | The skill describes a fallback. |
 | `reporter` | `node` 22 or later | The package says to run node with `uvx --from 'nodejs-wheel==24.*' node`. |
@@ -336,10 +335,8 @@ its own. The Python profile names `.venv/` and the caches, and the
 TypeScript profile names `node_modules/`.
 
 **What works.** The install, the variant and the worktree recipes work. The
-GitButler text of the hooks appears only when `but` is installed and GitButler
-owns the checkout. The session-start hook reports worktrees that are ready to
-prune, and removes nothing. In `gitwt`, a `git commit` in the main checkout
-gets a warning.
+session-start hook reports worktrees that are ready to prune, and removes
+nothing. In `gitwt`, a `git commit` in the main checkout gets a warning.
 
 **What does not work:**
 

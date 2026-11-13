@@ -21,7 +21,7 @@
       {"name": "git", "check": "git --version", "description": "Clones the packages and records their revisions."}
     ],
     "optional": [
-      {"name": "jagt", "check": "jagt --version", "description": "Renders and checks agentic Just packets for the jagt-protocol skill. The draft commands need a jagt build with jagt draft lint."},
+      {"name": "jagt", "check": "jagt --version", "description": "Renders and checks agentic Just packets for the jagt-protocol skill. The skill needs jagt 0.3.0 or later, which gives each packet a nonce."},
       {"name": "cx", "check": "cx --help", "description": "Runs incremental file stages for the cx skill."}
     ]
   },
