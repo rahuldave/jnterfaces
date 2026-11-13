@@ -8,6 +8,7 @@ If the two differ, this page wins.
 The page agrees with
 [the contract of the agentic packets](protocol_contract.md). The contract
 gives the whole protocol. This page gives the details of the result packet.
+
 The rules for a check describe what `jagt result lint` does in the next jagt
 release after 0.5.0. Earlier versions miss some of these checks. jagt 0.5.0
 passes a symbolic link that leads out of the base folder. jagt 0.3.0 and
