@@ -326,7 +326,11 @@ def stop_check(run):
         run.communicate(timeout=5)
     except subprocess.TimeoutExpired:
         run.stdout.close()
-        run.wait()
+        # A process that the installer may not signal, such as a setuid one, can outlive the kill.
+        try:
+            run.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            print(f'Could not stop process {run.pid} of a check; it may still run.', file=sys.stderr)
 
 
 def program_works(target, entry):

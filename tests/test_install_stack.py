@@ -3564,6 +3564,17 @@ class ProgramTests(StackTests):
         time.sleep(3)
         self.assertFalse(mark.exists())
 
+    def test_a_check_that_cannot_be_stopped_does_not_hang_the_run(self):
+        # A setuid process can refuse the kill, so the last wait has a limit too.
+        run = mock.Mock(pid=1234)
+        run.communicate.side_effect = subprocess.TimeoutExpired('x', 5)
+        run.wait.side_effect = subprocess.TimeoutExpired('x', 5)
+        with mock.patch.object(install_stack.os, 'killpg', side_effect=PermissionError), \
+                mock.patch('sys.stderr', new_callable=io.StringIO) as err:
+            install_stack.stop_check(run)
+        run.wait.assert_called_once_with(timeout=5)
+        self.assertIn('Could not stop process 1234 of a check', err.getvalue())
+
     def test_a_timed_out_check_does_not_wait_for_a_process_that_left_its_session(self):
         script = 'import os, time\nif os.fork() == 0:\n    os.setsid()\n    time.sleep(12)\nelse:\n    time.sleep(30)'
         entry = {'name': 'slow', 'check': shlex.join([sys.executable, '-c', script])}
