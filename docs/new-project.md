@@ -30,6 +30,12 @@ example was run on 2026-10-31 in an empty folder.
 | `uv` | The installer, Python, and Node for TypeScript | https://docs.astral.sh/uv |
 | `gest` | The skills of the `tasker` role | Install it on its own. It does not come through `uv`. The installer warns when it is missing. |
 
+A profile can need more programs. The rust profile needs `cargo`, from
+https://rustup.rs/. The installer checks each program of the profile. When
+`cargo` is missing, it stops before it writes anything, and it says where to
+get `cargo`. It installs a program such as `cargo-llvm-cov` itself, with
+`cargo install`. It never removes a program.
+
 TypeScript needs no Node on the machine. `uv` runs `node` and `npm` from the
 `nodejs-wheel` package, version 24.
 

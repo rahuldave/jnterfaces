@@ -22,7 +22,9 @@ The documentation site is https://rahuldave.github.io/jnterfaces/. It is built f
 ## Install into a repository
 
 jnterfaces is the base of every project. Besides Git, a project needs three
-programs only, `just`, `uv` and `jlog`. One command installs everything else:
+programs only, `just`, `uv` and `jlog`. A profile can need more programs,
+such as `cargo`, and it names them in the key `programs` of its
+`profile.json`. One command installs everything else:
 
 ```bash
 just install
@@ -157,7 +159,7 @@ of its own, and `stack.json` names it:
 |---|---|---|---|---|
 | `python` | [jnprofile-python](https://github.com/rahuldave/jnprofile-python) | `lint`, `test`, `typecheck` | `lint`, `test` | `uv add --group ...` |
 | `typescript` | [jnprofile-typescript](https://github.com/rahuldave/jnprofile-typescript) | `lint`, `test`, `typecheck` | `lint`, `typecheck` | npm, which uvx runs from `nodejs-wheel` |
-| `rust` | [jnprofile-rust](https://github.com/rahuldave/jnprofile-rust) | `lint`, `typecheck`, `test`, `docstring` | all four | none: each tool uses the programs of the machine, such as `cargo` |
+| `rust` | [jnprofile-rust](https://github.com/rahuldave/jnprofile-rust) | `lint`, `typecheck`, `test`, `docstring` | all four | none: each tool uses programs, such as `cargo` and `cargo-llvm-cov`, which the key `programs` names |
 
 On the first install, the installer finds the profile from the files of the
 project, such as `pyproject.toml`, or you name it with `--profile`. A project

@@ -164,7 +164,8 @@ A profile package also has `profile.json`. Its top keys are these:
 | `add` and `remove` | The commands that add or remove the packages of a tool. `{group}` takes the group of the tool. |
 | `choices` | The default roles of the profile, for example `tasker` and `prose`. |
 | `uv_default_groups` | For Python: the value of `tool.uv.default-groups` in `pyproject.toml`. |
-| `base` | What the profile adds with no tool: its recipe file, and its `lines`, `parts` and `files`, as for a tool. |
+| `base` | What the profile adds with no tool: its recipe file, its `programs`, and its `lines`, `parts` and `files`, as for a tool. |
+| `programs` | The programs that the profile can need, such as `cargo`. The next section tells the keys. |
 | `tools` | Each tool, keyed by its name. |
 | `default_tools` | The tools that a new project gets, for example `lint` and `test`. |
 
@@ -181,6 +182,94 @@ A tool has these keys:
 | `files` | Whole files, for an installer from before the parts. A file that is also in `parts` goes as a part. |
 | `skip_if` | A guard `[file, text]`, or a list of guards. A new part is left out when any guard applies: the file has the text, for example no `ruff.toml` part when `pyproject.toml` has `[tool.ruff`. An empty text means that the file is there. In a TOML file, `[a.b` means that the table is there, and `[a.b]` means that the table holds a setting of its own, not only tables. A part that the record already holds stays. |
 | `before_remove` | A command that runs before the packages go, for example `pre-commit uninstall`. |
+| `programs` | The names of the programs that the tool needs, from the top key `programs`. |
+
+#### The programs of a profile
+
+A program is a command on the machine, such as `cargo` or `cargo-llvm-cov`.
+The top key `programs` is a list of programs. Each program has these keys:
+
+| Key | What it means |
+|---|---|
+| `name` | The name of the program. `base.programs` and `programs` of a tool use this name. |
+| `check` | A command that exits with 0 when the program is there, for example `cargo llvm-cov --version`. |
+| `expect` | Optional. A text that the output of `check` must have, for example `llvm-tools`. |
+| `install` | The command that installs the program, for example `cargo install --locked cargo-llvm-cov@0.9.1`. |
+| `install_in` | Optional, with `install`. `project`, the default, runs `install` in the folder of the project. `home` runs it in your home folder, or in an empty folder outside the project when `HOME` is not set. |
+| `description` | For a program without `install`: what a person does to get it. For a program with `install`: optional, what the program does. |
+
+A program needs `install` or `description`. The first word of `check` and
+of `install` is a program on `PATH`, not a path. The installer splits
+`check` and `install` into words, as a shell does. Then it runs them without a
+shell. So a command has no pipe, no `$VARIABLE` and no `&&`. The installer
+never downloads a script.
+
+The base of a profile names the programs that it always needs, in
+`base.programs`. A tool names the programs that only it needs, in its own
+`programs`. A program of a tool that is off is not needed. The programs that
+a run needs are those of the base and of each installed tool, in the order of
+the top key `programs`. When two profiles have a program with the same
+name, the program of the first profile counts.
+
+A run uses the programs in this order:
+
+1. Before it writes anything, the installer runs the `check` of each needed
+   program without `install`. If a check fails, the installer prints the
+   `description` and stops. It also stops for a missing program whose
+   `install` starts with a command that is not on `PATH`.
+2. It runs the commands of the tools, such as `cargo add --dev`. Then it
+   writes the files, also a whole file such as `rust-toolchain.toml`.
+3. In the folder of the project, it runs the `check` of each needed program
+   with `install`. If a check fails, it runs `install` in the folder that
+   `install_in` names, and then `check` again. If the check fails again, the
+   run stops with an error.
+
+These rules follow from the order:
+
+- **The toolchain file counts.** The checks of step 3 run after the files, so
+  rustup reads the toolchain file of the project.
+- **`install_in` picks the toolchain of an install.** `rustup component add
+  clippy` runs in the project, so the component goes on the toolchain of the
+  project. `cargo install cargo-llvm-cov` needs `"install_in": "home"`. In
+  the project, it would build with the toolchain of the project, and an old
+  toolchain can fail to build it.
+- **A command of a tool comes first.** It runs before step 3, so it can use
+  only programs without `install`.
+- **A missing program stops a removal too.** A missing program without
+  `install` stops every run of its profile, also a run that only removes a
+  tool.
+- **A check can download.** A check of `cargo` in a project with a toolchain
+  file can make rustup download the toolchain, also in a dry run
+  and in `just install --check`. A check that takes more than 15 minutes
+  fails.
+- **A dry run installs nothing.** `just install --dry-run` prints each
+  missing program and each install that it would run.
+- **`just install --check` lists the missing programs.** It fails when one is
+  missing. It skips a profile that has no clone.
+- **A program stays.** The installer never uninstalls a program, also when a
+  tool or a profile goes.
+
+The programs of jnterfaces itself, `git`, `just`, `uv` and `jlog`, are not in
+a profile.
+
+#### A toolchain file
+
+A profile writes a toolchain file with the `files` of its base. A whole file
+is written only when the project has none, so a toolchain file of the project
+stays. For example, the rust profile can have
+`"files": {"rust-toolchain.toml": "files/rust-toolchain.toml"}` in its base,
+with this source file:
+
+```toml
+[toolchain]
+channel = "stable"
+components = ["clippy", "rustfmt", "llvm-tools-preview"]
+```
+
+rustup reads the file when `cargo` runs in the project. rustup 1.28.0 does not
+install a missing toolchain by itself, and later versions do. So a profile
+can also name each component as a program with `install`, for example
+`rustup component add llvm-tools-preview`.
 
 ### The formats: `scripts/formats.json`
 
