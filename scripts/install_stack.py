@@ -1189,7 +1189,11 @@ def move_justfile_parts(target, parts):
             same = False
         if same or not old.exists():
             moved = {key: value for key, value in parts.items() if key != name}
-            moved[justfile.name] = parts[name]
+            # A name that is gone was renamed only when the new file still has the block or the line. Else the old
+            # file was deleted, and its record goes with it: a new file is not one where you deleted the line.
+            text = justfile_text(justfile) or ''
+            if same or has_block(text) or any(shared_files.normal(row) == IMPORT_LINE for row in user_rows(text)):
+                moved[justfile.name] = parts[name]
             return moved
     return parts
 

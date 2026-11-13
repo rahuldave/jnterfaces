@@ -928,6 +928,22 @@ class StackTests(unittest.TestCase):
         self.assertNotIn('# begin lines of jnterfaces', justfile.read_text())
 
     @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_new_justfile_after_a_deleted_one_gets_the_block(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        justfile.unlink()
+        dot = self.target / '.justfile'
+        dot.write_text('y:\n    @echo y\n')
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('declined', run.stderr)
+        self.assertIn('# begin lines of jnterfaces', dot.read_text())
+        self.assertNotIn('Justfile', self.saved()['parts'])
+        self.assertEqual(self.saved()['parts']['.justfile']["import? '.agents/install.just'"]['state'], 'added')
+        self.assertIn('prose', self.just_in_target('--summary').stdout.split())
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
     def test_a_module_that_clashes_keeps_the_recipes_of_the_roles(self):
         justfile = self.target / 'Justfile'
         justfile.write_text('python:\n    @echo mine\n')
