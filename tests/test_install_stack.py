@@ -750,11 +750,351 @@ class StackTests(unittest.TestCase):
         self.assertNotEqual(self.just_in_target('prose').returncode, 0)
 
     @unittest.skipUnless(shutil.which('just'), 'needs just')
-    def test_a_project_not_started_by_jnterfaces_is_told_how_to_add_the_role_recipes(self):
-        (self.target / 'Justfile').write_text("import? '.agents/install.just'\n")
+    def test_a_project_not_started_by_jnterfaces_gets_the_import_as_a_block_and_the_role_recipes(self):
+        own = 'build:\n    @echo build\n'
+        justfile = self.target / 'Justfile'
+        justfile.write_text(own)
         run = self.stack('prose')
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn("put these lines in it: import? '.agents/just/roles/nossaifd.just'", run.stderr)
+        self.assertIn("Changed Justfile: adds import? '.agents/install.just'", run.stderr)
+        self.assertNotIn('put these lines in it', run.stderr)
+        text = justfile.read_text()
+        self.assertTrue(text.startswith('# begin lines of jnterfaces, the installer'), text)
+        self.assertIn("\nimport? '.agents/install.just'\n# end lines of jnterfaces.", text)
+        self.assertTrue(text.endswith('\n\n' + own), text)
+        self.assertEqual(self.saved()['parts']['Justfile']["import? '.agents/install.just'"]['state'], 'added')
+        self.assertIn("import? 'roles/nossaifd.just'", (self.target / '.agents/just/index.just').read_text())
+        summary = self.just_in_target('--summary')
+        self.assertEqual(summary.returncode, 0, summary.stderr)
+        self.assertEqual(sorted(summary.stdout.split()), ['build', 'install', 'prose', 'uninstall'])
+        run = self.just_in_target('prose', 'a.md')
+        self.assertEqual((run.returncode, run.stdout.strip()), (0, 'prose a.md'), run.stderr)
+        # A second run changes nothing, and --check finds the block.
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertEqual(justfile.read_text(), text)
+        run = self.stack('--check')
+        self.assertEqual(run.returncode, 0, run.stdout)
+        self.assertIn('the files agree\n', run.stdout)
+        # The edits of the user stay, and the recipes of a role go with the role.
+        justfile.write_text(text + '\nmore:\n    @echo more\n')
+        self.assertEqual(self.stack('--without', 'prose').returncode, 0)
+        self.assertEqual(justfile.read_text(), text + '\nmore:\n    @echo more\n')
+        self.assertEqual(sorted(self.just_in_target('--summary').stdout.split()), ['build', 'install', 'more', 'uninstall'])
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_an_import_that_the_justfile_has_is_not_added_again(self):
+        justfile = self.target / 'Justfile'
+        for own in ("import? '.agents/install.just'\nimport? '.agents/just/roles/nossaifd.just'\n",
+                    'import ".agents/install.just"  # mine\n', "import './.agents/install.just'\n"):
+            justfile.write_text(own)
+            run = self.stack('prose')
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(justfile.read_text(), own)
+            self.assertNotIn('Justfile', self.saved().get('parts', {}))
+            self.assertIn('prose', self.just_in_target('--summary').stdout.split(), run.stderr)
+            self.assertNotIn('does not parse', run.stderr)
+        # A copy of the line after the block makes the block go, and the copy stays.
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack().returncode, 0)
+        text = justfile.read_text()
+        self.assertIn('# begin lines of jnterfaces', text)
+        justfile.write_text(text + "import '.agents/install.just'\n")
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertEqual(justfile.read_text(), "x:\n    @echo x\nimport '.agents/install.just'\n")
+        self.assertIn('prose', self.just_in_target('--summary').stdout.split())
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_block_that_you_delete_stays_deleted_and_a_moved_line_stays(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        justfile.write_text('x:\n    @echo x\n')
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(justfile.read_text(), 'x:\n    @echo x\n')
+        self.assertIn("put these lines in it: import? '.agents/install.just'; "
+                      "import? '.agents/just/roles/nossaifd.just'", run.stderr)
+        # A line that you move out of the block stays where you put it.
+        justfile.write_text("x:\n    @echo x\nimport? '.agents/install.just'\n")
+        for _ in range(2):
+            self.assertEqual(self.stack().returncode, 0)
+            self.assertEqual(justfile.read_text(), "x:\n    @echo x\nimport? '.agents/install.just'\n")
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_clash_with_the_import_takes_the_block_out_and_names_the_lines(self):
+        own = 'install:\n    @echo mine\n'
+        justfile = self.target / 'Justfile'
+        justfile.write_text(own)
+        run = self.stack('prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(justfile.read_text(), own)
+        self.assertIn('does not parse with the block of the installer', run.stderr)
+        self.assertRegex(run.stderr, r'(?i)just said: error: recipe `install` first defined')
+        self.assertIn("put these lines in it: import? '.agents/install.just'; "
+                      "import? '.agents/just/roles/nossaifd.just'", run.stderr)
+        self.assertNotIn('also with an empty index', run.stderr)
+        self.assertNotIn('Justfile', self.saved()['parts'])
+        self.assertEqual(self.just_in_target('install').stdout.strip(), 'mine')
+        # The next run does not try again while the Justfile stays as it is, and --check names the clash.
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('Changed Justfile', run.stderr)
+        self.assertIn('put these lines in it', run.stderr)
+        run = self.stack('--check')
+        self.assertRegex(run.stdout, r'(?i)did not parse with it\. just said: error: recipe `install`')
+        # After the fix, the next run adds the block.
+        justfile.write_text('mine:\n    @echo mine\n')
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('# begin lines of jnterfaces', justfile.read_text())
+        self.assertNotIn('justfile_clash', self.saved())
+        self.assertIn('prose', self.just_in_target('--summary').stdout.split())
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_role_recipe_that_clashes_leaves_the_modules(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('prose:\n    @echo mine\n')
+        run = self.stack('prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('# begin lines of jnterfaces', justfile.read_text())
+        self.assertIn('The Justfile does not parse with the recipes of the profiles and roles', run.stderr)
+        self.assertEqual(self.just_in_target('prose').stdout.strip(), 'mine')
+        self.assertEqual(self.just_in_target('install', '--help').returncode, 0)
+
+    def test_a_dry_run_and_check_name_the_import_and_write_nothing(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('x:\n    @echo x\n')
+        run = self.stack('prose', '--dry-run')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("Would change Justfile: adds import? '.agents/install.just'", run.stdout)
+        self.assertEqual(justfile.read_text(), 'x:\n    @echo x\n')
+        run = self.stack('--check')
+        self.assertIn("Justfile does not import .agents/install.just. The next just install adds the line "
+                      "import? '.agents/install.just'", run.stdout)
+        self.assertEqual(self.stack('prose').returncode, 0)
+        # A block that you delete is a line of the record that is gone.
+        justfile.write_text('x:\n    @echo x\n')
+        run = self.stack('--check')
+        self.assertIn("Justfile: import? '.agents/install.just' of jnterfaces is gone", run.stdout)
+        self.assertNotIn('The next just install adds the line', run.stdout)
+
+    def test_a_justfile_with_a_shebang_or_a_symlink_gets_no_block(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('#!/usr/bin/env just --justfile\nx:\n    @echo x\n')
+        run = self.stack('prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(justfile.read_text(), '#!/usr/bin/env just --justfile\nx:\n    @echo x\n')
+        self.assertIn('before its #! line', self.stack('--check').stdout)
+        justfile.unlink()
+        (self.base / 'outside.just').write_text('x:\n    @echo x\n')
+        justfile.symlink_to(self.base / 'outside.just')
+        run = self.stack('prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('Justfile is a symlink', run.stderr)
+        self.assertEqual((self.base / 'outside.just').read_text(), 'x:\n    @echo x\n')
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_renamed_justfile_keeps_its_import(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        block = justfile.read_text()
+        # A rename in the letter case only, as on a disk that ignores case, then a line moved out of the block.
+        for text in (block, "x:\n    @echo x\nimport? '.agents/install.just'\n"):
+            current = install_stack.justfile_of(self.target)
+            current.write_text(text)
+            middle = self.target / 'middle.tmp'
+            current.rename(middle)
+            renamed = self.target / ('justfile' if current.name == 'Justfile' else 'Justfile')
+            middle.rename(renamed)
+            for _ in range(2):
+                run = self.stack()
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertNotIn('removes', run.stderr)
+                self.assertEqual(renamed.read_text(), text)
+                self.assertEqual(sorted(name for name in self.saved()['parts'] if name.lower() == 'justfile'),
+                                 [renamed.name])
+                self.assertIn('prose', self.just_in_target('--summary').stdout.split())
+
+    def test_a_deleted_justfile_gets_the_starter_without_the_old_record(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        justfile.unlink()
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertTrue(self.saved()['started'])
+        self.assertNotIn('Justfile', self.saved()['parts'])
+        self.assertIn("\nimport? '.agents/install.just'\n", justfile.read_text())
+        self.assertNotIn('# begin lines of jnterfaces', justfile.read_text())
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_new_justfile_after_a_deleted_one_gets_the_block(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        justfile.unlink()
+        dot = self.target / '.justfile'
+        dot.write_text('y:\n    @echo y\n')
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('declined', run.stderr)
+        self.assertIn('# begin lines of jnterfaces', dot.read_text())
+        self.assertNotIn('Justfile', self.saved()['parts'])
+        self.assertEqual(self.saved()['parts']['.justfile']["import? '.agents/install.just'"]['state'], 'added')
+        self.assertIn('prose', self.just_in_target('--summary').stdout.split())
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_module_that_clashes_keeps_the_recipes_of_the_roles(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('python:\n    @echo mine\n')
+        run = self.stack('--profile', 'python', 'prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('so the index has the recipes of the roles only', run.stderr)
+        self.assertNotIn('as a module only', run.stderr)
+        self.assertEqual(self.just_in_target('python').stdout.strip(), 'mine')
+        self.assertEqual(self.just_in_target('prose', 'a').stdout.strip(), 'prose a')
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_rollback_gives_back_the_bytes_and_a_broken_justfile_gets_no_block(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_bytes(b'install:\n    @echo mine')
+        run = self.stack('prose')
+        self.assertIn('took the block out again', run.stderr)
+        self.assertEqual(justfile.read_bytes(), b'install:\n    @echo mine')
+        justfile.write_text('x:\n  @echo x\n y\n')
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(justfile.read_text(), 'x:\n  @echo x\n y\n')
+        self.assertIn('does not parse, so the installer adds no import to it', run.stderr)
+        self.assertNotIn('Changed Justfile', run.stderr)
+        self.assertNotIn('took the block out again', run.stderr)
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_typo_elsewhere_keeps_the_block(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        text = justfile.read_text() + 'y:\n  @echo y\n z\n'
+        justfile.write_text(text)
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(justfile.read_text(), text)
+        self.assertNotIn('justfile_clash', self.saved())
+        self.assertIn('does not parse, also without the block of the installer, so the block stays', run.stderr)
+        self.assertNotIn('Rename the recipe', run.stderr)
+        self.assertNotIn('put these lines in it', run.stderr)
+        self.assertEqual(run.stderr.count('just said'), 1)
+        self.assertEqual(list(self.target.glob('.jnterfaces-probe-*')), [])
+        # After the fix, the block works.
+        justfile.write_text(text.replace(' z\n', ''))
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertIn('prose', self.just_in_target('--summary').stdout.split())
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_fault_that_needs_the_import_names_the_error_of_the_real_file(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        text = justfile.read_text() + 'y:\n    @echo {{jn_copier}}\ninstall:\n    @echo mine\n'
+        justfile.write_text(text)
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(justfile.read_text(), text)
+        self.assertRegex(run.stderr, r'(?i)just said: error: recipe `install` first defined')
+        self.assertRegex(run.stderr, r'(?i)without the block, just says: error: variable `jn_copier` not defined')
+        self.assertIn('(These line numbers do not count the 4 lines of the block.)', run.stderr)
+        # A second recipe x: the error of the real file has the line numbers of the real file.
+        justfile.write_text(justfile.read_text().replace('y:\n    @echo {{jn_copier}}\ninstall:\n    @echo mine\n',
+                                                         'x:\n    @echo again\n'))
+        run = self.stack()
+        self.assertRegex(run.stderr, r'(?i)recipe `x` first defined on line 6 is redefined on line 8')
+        self.assertNotIn('Without the block', run.stderr)
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_first_dry_run_and_check_see_a_clash_with_install(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('install:\n    @echo mine\n')
+        run = self.stack('prose', '--dry-run')
+        self.assertNotIn('adds import', run.stdout)
+        self.assertIn('so the real run would add it only if Justfile still parses with it', run.stdout)
+        self.assertIn('only if Justfile still parses with it, and now it does not', self.stack('--check').stdout)
+        self.assertFalse((self.target / '.agents').exists())
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_clash_error_says_that_its_line_numbers_count_the_block(self):
+        (self.target / 'Justfile').write_text('install:\n    @echo mine\n')
+        run = self.stack('prose')
+        self.assertIn('(The line numbers count the 4 lines of the block at the start of Justfile.)', run.stderr)
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_dry_run_and_check_promise_no_block_that_the_run_would_not_add(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('x:\n  @echo x\n y\n')
+        run = self.stack('prose', '--dry-run')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('adds import', run.stdout)
+        self.assertIn('does not parse, so the real run would add no import to it', run.stdout)
+        run = self.stack('--check')
+        self.assertNotIn('The next just install adds the line', run.stdout)
+        self.assertIn('so the next just install adds no import', run.stdout)
+        # A clash shows once .agents/install.just is there: the import of a missing file reads nothing.
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        record = self.saved()
+        del record['parts']['Justfile']
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        justfile.write_text('install:\n    @echo mine\n')
+        run = self.stack('prose', '--dry-run')
+        self.assertNotIn('adds import', run.stdout)
+        self.assertIn('so the real run would add it only if Justfile still parses with it', run.stdout)
+        run = self.stack('--check')
+        self.assertIn('only if Justfile still parses with it, and now it does not', run.stdout)
+        self.assertEqual(list(self.target.glob('.jnterfaces-probe-*')), [])
+        self.assertEqual(justfile.read_text(), 'install:\n    @echo mine\n')
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_rollback_keeps_a_change_that_you_saved_during_the_run(self):
+        # A just on the path that saves a change of the user the first time the Justfile fails to parse, which is
+        # after the installer wrote the block and before it takes the block out.
+        real = shutil.which('just')
+        (self.bin / 'just').write_text(f'''#!{sys.executable}
+import os, subprocess, sys
+from pathlib import Path
+run = subprocess.run([{real!r}, *sys.argv[1:]], capture_output=True, text=True)
+sys.stdout.write(run.stdout)
+sys.stderr.write(run.stderr)
+marker = Path(os.environ['SAVED_MARKER'])
+justfile = Path(os.environ['SAVED_JUSTFILE'])
+if run.returncode and not marker.exists() and 'begin lines of jnterfaces' in justfile.read_text():
+    marker.write_text('')
+    justfile.write_text(justfile.read_text() + '# saved by you\\n')
+sys.exit(run.returncode)
+''')
+        (self.bin / 'just').chmod(0o755)
+        justfile = self.target / 'Justfile'
+        justfile.write_text('install:\n    @echo mine\n')
+        run = self.stack('prose', env={'SAVED_MARKER': str(self.base / 'saved'),
+                                       'SAVED_JUSTFILE': str(justfile)})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertTrue((self.base / 'saved').exists())
+        self.assertIn('took the block out again', run.stderr)
+        self.assertEqual(justfile.read_text(), 'install:\n    @echo mine\n# saved by you\n')
+
+    def test_check_names_a_started_justfile_without_the_import(self):
+        self.assertEqual(self.stack('prose').returncode, 0)
+        (self.target / 'Justfile').write_text('x:\n    @echo x\n')
+        run = self.stack('--check')
+        self.assertIn("Justfile does not import .agents/install.just. Add this line to it: import? "
+                      "'.agents/install.just'", run.stdout)
+
+    def test_a_started_justfile_gets_no_block(self):
+        self.assertEqual(self.stack('prose').returncode, 0)
+        justfile = self.target / 'Justfile'
+        text = justfile.read_text()
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertEqual(justfile.read_text(), text)
+        self.assertNotIn('Justfile', self.saved()['parts'])
+        self.assertNotIn('does not import', self.stack('--check').stdout)
 
     def test_a_role_variant_is_saved_kept_and_dropped_with_the_role(self):
         run = self.stack('tasker=gitwt')
@@ -796,10 +1136,11 @@ class StackTests(unittest.TestCase):
         self.assertIn('The saved variant tasker=gitwt is gone from stack.json', run.stderr)
         self.assertEqual(self.saved()['variants'], {'tasker': 'git'})
 
-    def test_a_project_not_started_by_jnterfaces_gets_no_index_for_roles_alone(self):
+    def test_a_project_not_started_by_jnterfaces_gets_an_index_for_roles_alone(self):
         (self.target / 'Justfile').write_text("import? '.agents/install.just'\n")
         self.assertEqual(self.stack('prose').returncode, 0)
-        self.assertFalse((self.target / '.agents/just/index.just').exists())
+        self.assertNotIn('mod ', (self.target / '.agents/just/index.just').read_text())
+        self.assertIn("import? 'roles/nossaifd.just'", (self.target / '.agents/just/index.just').read_text())
 
     def test_a_malformed_variant_list_is_refused(self):
         for change in (lambda r: r['packages'][1].update(default_variant='nope'),
@@ -1645,12 +1986,26 @@ class StackTests(unittest.TestCase):
                            ('ruff>=0.17', 'ruff'), ('pytest[testing]~=8', 'pytest')):
             self.assertEqual(install_stack.package_name(spec), name)
 
-    def test_an_existing_justfile_is_kept_and_the_import_line_is_named(self):
+    def test_an_existing_justfile_is_kept_and_gets_the_import_line(self):
         (self.target / 'justfile').write_text('test:\n    echo hi\n')
         run = self.stack('--profile', 'python')
+        self.assertIn("Changed justfile: adds import? '.agents/install.just'", run.stderr)
+        self.assertTrue((self.target / 'justfile').read_text().endswith("\nimport? '.agents/install.just'\n"
+                                                                        "# end lines of jnterfaces. They stay while the "
+                                                                        "project keeps .agents/stack.json.\n\n"
+                                                                        "test:\n    echo hi\n"))
+        self.assertEqual(sorted(os.listdir(self.target)).count('Justfile') + sorted(os.listdir(self.target)).count(
+            'justfile'), 1)
+        self.assertIn('justfile', self.saved()['parts'])
+        # A started Justfile that lost the line is named, not changed.
+        record = self.saved()
+        record['started'] = True
+        del record['parts']['justfile']
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        (self.target / 'justfile').write_text('test:\n    echo hi\n')
+        run = self.stack()
         self.assertIn("Add this line to justfile, so that just install works: import? '.agents/install.just'", run.stderr)
         self.assertEqual((self.target / 'justfile').read_text(), 'test:\n    echo hi\n')
-        self.assertFalse((self.target / 'Justfile').exists() and (self.target / 'Justfile').read_text() != 'test:\n    echo hi\n')
 
     def test_a_tool_needs_a_profile_that_has_it(self):
         run = self.stack('lint')

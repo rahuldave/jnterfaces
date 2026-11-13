@@ -62,7 +62,7 @@ declarations, then writes the project and its records.
 | `.agents/install.just` | the project | the installer | The recipes `just install` and `just uninstall`. |
 | `.agents/skills/` and `.claude/skills/` | the project | the installer | The skills, and a link to each one for Claude Code. |
 | `.claude/hooks/` and `.codex/hooks/` | the project | the tasker role, through `install_extras.files` | The hook scripts. The hook entries go in `.claude/settings.json` and `.codex/hooks.json` as parts. |
-| `Justfile` | the project | the installer once, then you | The starter Justfile, when the project has none. It is yours from then on. |
+| `Justfile` | the project | the installer once, then you | The starter Justfile, when the project has none. It is yours from then on. In a Justfile of your own, the installer adds one block with the line `import? '.agents/install.just'`. |
 | `CLAUDE.md` | the project | the installer once, then you | The line `@AGENTS.md`, when the project has `AGENTS.md` and no `CLAUDE.md`. Claude Code reads `CLAUDE.md` and not `AGENTS.md`, and the line imports `AGENTS.md`. It is yours from then on. |
 | `.gitignore`, `.worktreedisposable`, `AGENTS.md` | the project | the installer and you | Line files. Each owner adds a block of lines. |
 
@@ -89,7 +89,10 @@ declarations, then writes the project and its records.
 9. It runs the package commands of the tools, such as `uv add --group lint
    ruff`.
 10. It saves `.agents/stack-pending.json`, then it writes the shared files
-    and the own files, and adds an entry to `.agents/stack-log.jsonl`.
+    and the own files, and adds an entry to `.agents/stack-log.jsonl`. A
+    Justfile of your own is a line file here, and it gets the block with the
+    import of `.agents/install.just`. If the Justfile then does not parse,
+    the installer takes the block out again.
 11. If the project now has `AGENTS.md` and no `CLAUDE.md`, it writes a
     `CLAUDE.md` with the line `@AGENTS.md`. If your `CLAUDE.md` does not
     import `AGENTS.md`, it says so and leaves the file alone.
@@ -206,6 +209,7 @@ The record has these keys:
 | `owned_packages` | The packages that the installer added, keyed by their place in the manifest. A removal takes out only these. For Python the place is `profile:group`. For TypeScript it is the profile, because npm has no groups. | `{"python:lint": ["pre-commit", "ruff"]}` |
 | `generated` | The hash of `index.just` and of each `<profile>.just` that the installer wrote. | |
 | `started` | `true` when the installer wrote the starter Justfile. | `true` |
+| `justfile_clash` | The hash of your Justfile and the error of `just`, when a run took the block out again because the Justfile did not parse with it. While the Justfile keeps this hash, the installer does not add the block. | |
 | `parts` | Each unit of each shared file. See below. | |
 | `parts_version` | The version of the format of `parts`. | `1` |
 | `pending_tools`, `removing_tools`, `removing_profiles` | Work that a run that failed did not finish. The next run finishes it. | |
