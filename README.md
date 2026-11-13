@@ -114,15 +114,23 @@ file stays.
    uv run "${SKILL_PACKAGES_DIR:-$HOME/.local/share/skill-packages}/jnterfaces/scripts/install_stack.py" --profile python
    ```
 
-   Use `--profile typescript` for TypeScript. The installer clones the other
+   Use `--profile typescript` for TypeScript, or `--profile rust` for Rust. The installer clones the other
    packages that it needs, writes the starter Justfile, and adds the tools.
-5. Run `just verify`. A project with no code yet passes.
+5. Run `just verify`. A project with no code yet passes. A Rust project
+   always has code, because `cargo init` writes `src/main.rs`. Its steps run
+   with `--locked`, so first make `Cargo.lock` with `just setup`. The
+   steps also check the docs, so add a `//!` doc line at the top of
+   `src/main.rs`. `cargo init` names the package after the folder, so a folder
+   name that is not a valid crate name fails. Examples are a name that starts with
+   a digit, a name with a `.` or a space, a Rust keyword such as `fn`, and `test`.
+   For such a folder, run `cargo init --vcs none --name NAME` first.
 6. Put the code in the place that the profile expects:
 
    | Profile | Code | Tests |
    |---|---|---|
    | `python` | Modules at the top of the project, such as `app.py`, or a package folder | `tests/test_NAME.py`. pytest finds the modules at the top, because the `test` tool sets `pythonpath`. |
    | `typescript` | `src/`, for example `src/app.ts` | `src/NAME.test.ts`, which imports the code as `./app.js`. Turn on the tool with `just install test`. |
+   | `rust` | `src/`, as `cargo init` makes it | Unit tests in the module, and the files in `tests/` |
 
 7. Run `just fmt` to format the code, then `just verify` again.
 8. Commit the project, with `.agents/`, `.claude/`, `.codex/`, `AGENTS.md`,
@@ -146,9 +154,12 @@ of its own, and `stack.json` names it:
 |---|---|---|---|---|
 | `python` | [jnprofile-python](https://github.com/rahuldave/jnprofile-python) | `lint`, `test`, `typecheck` | `lint`, `test` | `uv add --group ...` |
 | `typescript` | [jnprofile-typescript](https://github.com/rahuldave/jnprofile-typescript) | `lint`, `test`, `typecheck` | `lint`, `typecheck` | npm, which uvx runs from `nodejs-wheel` |
+| `rust` | [jnprofile-rust](https://github.com/rahuldave/jnprofile-rust) | `lint`, `typecheck`, `test`, `docstring` | all four | none: each tool uses the programs of the machine, such as `cargo` |
 
 On the first install, the installer finds the profile from the files of the
-project, such as `pyproject.toml`, or you name it with `--profile`. After that,
+project, such as `pyproject.toml`, or you name it with `--profile`. A project
+with both `pyproject.toml` and `Cargo.toml`, such as a Python package with a
+Rust extension, gets both profiles. After that,
 the installer uses the profiles of the saved record, also when the record has
 no profile.
 
@@ -170,6 +181,11 @@ one. A project with a Justfile of its own gets the modules only, such as
 file that `just install` writes in `.agents/just`, and the installer changes
 only a file whose hash is the recorded one. With more than one language, a
 combined recipe gives the same arguments to each language.
+
+**The source files.** A profile can name the globs of its source files with
+the key `code` of `profile.json`, for example `**/*.rs`. `just install` copies
+them into the key `code` of `.agents/stack.json`, for each profile. The commit
+gate of agent_gest_git_skills reads them as `@code`.
 
 **The other files.** A shared file, such as `.gitignore`, is a file that you
 and the installer both add to. A profile, a tool or a role
@@ -194,8 +210,9 @@ in `docs/stack-guide.md`, tells how. If the project has no Justfile,
 the installer writes a starter Justfile. Otherwise it names the line to add to
 your Justfile.
 
-If the project has no `pyproject.toml` or `package.json`, the installer makes
-one with `uv init --bare` or `npm init --yes`. For Python, the profile also
+If the project has no `pyproject.toml`, `package.json` or `Cargo.toml`, the
+installer makes one with `uv init --bare`, `npm init --yes` or
+`cargo init --vcs none`. For Python, the profile also
 adds `default-groups = "all"` to `pyproject.toml` as a part, so that `uv run`
 has the tools.
 

@@ -49,6 +49,13 @@ def string_list(value):
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
+def code_ok(value):
+    """True for the globs of the key code of a profile.json: the source files of the language, such as **/*.rs.
+    The gate reads them for @code."""
+    return string_list(value) and all(item and not item.startswith('/') and '..' not in item.split('/')
+                                      for item in value)
+
+
 def plain_path(value):
     """True for a relative path inside the repository: not absolute, with no empty, . or .. part, and not in .git."""
     if not isinstance(value, str) or not value or Path(value).is_absolute():
@@ -169,7 +176,8 @@ def check_profile(name, profile, choices):
           and string_list(profile.get('remove')) and isinstance(tools, dict) and tools
           and string_list(profile.get('default_tools', [])) and set(profile.get('default_tools', [])) <= set(tools)
           and isinstance(profile.get('choices', {}), dict) and set(profile.get('choices', {})) <= set(choices)
-          and profile.get('manifest') in ('pyproject.toml', 'package.json')
+          and profile.get('manifest') in ('pyproject.toml', 'package.json', 'Cargo.toml')
+          and code_ok(profile.get('code', []))
           and isinstance(init, dict)
           and (not init or (plain_path(init.get('file')) and string_list(init.get('command')) and init['command']))
           and (profile.get('uv_default_groups') is None or isinstance(profile['uv_default_groups'], str)
@@ -180,7 +188,7 @@ def check_profile(name, profile, choices):
           and all(plain_path(k) and plain_path(v) for k, v in base.get('files', {}).items())
           and lines_ok(base)
           and all(re.fullmatch(r'[a-z][a-z0-9_-]*', tool_name) for tool_name in tools)
-          and all(isinstance(tool, dict) and string_list(tool.get('packages')) and tool['packages']
+          and all(isinstance(tool, dict) and string_list(tool.get('packages'))
                   and isinstance(tool.get('files', {}), dict)
                   and all(plain_path(k) and plain_path(v) for k, v in tool.get('files', {}).items())
                   and lines_ok(tool) and parts_ok(tool)
@@ -901,6 +909,10 @@ def present_packages(target, profile, group, place_only=False):
             groups = tomllib.loads(path.read_text()).get('dependency-groups', {})
             entries = groups.get(group, []) if isinstance(groups, dict) else []
             return {normal_name(item, profile) for item in entries if isinstance(item, str)}
+        if manifest == 'Cargo.toml':
+            # cargo add --dev puts a crate in [dev-dependencies]. A tool of the rust profile may have no crate.
+            table = tomllib.loads(path.read_text()).get('dev-dependencies', {})
+            return set(table) if isinstance(table, dict) else None
         data = json.loads(path.read_text())
         lists = {kind: set(data[kind]) if isinstance(data.get(kind), dict) else set()
                  for kind in ('dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies')}
@@ -943,6 +955,11 @@ def tool_steps(target, profiles, active, tools_add, tools_remove, keep, owned, d
             if tool in profile['tools']:
                 entry = profile['tools'][tool]
                 group = entry.get('group', tool)
+                if not entry['packages']:
+                    # A tool with no packages, as each tool of the rust profile, needs no read of the project file.
+                    steps.append(('add', name, tool, None, entry.get('files', {}), entry,
+                                  (owner_key(name, profile, tool), []), None))
+                    continue
                 present = present_packages(target, profile, group)
                 if present is None:
                     steps.append(('add', name, tool, None, {}, entry, (owner_key(name, profile, tool), []),
@@ -955,6 +972,9 @@ def tool_steps(target, profiles, active, tools_add, tools_remove, keep, owned, d
         by_owner = {}
         for tool in of(name, tools_remove):
             if tool not in profile['tools']:
+                continue
+            if not profile['tools'][tool]['packages']:
+                # A tool with no packages, as each tool of the rust profile, removes nothing from the project file.
                 continue
             owner = owner_key(name, profile, tool)
             group = profile['tools'][tool].get('group', tool)
@@ -1522,7 +1542,8 @@ def main(argv=None):
                 continue
             for first in entry.get('before', []):
                 print('Would run: ' + ' '.join(first))
-            print('Would run: ' + ' '.join(command) if command else f'The project already has the packages of {tool}')
+            print('Would run: ' + ' '.join(command) if command else f'The project already has the packages of {tool}'
+                  if entry.get('packages') else f'{tool} needs no packages')
         after = {}
         sync_files(target, profiles, [n for n in active if n not in leaving], tools, active, True, parts, roles,
                    gone_roles, unsure, migrating, after=after)
@@ -1556,7 +1577,7 @@ def main(argv=None):
     # The keys that save writes. It keeps each other key of the record, so that it never drops one.
     managed = {'version', 'profiles', 'choices', 'tools', 'variants', 'owned_packages', 'added_packages',
                'pending_tools', 'removing_tools', 'removing_profiles', 'generated', 'started', 'parts',
-               'parts_version'}
+               'parts_version', 'code'}
 
     def save(tool_list, waiting, going=()):
         record_file.parent.mkdir(exist_ok=True)
@@ -1581,6 +1602,11 @@ def main(argv=None):
         unfinished_profiles = [name for name in leaving if name in kept_profiles]
         if unfinished_profiles:
             record['removing_profiles'] = unfinished_profiles
+        # The globs of the source files of each profile that stays, for @code of the gate.
+        code = {name: profiles[name]['code'] for name in kept_profiles
+                if name not in leaving and name in profiles and profiles[name].get('code')}
+        if code:
+            record['code'] = code
         write_recipes(target, profiles, [name for name in kept_profiles if name not in leaving], tool_list, False,
                       generated, state['started'], registry_profiles,
                       [f'roles/{package["name"]}.just' for package, _ in steps])
@@ -1645,7 +1671,8 @@ def main(argv=None):
                           file=sys.stderr)
                     failed = subprocess.run(command, cwd=target, env=project_env()).returncode
                 else:
-                    print(f'The project already has the packages of {tool} for {profile}', file=sys.stderr)
+                    print(f'The project already has the packages of {tool} for {profile}' if entry.get('packages')
+                          else f'{tool} for {profile} needs no packages', file=sys.stderr)
         except (OSError, StackError) as exc:
             failed = str(exc)
         except BaseException:
