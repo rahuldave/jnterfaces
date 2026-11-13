@@ -142,9 +142,9 @@ for steps are these:
   worktree when each step passed or logged a skip.
 - **A step of your own replaces the step of the index.** Give it the name of
   the step, and end it with `jlog step NAME`. Then run `just install`.
-- **A step never hides its lines.** Do not give a step a shebang line or the
-  attribute `[script]`, a line with the prefix `-`, or the attribute `[no-cd]`
-  or `[working-directory]`. `just install --check` lists each such step.
+- **A step never hides its lines.** A step has no shebang line and no line
+  with the prefix `-`. It has none of the attributes `[script]`, `[no-cd]`
+  and `[working-directory]`. `just install --check` lists each such step.
 
 When a recipe needs a tool that the project does not have, run
 `just install <tool>`. Do not install the tool on the machine, and do not run

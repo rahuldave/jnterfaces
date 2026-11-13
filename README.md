@@ -188,8 +188,8 @@ In a project that jnterfaces started, with its starter Justfile:
   recipe of the Justfile has is a no-op step that logs the skip. So in a new
   project with no language, `just check` passes.
 
-A recipe of the same name in the Justfile, such as `lint`, takes the place of
-the combined one, and the index leaves that name out. A project with a
+A recipe of the Justfile with the name of a combined recipe, such as `lint`,
+takes the place of the combined recipe. The index leaves that name out. A project with a
 Justfile of its own gets the same index. The installer adds a block of two
 lines to that Justfile. They are `import? '.agents/install.just'`, and the
 line of the run ID, `export JLOG_RUN := env("JLOG_RUN", uuid())`.
