@@ -829,7 +829,7 @@ class StackTests(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(justfile.read_text(), own)
         self.assertIn('does not parse with the block of the installer', run.stderr)
-        self.assertRegex(run.stderr, r'just said: error: Recipe `install` first defined')
+        self.assertRegex(run.stderr, r'(?i)just said: error: recipe `install` first defined')
         self.assertIn("put these lines in it: import? '.agents/install.just'; "
                       "import? '.agents/just/roles/nossaifd.just'", run.stderr)
         self.assertNotIn('also with an empty index', run.stderr)
@@ -841,7 +841,7 @@ class StackTests(unittest.TestCase):
         self.assertNotIn('Changed Justfile', run.stderr)
         self.assertIn('put these lines in it', run.stderr)
         run = self.stack('--check')
-        self.assertIn('did not parse with it. just said: error: Recipe `install`', run.stdout)
+        self.assertRegex(run.stdout, r'(?i)did not parse with it\. just said: error: recipe `install`')
         # After the fix, the next run adds the block.
         justfile.write_text('mine:\n    @echo mine\n')
         run = self.stack()
@@ -1000,14 +1000,14 @@ class StackTests(unittest.TestCase):
         run = self.stack()
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(justfile.read_text(), text)
-        self.assertRegex(run.stderr, r'just said: error: Recipe `install` first defined')
-        self.assertIn('Without the block, just says: error: Variable `jn_copier` not defined', run.stderr)
+        self.assertRegex(run.stderr, r'(?i)just said: error: recipe `install` first defined')
+        self.assertRegex(run.stderr, r'(?i)without the block, just says: error: variable `jn_copier` not defined')
         self.assertIn('(These line numbers do not count the 4 lines of the block.)', run.stderr)
         # A second recipe x: the error of the real file has the line numbers of the real file.
         justfile.write_text(justfile.read_text().replace('y:\n    @echo {{jn_copier}}\ninstall:\n    @echo mine\n',
                                                          'x:\n    @echo again\n'))
         run = self.stack()
-        self.assertIn('Recipe `x` first defined on line 6 is redefined on line 8', run.stderr)
+        self.assertRegex(run.stderr, r'(?i)recipe `x` first defined on line 6 is redefined on line 8')
         self.assertNotIn('Without the block', run.stderr)
 
     @unittest.skipUnless(shutil.which('just'), 'needs just')
