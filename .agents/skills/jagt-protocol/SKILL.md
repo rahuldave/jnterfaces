@@ -60,6 +60,9 @@ The main checkout is the first worktree of the repository.
 
 - **`references/protocol_contract.md`** has the full packet contract. Read it
   when a fresh agent context needs the contract.
+- **`references/agent_result_v1_spec.md`** is the canonical spec of
+  `AGENT_RESULT v1`. It gives the fields, the statuses and what
+  `jagt result lint` checks. The jagt repository keeps a copy.
 - **`scripts/run_protocol_demo.sh [jagt-bin]`** runs a deterministic demo. It
   sends a task, receives a result, checks recursive results and promotes a
   draft. It renders with `--no-save`, so it writes no packet file. Its

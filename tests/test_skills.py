@@ -247,6 +247,57 @@ class SkillTest(unittest.TestCase):
             self.assertEqual(len(nonces), 1, block)
             self.assertRegex(nonces[0], NONCE)
 
+    def test_the_result_spec_is_canonical_and_linked(self):
+        spec = (PROTOCOL / 'references/agent_result_v1_spec.md').read_text()
+        flat = re.sub(r'\s+', ' ', spec)
+        self.assertIn('This page is the canonical spec of `AGENT_RESULT v1`', flat)
+        self.assertNotRegex(spec, r'(?i)copied from|copy of the spec in')
+        # The skill lists the spec, and the contract links to it.
+        self.assertIn('`references/agent_result_v1_spec.md`', (PROTOCOL / 'SKILL.md').read_text())
+        self.assertIn('](agent_result_v1_spec.md)', (PROTOCOL / 'references/protocol_contract.md').read_text())
+        # A link into jagt is a full URL, because an installed skill has no jagt checkout next to it.
+        self.assertNotRegex(spec, r'internal_docs/|\]\((?!https://|protocol_contract\.md)')
+        # The spec states the rules that jagt result lint enforces.
+        for rule in ('**`error`** is required when `status` is `blocked` or `failed`',
+                     '**`nonce`** is required when the task packet has a `nonce` field',
+                     '`partial` wins over `blocked`', '`--expect-count 1`', '`--expect-nonce N`',
+                     'The default check ignores the text outside the packets',
+                     '`outputs.proposed_tasks` needs no `error`', '`N` is 1 or more',
+                     'A failure of the task is never `cancelled`'):
+            self.assertIn(rule, flat, rule)
+
+    def test_each_example_of_the_result_spec_holds_a_nonce_and_its_error(self):
+        spec = (PROTOCOL / 'references/agent_result_v1_spec.md').read_text()
+        blocks = result_blocks(spec)
+        self.assertEqual(len(blocks), 4)
+        for block in blocks:
+            nonces = re.findall(r'^nonce: (.*)$', block, re.M)
+            self.assertEqual(len(nonces), 1, block)
+            self.assertRegex(nonces[0], NONCE)
+            status = re.search(r'^status: (\S+)$', block, re.M).group(1)
+            # Blocked and failed need an error; the partial example stopped on a block, so it has one too.
+            if status in ('blocked', 'failed', 'partial'):
+                self.assertRegex(block, r'(?m)^error:\n  code: \S+\n  message: \S')
+            if status == 'blocked':
+                self.assertIn('outputs: {}', block)
+
+    def test_jagt_passes_each_example_of_the_result_spec(self):
+        jagt = current_jagt()
+        if not jagt:
+            self.skipTest('no jagt 0.3.0 or later; set JAGT_BIN')
+        spec = (PROTOCOL / 'references/agent_result_v1_spec.md').read_text()
+        for block in result_blocks(spec):
+            nonce = re.search(r'^nonce: (.*)$', block, re.M).group(1)
+            status = re.search(r'^status: (\S+)$', block, re.M).group(1)
+            packet = f'<<<AGENT_RESULT v1>>>\n{block}<<<END_AGENT_RESULT>>>\n'
+            result = subprocess.run([jagt, 'result', 'lint', '--expect-count', '1', '--expect-status', status,
+                                     '--expect-nonce', nonce, '-'], input=packet, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            if status in ('blocked', 'failed'):
+                bare = re.sub(r'^error:\n(?:  .*\n)+', '', packet, flags=re.M)
+                result = subprocess.run([jagt, 'result', 'lint', '-'], input=bare, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0, bare)
+
     def test_no_gitbutler_outside_the_tests(self):
         # agent_gest_git_skills dropped GitButler, so the rules use plain git: branches, worktrees, pull requests.
         if not (REPO / '.git').exists() or not shutil.which('git'):
