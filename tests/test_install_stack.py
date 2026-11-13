@@ -19,7 +19,8 @@ sys.path.insert(0, str(REPO / 'scripts'))
 import install_stack  # noqa: E402
 
 RECORDS_PROFILE = {'python': '.agents/jnprofile-python-install.json',
-                   'typescript': '.agents/jnprofile-typescript-install.json'}
+                   'typescript': '.agents/jnprofile-typescript-install.json',
+                   'rust': '.agents/jnprofile-rust-install.json'}
 RECORDS = {'jnterfaces': '.agents/jnterfaces-install.json', 'agent_gest_git_skills': '.agents/gest-git-install.json',
            'nossaifd': '.agents/nossaifd-install.json', 'sklanes': '.agents/sklanes-install.json'}
 SKILLS = {'agent_gest_git_skills': 'gtw', 'nossaifd': 'nossaifd', 'sklanes': 'lanes'}
@@ -225,8 +226,18 @@ PROFILES = json.loads('''{
         }
     }
 }''')
+# The rust profile, as jnprofile-rust ships it: each tool uses the programs of the machine, so it has no packages.
+PROFILES['rust'] = {
+    'name': 'rust', 'about': 'a Rust project with Cargo', 'detect': ['Cargo.toml'], 'manifest': 'Cargo.toml',
+    'init': {'file': 'Cargo.toml', 'command': ['cargo', 'init', '--vcs', 'none']},
+    'choices': {'tasker': True, 'prose': True},
+    'add': ['cargo', 'add', '--dev'], 'remove': ['cargo', 'remove', '--dev'], 'code': ['**/*.rs'],
+    'tools': {'lint': {'packages': [], 'recipes': 'lint.just', 'verify': ['fmt-check', 'lint']},
+              'test': {'packages': [], 'recipes': 'test.just', 'verify': ['test', 'coverage-check']}},
+    'default_tools': ['lint', 'test'],
+    'base': {'recipes': 'base.just', 'lines': {'.gitignore': ['/target/'], '.worktreedisposable': ['/target/']}}}
 # The recipes of each recipe file of a test profile
-RECIPES = {"python": {"lint": ["fmt", "lint", "hook"], "test": ["test", "cov"], "typecheck": ["typecheck"]}, "typescript": {"lint": ["fmt", "lint"], "typecheck": ["typecheck"], "test": ["build", "test"]}}
+RECIPES = {"rust": {"lint": ["fmt-check", "lint"], "test": ["test", "coverage-check"]}, "python": {"lint": ["fmt", "lint", "hook"], "test": ["test", "cov"], "typecheck": ["typecheck"]}, "typescript": {"lint": ["fmt", "lint"], "typecheck": ["typecheck"], "test": ["build", "test"]}}
 
 
 # A uv and a uvx that log each call, so that the tests of the tools run offline. Like the real ones, they write the
@@ -311,6 +322,19 @@ if tool == 'uv':
         if os.environ.get('FAIL_HOOK'):
             sys.exit(1)
         Path('.git/hooks/pre-commit').unlink(missing_ok=True)
+elif tool == 'cargo':
+    # cargo init makes Cargo.toml; cargo add --dev and cargo remove --dev edit [dev-dependencies].
+    if args[0] == 'init':
+        Path('Cargo.toml').write_text('[package]\nname = "app"\n')
+    elif args[0] in ('add', 'remove'):
+        data = tomllib.loads(Path('Cargo.toml').read_text())
+        table = data.setdefault('dev-dependencies', {})
+        for spec in [s for s in args[1:] if not s.startswith('-')]:
+            if args[0] == 'add':
+                table[spec] = '*'
+            else:
+                table.pop(spec, None)
+        Path('Cargo.toml').write_text(dump(data))
 elif tool == 'uvx':
     command, rest = args[3], args[4:]
     if command == 'init':
@@ -368,7 +392,7 @@ class StackTests(unittest.TestCase):
         git(self.target, 'init', '-q')
         self.bin = self.base / 'bin'
         self.bin.mkdir()
-        for tool in ('uv', 'uvx'):
+        for tool in ('uv', 'uvx', 'cargo'):
             (self.bin / tool).write_text(f'#!{sys.executable}\n' + FAKE_TOOL)
             (self.bin / tool).chmod(0o755)
         self.log = self.base / 'tools.log'
@@ -1079,6 +1103,76 @@ class StackTests(unittest.TestCase):
         self.assertIn('Would write .gitignore', run.stdout)
         self.assertFalse((self.target / '.agents').exists())
 
+    def test_rust_inits_cargo_adds_no_packages_and_records_the_code_globs(self):
+        run = self.stack('--profile', 'rust', '--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        # The tools have no packages, so cargo runs only for init.
+        self.assertEqual(self.tools_run(), ['cargo init --vcs none'])
+        self.assertIn('lint for rust needs no packages', run.stderr)
+        self.assertIn('test for rust needs no packages', run.stderr)
+        self.assertEqual(self.saved()['code'], {'rust': ['**/*.rs']})
+        self.assertEqual(self.tool_names('tools'), ['lint', 'test'])
+        module = (self.target / '.agents/just/rust.just').read_text()
+        self.assertIn("import? 'rust/lint.just'", module)
+        self.assertIn('verify: fmt-check lint test coverage-check', module)
+        self.assertIn('/target/', (self.target / '.gitignore').read_text())
+        self.assertTrue((self.target / RECORDS_PROFILE['rust']).is_file())
+
+    def test_rust_is_found_by_cargo_toml_even_when_it_does_not_parse(self):
+        # A tool with no packages does not read Cargo.toml, so a broken file does not stop the install.
+        (self.target / 'Cargo.toml').write_text('[package\n')
+        run = self.stack('--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.saved()['profiles'], ['rust'])
+        self.assertEqual(self.tools_run(), [])
+        self.assertEqual((self.target / 'Cargo.toml').read_text(), '[package\n')
+
+    def test_a_rust_tool_with_no_packages_turns_off_with_a_broken_cargo_toml(self):
+        self.assertEqual(self.stack('--profile', 'rust', '--defaults').returncode, 0)
+        (self.target / 'Cargo.toml').write_text('[package\n')
+        run = self.stack('--without', 'lint')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.tool_names('tools'), ['test'])
+        self.assertNotIn("import? 'rust/lint.just'", (self.target / '.agents/just/rust.just').read_text())
+
+    def test_a_dry_run_of_rust_says_each_tool_needs_no_packages(self):
+        run = self.stack('--profile', 'rust', '--defaults', '--dry-run')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('lint needs no packages', run.stdout)
+        self.assertNotIn('already has the packages', run.stdout)
+        self.assertFalse((self.target / '.agents').exists())
+
+    def test_a_rust_tool_with_a_crate_reads_the_dev_dependencies(self):
+        self.edit_profile('rust', lambda p: p['tools']['test'].update({'packages': ['proptest']}))
+        (self.target / 'Cargo.toml').write_text('[package]\nname = "app"\n\n[dev-dependencies]\nproptest = "1"\n')
+        run = self.stack('--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('The project already has the packages of test for rust', run.stderr)
+        self.assertEqual(self.tools_run(), [])
+        # In a second project, only the crate that [dev-dependencies] lacks is added.
+        self.edit_profile('rust', lambda p: p['tools']['test'].update({'packages': ['proptest', 'insta']}))
+        target = self.base / 'second'
+        target.mkdir()
+        git(target, 'init', '-q')
+        (target / 'Cargo.toml').write_text('[package]\nname = "app"\n\n[dev-dependencies]\nproptest = "1"\n')
+        run = self.stack('--defaults', target=target)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.tools_run(), ['cargo add --dev insta'])
+
+    def test_turning_rust_off_drops_its_code_globs(self):
+        self.assertEqual(self.stack('--profile', 'rust', '--defaults').returncode, 0)
+        (self.target / 'pyproject.toml').write_text('[project]\nname = "app"\n')
+        run = self.stack('--profile', 'python')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('code', self.saved())
+
+    def test_malformed_code_globs_are_refused(self):
+        for bad in ('**/*.rs', ['/src/*.rs'], [''], [3], ['../other/*.rs'], ['src/../../*.rs']):
+            self.edit_profile('rust', lambda p: p.update({'code': bad}))
+            run = self.stack('--profile', 'rust', '--defaults')
+            self.assertNotEqual(run.returncode, 0, bad)
+            self.assertIn('profile.json of the rust profile is malformed', run.stderr)
+
     def test_ruff_toml_is_left_out_when_pyproject_has_ruff_settings(self):
         (self.target / 'pyproject.toml').write_text('[tool.ruff]\nline-length = 99\n')
         run = self.stack('--defaults')
@@ -1613,7 +1707,7 @@ class StackTests(unittest.TestCase):
         self.assertIn('--clone needs NAME=DIR', self.stack('--defaults', '--clone', 'nossaifd').stderr)
         self.assertIn('--clone names no package: lanes', self.stack('--defaults', '--clone', 'lanes=/x').stderr)
         self.assertIn('does not go with --all', self.stack('--ask', '--all').stderr)
-        self.assertIn('Unknown profile(s): rust', self.stack('--profile', 'rust').stderr)
+        self.assertIn('Unknown profile(s): cobol', self.stack('--profile', 'cobol').stderr)
         self.assertIn('must not be this jnterfaces clone', self.stack('--defaults', target=self.packages / 'jnterfaces').stderr)
         self.assertFalse((self.target / '.agents').exists())
 

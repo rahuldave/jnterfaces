@@ -83,6 +83,14 @@
         "package.json",
         "tsconfig.json"
       ]
+    },
+    "rust": {
+      "package": "jnprofile-rust",
+      "repository": "https://github.com/rahuldave/jnprofile-rust",
+      "about": "a Rust project with Cargo",
+      "detect": [
+        "Cargo.toml"
+      ]
     }
   }
 }

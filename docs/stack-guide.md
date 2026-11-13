@@ -30,7 +30,7 @@ The stack has parts in four places:
 
 | Place | What it holds |
 |---|---|
-| GitHub, `rahuldave/...` | The source of each package: jnterfaces, agent_gest_git_skills, nossaifd, sklanes, and the profile packages jnprofile-python and jnprofile-typescript. |
+| GitHub, `rahuldave/...` | The source of each package: jnterfaces, agent_gest_git_skills, nossaifd, sklanes, and the profile packages jnprofile-python, jnprofile-typescript and jnprofile-rust. |
 | The clone folder | One Git clone of each package. The default folder is `~/.local/share/skill-packages`. |
 | The project | Copies of the skills in `.agents/skills`, the recipes in `.agents/just`, the records, and `.agents/stack.json`. |
 | The machine | The programs: `git`, `just`, `uv`, and the programs that some roles need. |
