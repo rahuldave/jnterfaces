@@ -769,9 +769,10 @@ class StackTests(unittest.TestCase):
         self.assertEqual(sorted(summary.stdout.split()), ['build', 'install', 'prose', 'uninstall'])
         run = self.just_in_target('prose', 'a.md')
         self.assertEqual((run.returncode, run.stdout.strip()), (0, 'prose a.md'), run.stderr)
-        # A second run changes nothing, and --check finds the block.
+        # A second run changes nothing, and --check finds the block. The project commits the files first.
         self.assertEqual(self.stack().returncode, 0)
         self.assertEqual(justfile.read_text(), text)
+        commit(self.target)
         run = self.stack('--check')
         self.assertEqual(run.returncode, 0, run.stdout)
         self.assertIn('the files agree\n', run.stdout)
@@ -1086,6 +1087,47 @@ sys.exit(run.returncode)
         run = self.stack('--check')
         self.assertIn("Justfile does not import .agents/install.just. Add this line to it: import? "
                       "'.agents/install.just'", run.stdout)
+
+    def test_a_generated_file_that_git_does_not_track_or_that_is_gone_gets_a_note(self):
+        run = self.stack('prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('.agents/just/index.just', self.saved()['generated'])
+        self.assertIn('git does not track .agents/just/index.just. Commit it', run.stderr)
+        run = self.stack('--check')
+        self.assertEqual(run.returncode, 0, run.stdout)
+        self.assertIn('git does not track .agents/just/index.just', run.stdout)
+        # After the commit, neither the run nor --check has the note.
+        commit(self.target)
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('git does not track', run.stderr)
+        self.assertNotIn('git does not track', self.stack('--check').stdout)
+        # A clone without the file: --check fails and names it, and the next run writes it again.
+        (self.target / '.agents/just/index.just').unlink()
+        run = self.stack('--check')
+        self.assertEqual(run.returncode, 1, run.stdout)
+        self.assertIn('.agents/just/index.just is gone, so just does not have the recipes', run.stdout)
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertTrue((self.target / '.agents/just/index.just').is_file())
+        self.assertEqual(self.stack('--check').returncode, 0)
+
+    def test_a_generated_key_outside_the_project_is_left_out_of_the_notes(self):
+        self.assertEqual(self.stack('prose').returncode, 0)
+        record = self.saved()
+        record['generated'].update({'/nonexistent/x.just': 'x', '../outside.just': 'x'})
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        run = self.stack('--check')
+        self.assertEqual(run.returncode, 0, run.stdout)
+        self.assertIn('git does not track .agents/just/index.just', run.stdout)
+        self.assertNotIn('outside', run.stdout)
+        self.assertNotIn('nonexistent', run.stdout)
+
+    def test_a_generated_file_outside_git_gets_no_note_of_git(self):
+        shutil.rmtree(self.target / '.git')
+        run = self.stack('prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('git does not track', run.stderr)
+        self.assertNotIn('git does not track', self.stack('--check').stdout)
 
     def test_a_started_justfile_gets_no_block(self):
         self.assertEqual(self.stack('prose').returncode, 0)
