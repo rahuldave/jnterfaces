@@ -11,8 +11,9 @@ gives the whole protocol. This page gives the details of the result packet.
 
 The rules for a check describe what `jagt result lint` does in the next jagt
 release after 0.5.0. Earlier versions miss some of these checks. jagt 0.5.0
-passes a symbolic link that leads out of the base folder. jagt 0.3.0 and
-0.4.0 also pass a YAML merge key, and 0.3.0 passes a path with a `..` part.
+passes a symbolic link that leads out of the base folder, and a file with a
+second hard link. jagt 0.3.0 and 0.4.0 also pass a YAML merge key, and 0.3.0
+passes a path with a `..` part.
 
 ## Terms
 
@@ -241,8 +242,8 @@ path, and it must not hold a `..` part. The `role` is `required` or
 `optional`. A file without a `role` counts as `optional`.
 
 A listed file that exists must stay inside the base folder, also through a
-symbolic link. `jagt result lint` checks these rules only with
-`--check-files`.
+symbolic link, and on Unix it must have one hard link only. `jagt result
+lint` checks these rules only with `--check-files`.
 
 In v1, leave out checksums. Add them only when the task asks for them.
 
@@ -293,11 +294,16 @@ These options add checks to the default check:
   `nonce` with the value `N`. A missing nonce or another nonce fails. `N`
   must be a nonce, as the section "Terms" defines it.
 - **`--check-files`** checks `outputs.files` by the rules of the section
-  "File outputs". Each required file must exist and be a file. The check
-  follows a symbolic link, but a listed file that exists must have its real
-  path inside the real base folder. So a link that leads out of the base
-  folder fails, for a required or an optional file. jagt 0.5.0 and earlier
-  pass such a link.
+  "File outputs". Each required file must exist and be a file. A missing
+  required file fails as missing. A missing optional file, or a link whose
+  target is missing, is not checked further.
+  - **A symbolic link.** The check follows it, but a listed file that exists
+    must have its real path inside the real base folder. So a link that leads
+    out of the base folder fails, for a required or an optional file.
+  - **A hard link.** On Unix, a listed file that exists and has more than one
+    hard link fails. A hard link has no real path of its own, so a second link
+    can name a file outside the base folder.
+  - **Older versions.** jagt 0.5.0 and earlier pass both kinds of link.
 - **`--base-dir D`** works with `--check-files`. It gives the folder that the
   file paths are relative to. Its default is the current folder, so run the
   check from the root of the repository, or pass the root as `D`.
