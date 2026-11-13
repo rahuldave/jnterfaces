@@ -295,8 +295,8 @@ These options add checks to the default check:
   must be a nonce, as the section "Terms" defines it.
 - **`--check-files`** checks `outputs.files` by the rules of the section
   "File outputs". Each required file must exist and be a file. A missing
-  required file fails as missing. A missing optional file, or a link whose
-  target is missing, is not checked further.
+  required file fails as missing. A missing optional file, or an optional link
+  whose target is missing, is not checked further.
   - **A symbolic link.** The check follows it, but a listed file that exists
     must have its real path inside the real base folder. So a link that leads
     out of the base folder fails, for a required or an optional file.

@@ -1778,7 +1778,7 @@ def just_dump(target, justfile):
 
 def recipe_line(name, recipe, takes):
     """The line of a combined recipe that runs the recipe of one module."""
-    return f'    just --justfile "{{{{justfile()}}}}" {name} {recipe}' + (' "$@"' if takes else '')
+    return f'    just --justfile {{{{quote(justfile())}}}} {name} {recipe}' + (' "$@"' if takes else '')
 
 
 def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runnable=None):
@@ -1809,7 +1809,7 @@ def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runn
         lines += [f'    jlog step {recipe}'] if recipe in STEPS else []
     if modules and 'verify' not in taken:
         lines += ['', '# Every installed check of each language, then the check of git for whitespace errors',
-                  'verify:'] + [f'    just --justfile "{{{{justfile()}}}}" {name} verify' for name in modules]
+                  'verify:'] + [f'    just --justfile {{{{quote(justfile())}}}} {name} verify' for name in modules]
         lines += ['    git diff --check']
     real = set(names)
     if modules and 'diff-check' not in real | taken:
