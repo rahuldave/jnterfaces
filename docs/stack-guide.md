@@ -448,8 +448,11 @@ just install tasker
 - If you changed the workflow, the installer keeps it and says so. Delete it
   yourself if you do not want it.
 - While the `tasker` role is on, no install writes the workflow again.
-- After `just uninstall tasker`, the next install of `prose` writes the
-  workflow again.
+- `just uninstall tasker` writes the workflow again, while the `prose` role
+  is on.
+- If you delete the workflow, it stays deleted.
+- When the `prose` role is off, the rule does not hold. A workflow that
+  `prose` left stays.
 
 `drop_with` in `stack.json` of jnterfaces holds this rule.
 

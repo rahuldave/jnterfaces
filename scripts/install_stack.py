@@ -445,7 +445,8 @@ def dropped_files(packages, chosen, clones):
     found = {}
     for package in packages:
         for role, rule in package.get('drop_with', {}).items():
-            if not chosen.get(role):
+            # The rule holds while both roles are on. A file that a role left behind after it went is yours.
+            if not (chosen.get(role) and chosen.get(package.get('choice'))):
                 continue
             clone = clones.get(package['name'])
             starter = role_extras(clone)[1] if clone is not None else {}

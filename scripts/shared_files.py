@@ -1304,16 +1304,23 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
     dropped = dropped or {}
     replaced, messages, changes = set(), [], {}
     # A starter file that a rule drops, such as the prose workflow while the tasker role is on, goes when the
-    # installer wrote it and nobody changed it. A changed file stays, and is yours. The record forgets the starter, so
-    # that the starter is written again once the rule no longer drops it.
+    # installer wrote it and nobody changed it. The record forgets the starter, so that the starter is written again
+    # once the rule no longer drops it. A changed file stays, and is yours. Its record keeps the starter, so that
+    # the file stays deleted when you delete it.
     for path, (reason, origins) in dropped.items():
         units = parts.get(path, {})
         entry = units.get(STARTER) or units.get(SEED)
-        if entry is None or linked(target, path):
+        if entry is None or FILE in units or linked(target, path):
             continue
         file = target / path
         if not file.is_file():
-            # You deleted the file. The record keeps the starter, so that the file stays deleted.
+            # You deleted the file, so the record keeps the starter, and the file stays deleted. A run that stopped
+            # with the file in the pending file may have removed it itself, so this run forgets the starter.
+            if path in pending:
+                units.pop(STARTER, None)
+                units.pop(SEED, None)
+                if not units:
+                    parts.pop(path, None)
             continue
         wrote = {entry.get('hash')} | {digest(origin.read_bytes()) for origin in origins if origin.is_file()}
         if digest(file.read_bytes()) in wrote:
@@ -1321,17 +1328,21 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
             changes[path] = 'dropped'
             messages.append(f'{"Would remove" if dry_run else "Removed"} {path}, which the installer wrote: '
                             f'{reason}.')
+            units.pop(STARTER, None)
+            units.pop(SEED, None)
+            if not units:
+                parts.pop(path, None)
         else:
             units[FILE] = {'state': 'kept', 'needs': entry.get('needs', [])}
+            # A seed becomes a starter record, which keeps the file deleted once you delete it.
+            units[STARTER] = {key: value for key, value in entry.items() if key in ('state', 'holder', 'needs')}
+            units[STARTER].setdefault('needs', [])
+            units.pop(SEED, None)
             # A starter of an older installer has no hash, so the installer cannot tell your change from a new
             # version of the package.
             why = 'you changed it' if entry.get('hash') else 'the installer cannot tell whether you changed it'
             messages.append(f'Kept {path}: {why}, so it stays yours. {reason[0].upper()}{reason[1:]}, so you may '
                             f'delete it.')
-        units.pop(STARTER, None)
-        units.pop(SEED, None)
-        if not units:
-            parts.pop(path, None)
     # Each file that this run decides from the file alone: a whole file of the old installer that a part replaces,
     # and a starter of a new file.
     for path in list(parts):
@@ -1658,6 +1669,9 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
         for key in (FILE, STARTER, SEED):
             if path not in new_parts and key in units:
                 new_parts[path] = {key: units[key]}
+        # A kept file that a rule dropped also keeps its starter, so that it stays deleted when you delete it.
+        if FILE in new_parts.get(path, {}) and STARTER in units:
+            new_parts[path][STARTER] = units[STARTER]
     if after is not None:
         after.update({path: data is not None for path, data in writes.items()})
     if dry_run:

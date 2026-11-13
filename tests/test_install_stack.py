@@ -2549,12 +2549,70 @@ class PartsTests(StackTests):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn(f'Kept {self.WORKFLOW}: you changed it, so it stays yours', run.stderr)
         self.assertEqual(workflow.read_text(), 'name: mine\n')
-        self.assertEqual(self.saved()['parts'][self.WORKFLOW], {'(file)': {'state': 'kept', 'needs': ['prose']}})
+        self.assertEqual(self.saved()['parts'][self.WORKFLOW]['(file)'], {'state': 'kept', 'needs': ['prose']})
         # The note comes once, and the file stays yours after tasker goes too.
         run = self.stack()
         self.assertNotIn('Kept ' + self.WORKFLOW, run.stderr)
         self.assertEqual(self.stack('--without', 'tasker').returncode, 0)
         self.assertEqual(workflow.read_text(), 'name: mine\n')
+
+    def test_an_edited_prose_workflow_that_you_delete_stays_deleted_after_tasker_goes(self):
+        self.prose_with_workflow()
+        workflow = self.target / self.WORKFLOW
+        self.assertEqual(self.stack('prose', '--without', 'tasker').returncode, 0)
+        workflow.write_text('name: mine\n')
+        self.assertEqual(self.stack('tasker').returncode, 0)
+        # The note said that you may delete it. You do, and it stays deleted while prose is on.
+        workflow.unlink()
+        for args in ((), ('--without', 'tasker'), ('--without', 'tasker')):
+            run = self.stack(*args)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertFalse(workflow.exists(), args)
+
+    def test_a_kept_seed_that_you_delete_stays_deleted_after_tasker_goes(self):
+        self.prose_with_workflow()
+        workflow = self.target / self.WORKFLOW
+        self.assertEqual(self.stack('prose', '--without', 'tasker').returncode, 0)
+        record = self.saved()
+        record['parts'][self.WORKFLOW] = {'(seed)': {'state': 'seeded', 'holder': 'prose', 'needs': ['prose'],
+                                                      'hash': 'x'}}
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        workflow.write_text('name: mine\n')
+        run = self.stack('tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(f'Kept {self.WORKFLOW}', run.stderr)
+        self.assertEqual(sorted(self.saved()['parts'][self.WORKFLOW]), ['(file)', '(starter)'])
+        workflow.unlink()
+        self.assertEqual(self.stack('--without', 'tasker').returncode, 0)
+        self.assertFalse(workflow.exists())
+
+    def test_a_prose_workflow_that_prose_left_behind_stays_when_tasker_comes(self):
+        self.prose_with_workflow()
+        workflow = self.target / self.WORKFLOW
+        self.assertEqual(self.stack('prose', '--without', 'tasker').returncode, 0)
+        self.assertEqual(self.stack('--without', 'prose,tasker').returncode, 0)
+        self.assertTrue(workflow.exists())
+        # Without prose, just check runs no prose-check, so the reason of the rule does not hold.
+        run = self.stack('tasker', '--without', 'prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn(f'Removed {self.WORKFLOW}', run.stderr)
+        self.assertEqual(workflow.read_text(), 'name: prose\n')
+
+    def test_a_run_that_stopped_after_it_dropped_the_workflow_lets_the_workflow_come_back(self):
+        self.prose_with_workflow()
+        workflow = self.target / self.WORKFLOW
+        self.assertEqual(self.stack('prose', '--without', 'tasker').returncode, 0)
+        # A run with tasker that stopped after it removed the workflow and before it saved the record.
+        old = self.saved()['parts'][self.WORKFLOW]
+        (self.target / '.agents/stack-pending.json').write_text(
+            json.dumps({'files': {self.WORKFLOW: {'old': old, 'new': {}}}}))
+        workflow.unlink()
+        run = self.stack('tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn(self.WORKFLOW, self.saved()['parts'])
+        run = self.stack('--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(workflow.read_text(), 'name: prose\n')
 
     def test_a_prose_workflow_of_yours_stays_when_tasker_comes(self):
         self.prose_with_workflow()
