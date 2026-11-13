@@ -30,8 +30,10 @@ import re
 import secrets
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
+import tempfile
 import tomllib
 
 import lint_steps
@@ -225,7 +227,188 @@ def check_profile(name, profile, choices):
                   for tool in tools.values()))
     if not ok:
         raise StackError(f'The profile.json of the {name} profile is malformed')
+    check_programs(name, profile)
     return profile
+
+
+PROGRAM_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.+-]*')
+PROGRAM_KEYS = {'name', 'check', 'install', 'description', 'expect', 'install_in'}
+
+
+def command_of(text):
+    """The argv list of a check or install command of a program: the text split as a shell splits it, but run
+    without a shell. None when the text is not a string, does not split, or is empty."""
+    if not isinstance(text, str):
+        return None
+    try:
+        argv = shlex.split(text)
+    except ValueError:
+        return None
+    return argv or None
+
+
+def check_programs(name, profile):
+    """Check the key programs of a profile.json and the names in base.programs and tools.X.programs. Each program
+    has a name, a check command, and an install command or a description. A program without an install needs the
+    description, the hint for a person. With an install, the description is optional, and a failed install prints
+    it. expect is a text that the output of the check must hold."""
+    def fail(reason):
+        raise StackError(f'The profile.json of the {name} profile is malformed: {reason}')
+    programs = profile.get('programs', [])
+    if not isinstance(programs, list):
+        fail('programs must be a list')
+    declared = []
+    for entry in programs:
+        if not isinstance(entry, dict) or not isinstance(entry.get('name'), str) \
+                or not PROGRAM_NAME.fullmatch(entry['name']):
+            fail('each program needs a name of letters, digits and the signs _ . + -')
+        program = entry['name']
+        if program in declared:
+            fail(f'the program {program} is in programs twice')
+        declared.append(program)
+        if set(entry) - PROGRAM_KEYS:
+            fail(f'the program {program} has the unknown key(s) {", ".join(sorted(set(entry) - PROGRAM_KEYS))}')
+        if command_of(entry.get('check')) is None:
+            fail(f'the program {program} needs a check, a command as a string')
+        # A program on PATH, not a path: a path would depend on the machine, or on a file that the run writes later.
+        if any('/' in command_of(entry[key])[0] for key in ('check', 'install') if command_of(entry.get(key))):
+            fail(f'the check and the install of the program {program} must start with a program on PATH, not a path')
+        if 'install' not in entry and 'description' not in entry:
+            fail(f'the program {program} needs an install or a description')
+        if 'install' in entry and command_of(entry['install']) is None:
+            fail(f'the install of the program {program} must be a command as a string')
+        if 'description' in entry and not (isinstance(entry['description'], str) and entry['description'].strip()):
+            fail(f'the description of the program {program} must be a text')
+        if 'expect' in entry and not (isinstance(entry['expect'], str) and entry['expect']):
+            fail(f'the expect of the program {program} must be a text')
+        if entry.get('install_in', 'project') not in ('project', 'home') or ('install_in' in entry
+                                                                             and 'install' not in entry):
+            fail(f'install_in of the program {program} must be project or home, and only with an install')
+    places = [('base', profile.get('base', {}))] + [(f'the tool {tool}', entry)
+                                                    for tool, entry in profile['tools'].items()]
+    for place, entry in places:
+        used = entry.get('programs', [])
+        if not string_list(used) or len(set(used)) != len(used):
+            fail(f'programs of {place} must be a list of names, each once')
+        unknown = [program for program in used if program not in declared]
+        if unknown:
+            fail(f'programs of {place} names {", ".join(unknown)}, which programs does not declare')
+
+
+def needed_programs(profiles, names, pairs):
+    """The programs that the base of each profile in names and each of its tools in pairs need: each once, in the
+    order of programs in its profile.json. A program that two profiles declare is the one of the first profile."""
+    found = {}
+    for name in names:
+        profile = profiles[name]
+        used = set(profile.get('base', {}).get('programs', []))
+        for tool, entry in profile['tools'].items():
+            if f'{name}:{tool}' in pairs:
+                used |= set(entry.get('programs', []))
+        for entry in profile.get('programs', []):
+            if entry['name'] in used and entry['name'] not in found:
+                found[entry['name']] = dict(entry, profile=name)
+    return list(found.values())
+
+
+# The seconds that a check of a program may take. A check of cargo can make rustup download a toolchain first.
+CHECK_SECONDS = 900
+
+
+def stop_check(run):
+    """Stop each process of a check. A process that left the session can keep the output open, so the wait for the
+    output ends after 5 seconds."""
+    try:
+        os.killpg(run.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    try:
+        run.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        run.stdout.close()
+        run.wait()
+
+
+def program_works(target, entry):
+    """Run the check of a program in the target, without a shell. True when it exits with 0 and its output holds the
+    text of expect. The output is not shown. A check that takes more than CHECK_SECONDS fails."""
+    try:
+        # A session of its own, so that a timeout stops each process that the check started, not only the first.
+        run = subprocess.Popen(command_of(entry['check']), cwd=target, env=project_env(), stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors='replace',
+                               start_new_session=True)
+    except OSError:
+        return False
+    try:
+        out, _ = run.communicate(timeout=CHECK_SECONDS)
+    except subprocess.TimeoutExpired:
+        stop_check(run)
+        print(f'{entry["check"]} took more than {CHECK_SECONDS} seconds, so it counts as failed', file=sys.stderr)
+        return False
+    except BaseException:
+        # Ctrl-C does not reach a session of its own, so the check stops here.
+        stop_check(run)
+        raise
+    return run.returncode == 0 and entry.get('expect', '') in out
+
+
+def missing_expected(target, programs, works=None):
+    """The problems with the programs before the run writes anything: each program without an install whose check
+    fails, and each missing program whose install command is not on PATH. One line each. works, when given, gets the
+    result of each check that ran, by the name of the program."""
+    problems = []
+    works = {} if works is None else works
+
+    def check(entry):
+        works[entry['name']] = program_works(target, entry)
+        return works[entry['name']]
+    for entry in programs:
+        if 'install' in entry:
+            first = command_of(entry['install'])[0]
+            if not shutil.which(first) and not check(entry):
+                problems.append(f'{entry["name"]} (for the {entry["profile"]} profile): its install, {entry["install"]}, '
+                                f'needs {first}, which is not on PATH.')
+        elif not check(entry):
+            problems.append(f'{entry["name"]} (for the {entry["profile"]} profile): {entry["check"]} failed'
+                            + (f' or did not print {entry["expect"]}' if entry.get('expect') else '')
+                            + f'. {entry["description"]}')
+    return problems
+
+
+def install_programs(target, programs):
+    """Check each program that has an install, in the target, so that a toolchain file there counts. Install each one
+    whose check fails, then check it again. Stop at the first one that still fails."""
+    for entry in programs:
+        if 'install' not in entry or program_works(target, entry):
+            continue
+        home = entry.get('install_in') == 'home'
+        print(f'{entry["check"]} failed, so the installer runs for the {entry["profile"]} profile, in the '
+              f'{"home folder" if home else "project folder"}: {entry["install"]}', file=sys.stderr)
+        # In the home folder, a toolchain file of the project does not count: cargo install builds with the default
+        # toolchain, not with an old one that the project pins. Without HOME, an empty folder outside the project.
+        spare = None
+        if home and not os.environ.get('HOME'):
+            spare = tempfile.TemporaryDirectory()
+        folder = Path(spare.name) if spare else Path(os.environ['HOME']) if home else target
+        try:
+            code = subprocess.run(command_of(entry['install']), cwd=folder, env=project_env(),
+                                  stdin=subprocess.DEVNULL).returncode
+        except OSError as exc:
+            code = str(exc)
+        finally:
+            if spare:
+                spare.cleanup()
+        about = f' {entry["name"]}: {entry["description"]}' if entry.get('description') else ''
+        if code:
+            reason = code if isinstance(code, str) else f'it exited with {code}'
+            raise StackError(f'The install of the program {entry["name"]} failed: {entry["install"]}: {reason}. The '
+                             f'rest of the install is done. Install {entry["name"]} yourself, or fix the cause, and run '
+                             f'just install again.{about}')
+        if not program_works(target, entry):
+            raise StackError(f'{entry["install"]} ran, but {entry["check"]} still fails'
+                             + (f' or does not print {entry["expect"]}' if entry.get('expect') else '')
+                             + f'. The rest of the install is done. Install {entry["name"]} yourself, and run just '
+                             f'install again.{about}')
 
 
 def parts_ok(part):
@@ -496,14 +679,14 @@ def recipe_file_ok(value):
     return value is None or (isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_-]+\.just', value) is not None)
 
 
-def load_profiles(names, registry_profiles, choices, overrides):
+def load_profiles(names, registry_profiles, choices, overrides, fetch=True):
     """Read the profile.json of each named profile from the clone of its package. Each profile gets its root and
     its package."""
     loaded = {}
     for name in names:
         entry = registry_profiles[name]
         package = {'name': entry['package'], 'repository': entry['repository']}
-        root = clone_dir(package, overrides)
+        root = clone_dir(package, overrides, fetch)
         try:
             profile = json.loads((root / 'profile.json').read_text())
         except (OSError, ValueError) as exc:
@@ -515,6 +698,57 @@ def load_profiles(names, registry_profiles, choices, overrides):
         profile['root'], profile['package'] = root, package
         loaded[name] = profile
     return loaded
+
+
+def check_record_programs(target, record, registry, overrides):
+    """For just install --check: print each program that the profiles and tools of the record need and that is
+    missing. True when one is missing. A profile without a clone is not checked, and --check clones nothing."""
+    record = record if isinstance(record, dict) else {}
+
+    def listed(key):
+        value = record.get(key, [])
+        return value if string_list(value) else []
+    # The profiles and tools that a run without names keeps: the saved and pending ones, less those being removed.
+    names = [name for name in listed('profiles') if name not in listed('removing_profiles')]
+    if not names:
+        return False
+    try:
+        _, choices, _, registry_profiles = load_registry(registry)
+    except StackError as exc:
+        print(f'The programs are not checked: {exc}')
+        return False
+    tools = [pair for pair in listed('tools') + listed('pending_tools') if pair not in listed('removing_tools')]
+    profiles, kept, unchecked = {}, [], False
+    for name in names:
+        if name not in registry_profiles:
+            continue
+        entry = registry_profiles[name]
+        try:
+            clone_dir({'name': entry['package'], 'repository': entry['repository']}, overrides, fetch=False)
+        except StackError as exc:
+            # A profile without a clone is not an error here: a clone of the project, as in CI, has none.
+            print(f'The programs of the {name} profile are not checked: {exc}')
+            continue
+        try:
+            profiles.update(load_profiles([name], registry_profiles, choices, overrides, fetch=False))
+            kept.append(name)
+        except StackError as exc:
+            print(f'The programs of the {name} profile are not checked: {exc}')
+            unchecked = True
+    # A record from before the pairs lists bare tool names: the tool of each saved profile that has it.
+    pairs = {pair if ':' in pair else f'{name}:{pair}' for pair in tools for name in kept}
+    missing = unchecked
+    for entry in needed_programs(profiles, kept, pairs):
+        if program_works(target, entry):
+            continue
+        missing = True
+        if 'install' in entry:
+            print(f'Missing program: {entry["name"]} (for the {entry["profile"]} profile): {entry["check"]} failed. '
+                  f'just install runs: {entry["install"]}')
+        else:
+            print(f'Missing program: {entry["name"]} (for the {entry["profile"]} profile): {entry["check"]} failed. '
+                  f'{entry["description"]}')
+    return missing
 
 
 def read_record(target, choices, aliases):
@@ -834,15 +1068,16 @@ def packages_dir():
     return Path(named).expanduser().resolve() if named else ROOT.parent
 
 
-def clone_dir(package, overrides):
-    """Return the clone of a package. A missing clone in the folder of the packages is cloned from GitHub."""
+def clone_dir(package, overrides, fetch=True):
+    """Return the clone of a package. A missing clone in the folder of the packages is cloned from GitHub, unless
+    fetch is False."""
     name = package['name']
     named = overrides.get(name) or overrides.get(package.get('choice', ''))
     path = Path(named) if named else packages_dir() / name
     if name == 'jnterfaces' and not named:
         path = ROOT
     manifest = path / 'skill-package.json'
-    if not manifest.is_file() and not named and not path.exists():
+    if fetch and not manifest.is_file() and not named and not path.exists():
         print(f'Cloning {package["repository"]} into {path}', file=sys.stderr)
         run = subprocess.run(['git', 'clone', '--quiet', package['repository'], str(path)], capture_output=True, text=True)
         if run.returncode or not manifest.is_file():
@@ -1894,8 +2129,15 @@ def main(argv=None):
         raise StackError(f'Target does not exist: {target}')
     if target == ROOT:
         raise StackError('The target must not be this jnterfaces clone')
+    overrides = {}
+    for item in args.clone:
+        name, sep, path = item.partition('=')
+        if not sep or not name or not path:
+            raise StackError(f'--clone needs NAME=DIR: {item}')
+        overrides[name] = Path(path).expanduser()
     if args.check:
         raw = raw_record(target)
+        missing = check_record_programs(target, raw, args.registry, overrides)
         note = justfile_note(target, raw)
         notes, gone = generated_notes(target, raw)
         notes = [text for text in (note, jlog_note(target)) if text] + notes
@@ -1903,17 +2145,11 @@ def main(argv=None):
         findings = step_findings(target, raw)
         for finding in findings:
             print(f'The lint of steps: {finding}')
-        return 1 if gone or findings else code
+        return 1 if gone or findings or missing else code
     # jlog is the shell of each recipe in .agents/just, so a recipe fails without it.
     if not shutil.which('jlog'):
         raise StackError(f'jlog is not on PATH. Each recipe that just install writes runs through jlog, so install it '
                          f'first: {JLOG_INSTALL}. Nothing was written.')
-    overrides = {}
-    for item in args.clone:
-        name, sep, path = item.partition('=')
-        if not sep or not name or not path:
-            raise StackError(f'--clone needs NAME=DIR: {item}')
-        overrides[name] = Path(path).expanduser()
     packages, choices, aliases, registry_profiles = load_registry(args.registry)
     check_overrides(packages + [{'name': entry['package']} for entry in registry_profiles.values()], overrides)
     split = sort_names(args, choices, aliases, registry_profiles)
@@ -1995,6 +2231,14 @@ def main(argv=None):
     tools_add = [pair for pair in dict.fromkeys(named_on + new_defaults + pending) if pair not in off]
     tools = [pair for pair in dict.fromkeys(saved_tools + tools_add) if pair not in off]
     tools_remove = [pair for pair in saved_tools if pair in off]
+    # The programs of the profiles and tools that stay on. A program without an install must be there before the run
+    # writes anything. A program with an install is installed at the end, after the files of the profiles.
+    programs = needed_programs(profiles, [name for name in active if name not in leaving], tools)
+    works = {}
+    missing = missing_expected(target, programs, works)
+    if missing and not args.dry_run:
+        raise StackError('A program that the profiles need is missing. Nothing was written. Install it, then run just '
+                         'install again:\n  ' + '\n  '.join(missing))
     steps = plan(packages, chosen)
     # The package of each profile is installed like a package of a role: its skills and its recipe files.
     steps += [(profiles[name]['package'], ['--record', str(record_path(profiles[name]['package']))])
@@ -2060,6 +2304,11 @@ def main(argv=None):
             raise StackError(f'{target / init["file"]} is a symlink, so the installer leaves it alone. Make it a file '
                              f'and run just install again. Nothing was written.')
     if args.dry_run:
+        for problem in missing:
+            print(f'Missing program: {problem}')
+        for entry in programs:
+            if 'install' in entry and not (works[entry['name']] if entry['name'] in works else program_works(target, entry)):
+                print(f'Would install {entry["name"]} for the {entry["profile"]} profile: {entry["install"]}')
         for name in active:
             init = profiles[name].get('init')
             if init and any(step[1] == name for step in commands) and not (target / init['file']).exists():
@@ -2090,6 +2339,9 @@ def main(argv=None):
         write_justfile(target, True, bool((record or {}).get('started')))
         write_claude_md(target, True, after)
         write_recipes(target, profiles, [n for n in active if n not in leaving], tools, True, {}, False)
+        if missing:
+            print('Dry run: the real run would stop before it writes anything, because a program is missing.')
+            return 1
         if any(step[7] for step in commands):
             print('Dry run: the real run would fail at the steps above.')
             return 1
@@ -2309,6 +2561,8 @@ def main(argv=None):
         save(tools, [])
     shared_files.finish(target)
     write_claude_md(target, False, after)
+    # The files are in place now, so a toolchain file such as rust-toolchain.toml counts for the checks and installs.
+    install_programs(target, programs)
     print(f'Installed in {target}:')
     for package, _ in steps:
         own = target / record_path(package)

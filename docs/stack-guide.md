@@ -80,6 +80,34 @@ then run `just install`. The roles need more programs:
 | `jagt-protocol` | `jagt` | The skill describes a fallback. |
 | `reporter` | `node` 22 or later | The package says to run node with `uvx --from 'nodejs-wheel==24.*' node`. |
 
+**The programs of a profile.** A profile names the programs that it needs in
+the key `programs` of its `profile.json`. For example, the rust profile needs
+`cargo` and `cargo-llvm-cov`. Each program has a check command.
+
+A program
+that a person must install has a description, such as the address
+https://rustup.rs/. A program that the installer can install has an install
+command, such as `cargo install --locked cargo-llvm-cov@0.9.1`. The base of
+the profile and each tool name the programs that they need. So a tool that is
+off does not need its programs.
+
+- **A program without an install command.** When its check fails, the
+  installer prints the description and stops. It writes nothing. This also
+  stops a run that only removes a tool.
+- **A program with an install command.** When its check fails, the installer
+  runs the install command, and then the check again. It does this at the
+  end of the run, after the files of the profile, in the folder of the
+  project. So rustup
+  reads a `rust-toolchain.toml` of the profile. If the check fails again, the
+  run stops with an error.
+
+The installer runs each command without a shell, and it never downloads a
+script. It never uninstalls a program, also when a tool or a profile goes.
+`just install --dry-run` lists the missing programs and the installs, and it
+installs nothing. `just install --check` lists the missing programs.
+[The programs of a profile](stack-files.md#the-programs-of-a-profile) gives
+the keys.
+
 ## How an install works
 
 The installer runs these steps:
@@ -87,7 +115,8 @@ The installer runs these steps:
 1. It reads the roles, profiles and tools from the command line and from
    `.agents/stack.json`. If neither names a profile, it looks at the files of
    the project. For example, `pyproject.toml` turns on the `python` profile.
-2. It checks each package. If a check fails, it writes nothing.
+2. It checks each package, and each program of a profile that has no install
+   command. If a check fails, it writes nothing.
 3. It copies the skills and other files of each role and profile into the
    project, and it writes one record for each package.
 4. It saves the choices in `.agents/stack.json`.
@@ -101,6 +130,8 @@ The installer runs these steps:
    [Shared files and the record](#shared-files-and-the-record) tells how.
 9. It writes the recipes of the installed tools in `.agents/just`. After each
    step, it saves the record and writes the recipes again.
+10. It checks each program of a profile that has an install command. It
+    installs each missing one, and then checks it again.
 
 A later `just install` with no names installs the same set again, from the
 clones as they are. To get new commits of the packages, run `just install

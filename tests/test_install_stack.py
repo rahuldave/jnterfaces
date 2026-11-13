@@ -7,9 +7,12 @@ import re
 import shlex
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import tomllib
 import unittest
 from unittest import mock
@@ -3314,8 +3317,441 @@ class StepTests(StackTests):
         self.assertTrue(install_stack.shared_files.reserved('.agents/log/just.jsonl'))
 
 
-# PartsTests and StepTests use the fixtures of StackTests, and run only their own tests.
-for _class in (PartsTests, StepTests):
+# A program of a profile, for the tests of programs: fakeprog check NAME exits 0 and prints NAME 1.0 when the marker
+# file NAME is in FAKE_PROGRAMS. fakeprog install NAME logs the call, and whether rust-toolchain.toml is in the
+# folder that it runs in, then makes the marker, with the text INSTALL_PRINTS after NAME 1.0. BROKEN_INSTALL=NAME
+# makes no marker, and FAIL_INSTALL=NAME exits with 3.
+FAKE_PROGRAM = r'''
+import os, sys
+from pathlib import Path
+
+kind, name = sys.argv[1], sys.argv[2]
+marker = Path(os.environ['FAKE_PROGRAMS']) / name
+if kind == 'check' and os.environ.get('LOG_CHECKS'):
+    with open(os.environ['TOOL_LOG'], 'a') as log:
+        log.write(f'fakeprog check {name}\n')
+if kind == 'check':
+    if marker.is_file():
+        print(marker.read_text().strip() or name + ' 1.0')
+        sys.exit(0)
+    sys.exit(1)
+with open(os.environ['TOOL_LOG'], 'a') as log:
+    log.write(f'fakeprog install {name} toolchain={Path("rust-toolchain.toml").is_file()}\n')
+if os.environ.get('LOG_CWD'):
+    Path(os.environ['LOG_CWD']).write_text(os.getcwd())
+if os.environ.get('FAIL_INSTALL') == name:
+    sys.exit(3)
+if os.environ.get('BROKEN_INSTALL') != name:
+    marker.write_text(f'{name} 1.0 {os.environ.get("INSTALL_PRINTS", "")}')
+'''
+# The programs of the rust profile in these tests: cargo comes from rustup, which the installer never runs, and
+# cargo-llvm-cov has an install. lint needs cargo only; test also needs llvm-cov.
+PROGRAMS = [{'name': 'cargo', 'check': 'fakeprog check cargo', 'description': 'Install Rust with rustup: https://rustup.rs/'},
+            {'name': 'llvm-tools', 'check': 'fakeprog check components', 'expect': 'llvm-tools',
+             'install': 'fakeprog install components'},
+            {'name': 'cargo-llvm-cov', 'check': 'fakeprog check cargo-llvm-cov',
+             'install': 'fakeprog install cargo-llvm-cov'}]
+
+
+def with_programs(profile):
+    profile['programs'] = json.loads(json.dumps(PROGRAMS))
+    profile['base']['programs'] = ['cargo']
+    profile['tools']['test']['programs'] = ['cargo-llvm-cov']
+
+
+class ProgramTests(StackTests):
+    def setUp(self):
+        super().setUp()
+        (self.bin / 'fakeprog').write_text(f'#!{sys.executable}\n' + FAKE_PROGRAM)
+        (self.bin / 'fakeprog').chmod(0o755)
+        self.programs = self.base / 'programs'
+        self.programs.mkdir()
+        self.edit_profile('rust', with_programs)
+
+    def have(self, *names):
+        for name in names:
+            (self.programs / name).write_text(name + ' 1.0')
+
+    def run_rust(self, *args, env=None):
+        return self.stack('--profile', 'rust', '--defaults', *args,
+                          env=dict({'FAKE_PROGRAMS': str(self.programs)}, **(env or {})))
+
+    def test_a_valid_programs_field_passes_the_check_of_the_profile(self):
+        profile = json.loads(json.dumps(PROFILES['rust']))
+        with_programs(profile)
+        self.assertIs(install_stack.check_profile('rust', profile, {'tasker': {}, 'prose': {}}), profile)
+
+    def test_a_program_with_an_install_may_have_a_description_too(self):
+        profile = json.loads(json.dumps(PROFILES['rust']))
+        with_programs(profile)
+        profile['programs'][2]['description'] = 'Writes the coverage of the tests.'
+        self.assertIs(install_stack.check_profile('rust', profile, {'tasker': {}, 'prose': {}}), profile)
+        # A failed install prints the description.
+        self.have('cargo')
+        self.edit_profile('rust', lambda p: (with_programs(p), p['programs'][2].update(
+            description='Writes the coverage of the tests.')))
+        run = self.run_rust(env={'FAIL_INSTALL': 'cargo-llvm-cov'})
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('cargo-llvm-cov: Writes the coverage of the tests.', run.stderr)
+
+    def test_a_malformed_programs_field_is_refused_with_its_reason(self):
+        cases = [
+            (lambda p: p.update(programs={}), 'programs must be a list'),
+            (lambda p: p['programs'].append({'name': 'x y', 'check': 'x', 'install': 'x'}), 'needs a name'),
+            (lambda p: p['programs'].append(dict(PROGRAMS[0])), 'cargo is in programs twice'),
+            (lambda p: p['programs'][0].update(check=['cargo', '--version']), 'needs a check'),
+            (lambda p: p['programs'][0].update(check=''), 'needs a check'),
+            (lambda p: p['programs'][0].update(check='cargo "--version'), 'needs a check'),
+            (lambda p: p['programs'][0].pop('description'), 'needs an install or a description'),
+            (lambda p: p['programs'][1].update(install='  '), 'install of the program llvm-tools'),
+            (lambda p: p['programs'][0].update(description=''), 'description of the program cargo'),
+            (lambda p: p['programs'][1].update(expect=''), 'expect of the program llvm-tools'),
+            (lambda p: p['programs'][0].update(url='https://rustup.rs/'), 'unknown key(s) url'),
+            (lambda p: p['tools']['test'].update(programs=['nextest']), 'tool test names nextest'),
+            (lambda p: p['base'].update(programs='cargo'), 'programs of base must be a list'),
+            (lambda p: p['base'].update(programs=['cargo', 'cargo']), 'each once'),
+        ]
+        for change, reason in cases:
+            profile = json.loads(json.dumps(PROFILES['rust']))
+            with_programs(profile)
+            change(profile)
+            with self.assertRaises(install_stack.StackError, msg=reason) as caught:
+                install_stack.check_profile('rust', profile, {'tasker': {}, 'prose': {}})
+            self.assertIn(reason, str(caught.exception))
+
+    def test_a_missing_program_without_install_stops_before_anything_is_written(self):
+        run = self.run_rust()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('Nothing was written', run.stderr)
+        self.assertIn('cargo (for the rust profile): fakeprog check cargo failed. Install Rust with rustup: '
+                      'https://rustup.rs/', run.stderr)
+        self.assertEqual(sorted(p.name for p in self.target.iterdir()), ['.git'])
+        self.assertEqual(self.tools_run(), [])
+
+    def test_a_missing_program_with_install_is_installed_after_the_files_and_checked_again(self):
+        self.have('cargo')
+        self.edit_profile('rust', lambda p: (with_programs(p), p['base'].update(
+            files={'rust-toolchain.toml': 'toolchain/rust-toolchain.toml'})))
+        run = self.run_rust()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        # The whole file of the base is the toolchain file, and it is in place before the install runs.
+        self.assertTrue((self.target / 'rust-toolchain.toml').is_file())
+        self.assertEqual(self.tools_run(), ['cargo init --vcs none', 'fakeprog install cargo-llvm-cov toolchain=True'])
+        self.assertIn('fakeprog check cargo-llvm-cov failed, so the installer runs for the rust profile, in the project '
+                      'folder: fakeprog install cargo-llvm-cov', run.stderr)
+        # The program is there now, so a second run installs nothing.
+        run = self.run_rust()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(len(self.tools_run()), 2)
+
+    def test_a_toolchain_file_of_the_project_stays(self):
+        # The whole-file mechanism writes the toolchain file of the profile only when the project has none.
+        self.have('cargo', 'cargo-llvm-cov')
+        (self.target / 'rust-toolchain.toml').write_text('[toolchain]\nchannel = "nightly-2026-01-01"\n')
+        self.edit_profile('rust', lambda p: (with_programs(p), p['base'].update(
+            files={'rust-toolchain.toml': 'toolchain/rust-toolchain.toml'})))
+        run = self.run_rust()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('nightly-2026-01-01', (self.target / 'rust-toolchain.toml').read_text())
+
+    def test_an_install_that_does_not_make_the_check_pass_fails_clearly(self):
+        self.have('cargo')
+        run = self.run_rust(env={'BROKEN_INSTALL': 'cargo-llvm-cov'})
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('fakeprog install cargo-llvm-cov ran, but fakeprog check cargo-llvm-cov still fails', run.stderr)
+
+    def test_an_install_that_exits_with_an_error_fails_clearly(self):
+        self.have('cargo')
+        run = self.run_rust(env={'FAIL_INSTALL': 'cargo-llvm-cov'})
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('The install of the program cargo-llvm-cov failed: fakeprog install cargo-llvm-cov: it exited '
+                      'with 3', run.stderr)
+
+    def test_an_install_whose_program_is_not_on_path_stops_before_anything_is_written(self):
+        self.have('cargo')
+        self.edit_profile('rust', lambda p: (with_programs(p), p['programs'][2].update(
+            install='no-such-installer-xyz install cargo-llvm-cov')))
+        run = self.run_rust()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('needs no-such-installer-xyz, which is not on PATH', run.stderr)
+        self.assertEqual(sorted(p.name for p in self.target.iterdir()), ['.git'])
+
+    def test_a_program_that_works_needs_no_installer_on_path(self):
+        self.have('cargo', 'cargo-llvm-cov')
+        self.edit_profile('rust', lambda p: (with_programs(p), p['programs'][2].update(
+            install='no-such-installer-xyz install cargo-llvm-cov')))
+        run = self.run_rust()
+        self.assertEqual(run.returncode, 0, run.stderr)
+
+    def test_a_check_or_install_that_starts_with_a_path_is_refused(self):
+        # A path depends on the machine, or on a file that the run writes after step 1.
+        for key, command in (('install', './tools/get-cov'), ('install', '/usr/local/bin/get-cov x'),
+                             ('check', 'bin/cov --version')):
+            profile = json.loads(json.dumps(PROFILES['rust']))
+            with_programs(profile)
+            profile['programs'][2][key] = command
+            with self.assertRaises(install_stack.StackError, msg=command) as caught:
+                install_stack.check_profile('rust', profile, {'tasker': {}, 'prose': {}})
+            self.assertIn('must start with a program on PATH, not a path', str(caught.exception))
+
+    def test_a_check_that_times_out_stops_the_processes_that_it_started(self):
+        mark = self.base / 'late'
+        script = f'import subprocess, sys, time; subprocess.Popen([sys.executable, "-c", "import time, pathlib; ' \
+                 f'time.sleep(2); pathlib.Path({str(mark)!r}).write_text(\'x\')"]); time.sleep(30)'
+        entry = {'name': 'slow', 'check': shlex.join([sys.executable, '-c', script])}
+        with mock.patch.object(install_stack, 'CHECK_SECONDS', 0.5), \
+                mock.patch('sys.stderr', new_callable=io.StringIO):
+            self.assertFalse(install_stack.program_works(self.target, entry))
+        time.sleep(3)
+        self.assertFalse(mark.exists())
+
+    def test_install_in_picks_the_folder_of_the_install(self):
+        self.have('cargo')
+        home, where = self.base / 'home', self.base / 'cwd'
+        home.mkdir()
+        self.edit_profile('rust', lambda p: (with_programs(p), p['base'].update(
+            files={'rust-toolchain.toml': 'toolchain/rust-toolchain.toml'})))
+        # The default, project: the install runs in the project, with the toolchain file.
+        run = self.run_rust(env={'HOME': str(home), 'LOG_CWD': str(where)})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(Path(where.read_text()).resolve(), self.target.resolve())
+        self.assertIn('in the project folder', run.stderr)
+        # home: the install runs in the home folder, without the toolchain file. The check runs in the project.
+        (self.programs / 'cargo-llvm-cov').unlink()
+        self.edit_profile('rust', lambda p: (with_programs(p), p['programs'][2].update(install_in='home'),
+                                             p['base'].update(files={'rust-toolchain.toml': 'toolchain/rust-toolchain.toml'})))
+        run = self.run_rust(env={'HOME': str(home), 'LOG_CWD': str(where)})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(Path(where.read_text()).resolve(), home.resolve())
+        self.assertEqual(self.tools_run()[-1], 'fakeprog install cargo-llvm-cov toolchain=False')
+        self.assertIn('in the home folder', run.stderr)
+        self.assertNotIn(str(home), run.stderr + run.stdout)
+
+    def test_install_in_home_without_home_uses_a_folder_outside_the_project(self):
+        self.have('cargo')
+        where = self.base / 'cwd'
+        self.edit_profile('rust', lambda p: (with_programs(p), p['programs'][2].update(install_in='home')))
+        entry = dict(PROGRAMS[2], install_in='home', profile='rust')
+        env = {k: v for k, v in os.environ.items() if k != 'HOME'}
+        env.update(PATH=f'{self.bin}:{os.environ["PATH"]}', TOOL_LOG=str(self.log), FAKE_PROGRAMS=str(self.programs),
+                   LOG_CWD=str(where))
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch('sys.stderr', new_callable=io.StringIO):
+            install_stack.install_programs(self.target, [entry])
+        folder = Path(where.read_text()).resolve()
+        self.assertFalse(folder.is_relative_to(self.target.resolve()))
+        self.assertFalse(folder.exists())
+
+    def test_install_in_takes_project_or_home_only(self):
+        for change in (lambda p: p['programs'][2].update(install_in='tmp'),
+                       lambda p: p['programs'][2].update(install_in=True),
+                       lambda p: p['programs'][0].update(install_in='home')):
+            profile = json.loads(json.dumps(PROFILES['rust']))
+            with_programs(profile)
+            change(profile)
+            with self.assertRaises(install_stack.StackError) as caught:
+                install_stack.check_profile('rust', profile, {'tasker': {}, 'prose': {}})
+            self.assertIn('install_in of the program', str(caught.exception))
+
+    def test_ctrl_c_during_a_check_stops_the_check(self):
+        mark = self.base / 'late'
+        script = f'import time, pathlib; time.sleep(2); pathlib.Path({str(mark)!r}).write_text("x")'
+        entry = {'name': 'slow', 'check': shlex.join([sys.executable, '-c', script])}
+        timer = threading.Timer(0.5, os.kill, (os.getpid(), signal.SIGINT))
+        timer.start()
+        with self.assertRaises(KeyboardInterrupt):
+            install_stack.program_works(self.target, entry)
+        timer.join()
+        time.sleep(3)
+        self.assertFalse(mark.exists())
+
+    def test_a_timed_out_check_does_not_wait_for_a_process_that_left_its_session(self):
+        script = 'import os, time\nif os.fork() == 0:\n    os.setsid()\n    time.sleep(12)\nelse:\n    time.sleep(30)'
+        entry = {'name': 'slow', 'check': shlex.join([sys.executable, '-c', script])}
+        start = time.monotonic()
+        with mock.patch.object(install_stack, 'CHECK_SECONDS', 0.5), \
+                mock.patch('sys.stderr', new_callable=io.StringIO):
+            self.assertFalse(install_stack.program_works(self.target, entry))
+        self.assertLess(time.monotonic() - start, 9)
+
+    def test_a_profile_shaped_like_the_rust_profile_installs_in_list_order_and_each_name_once(self):
+        # As in jnprofile-rust: rustup alone has no install, stable is in two tools, and the order of programs puts
+        # toolchain and stable before the programs that cargo +stable install builds.
+        def fake(name, **more):
+            return dict({'name': name, 'check': f'fakeprog check {name}', 'install': f'fakeprog install {name}',
+                         'description': f'What {name} does.'}, **more)
+
+        def shape(p):
+            p['programs'] = [
+                {'name': 'rustup', 'check': 'fakeprog check rustup',
+                 'description': 'Install Rust with rustup: https://rustup.rs/'},
+                fake('toolchain'), fake('rustfmt'), fake('stable', install_in='home'),
+                fake('cargo-llvm-cov', install_in='home'), fake('taplo', install_in='home')]
+            p['base']['programs'] = ['rustup', 'toolchain']
+            p['tools']['lint']['programs'] = ['rustfmt']
+            p['tools']['test']['programs'] = ['stable', 'cargo-llvm-cov']
+            p['tools']['toml'] = {'packages': [], 'programs': ['taplo', 'stable']}
+            p['default_tools'] = ['lint', 'test', 'toml']
+        self.edit_profile('rust', shape)
+        home = self.base / 'home'
+        home.mkdir()
+        env = {'HOME': str(home), 'LOG_CHECKS': '1'}
+        # rustup has no install, so its check comes before anything is written, and stops the run.
+        run = self.run_rust(env=env)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('rustup (for the rust profile): fakeprog check rustup failed. Install Rust with rustup', run.stderr)
+        self.assertEqual(sorted(p.name for p in self.target.iterdir()), ['.git'])
+        self.assertEqual(self.tools_run(), ['fakeprog check rustup'])
+        self.log.unlink()
+        self.have('rustup')
+        run = self.run_rust(env=env)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        installs = [line.split()[2] for line in self.tools_run() if line.startswith('fakeprog install')]
+        self.assertEqual(installs, ['toolchain', 'rustfmt', 'stable', 'cargo-llvm-cov', 'taplo'])
+        # Each name is checked once before its install and once after it, also stable, which two tools need.
+        self.assertEqual(self.tools_run().count('fakeprog check stable'), 2)
+
+    def test_a_dry_run_runs_each_check_once(self):
+        self.have('cargo')
+        self.edit_profile('rust', lambda p: (with_programs(p), p['programs'][2].update(
+            install='no-such-installer-xyz install cargo-llvm-cov')))
+        run = self.run_rust('--dry-run', env={'LOG_CHECKS': '1'})
+        self.assertEqual(run.returncode, 1)
+        self.assertEqual(self.tools_run().count('fakeprog check cargo-llvm-cov'), 1)
+
+    def test_a_check_that_takes_too_long_fails(self):
+        entry = {'name': 'slow', 'check': f'{shlex.quote(sys.executable)} -c "import time; time.sleep(5)"'}
+        with mock.patch.object(install_stack, 'CHECK_SECONDS', 0.5), \
+                mock.patch('sys.stderr', new_callable=io.StringIO) as err:
+            self.assertFalse(install_stack.program_works(self.target, entry))
+        self.assertIn('took more than 0.5 seconds', err.getvalue())
+
+    def test_the_commands_of_the_tools_run_before_the_installs(self):
+        self.have('cargo')
+        self.edit_profile('rust', lambda p: (with_programs(p), p['tools']['test'].update(packages=['proptest'])))
+        run = self.run_rust()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.tools_run(), ['cargo init --vcs none', 'cargo add --dev proptest',
+                                            'fakeprog install cargo-llvm-cov toolchain=False'])
+
+    def test_a_missing_program_stops_a_run_that_only_removes_a_tool(self):
+        self.have('cargo')
+        self.assertEqual(self.run_rust().returncode, 0)
+        (self.programs / 'cargo').unlink()
+        run = self.stack('--without', 'test', env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('Nothing was written', run.stderr)
+        self.assertEqual(self.tool_names('tools'), ['lint', 'test'])
+
+    def test_expect_must_be_in_the_output_of_the_check(self):
+        self.have('cargo')
+        (self.programs / 'components').write_text('rustfmt clippy')
+        self.edit_profile('rust', lambda p: (with_programs(p), p['tools']['test'].update(
+            programs=['llvm-tools'])))
+        # The check exits with 0, but without llvm-tools in its output, so the installer runs the install.
+        run = self.run_rust()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('fakeprog install components ran, but fakeprog check components still fails or does not print '
+                      'llvm-tools', run.stderr)
+        run = self.run_rust(env={'INSTALL_PRINTS': 'rustfmt clippy llvm-tools'})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.tools_run().count('fakeprog install components toolchain=False'), 2)
+
+    def test_a_program_of_a_tool_that_is_off_is_not_needed(self):
+        self.have('cargo')
+        run = self.stack('--profile', 'rust', '--defaults', '--without', 'test',
+                         env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('fakeprog', ' '.join(self.tools_run()))
+
+    def test_programs_are_not_uninstalled_when_a_tool_goes(self):
+        self.have('cargo')
+        self.assertEqual(self.run_rust().returncode, 0)
+        before = self.tools_run()
+        run = self.stack('--without', 'test', env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.tools_run(), before)
+        self.assertTrue((self.programs / 'cargo-llvm-cov').is_file())
+
+    def test_commands_run_without_a_shell(self):
+        # A shell would expand $HOME and run the second command. Without one, the check gets the text as it is.
+        self.have('cargo')
+        (self.programs / '$HOME;touch').write_text('x')
+        self.edit_profile('rust', lambda p: (with_programs(p), p['programs'][0].update(
+            check='fakeprog check "$HOME;touch" pwned')))
+        run = self.run_rust()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertFalse((self.target / 'pwned').exists())
+
+    def test_a_dry_run_says_what_it_would_install_and_what_is_missing_and_installs_nothing(self):
+        run = self.run_rust('--dry-run')
+        self.assertEqual(run.returncode, 1)
+        self.assertIn('Missing program: cargo (for the rust profile): fakeprog check cargo failed. Install Rust with '
+                      'rustup: https://rustup.rs/', run.stdout)
+        self.assertIn('Would install cargo-llvm-cov for the rust profile: fakeprog install cargo-llvm-cov', run.stdout)
+        self.assertIn('because a program is missing', run.stdout)
+        self.assertEqual(self.tools_run(), [])
+        self.assertFalse((self.target / '.agents').exists())
+        self.have('cargo')
+        run = self.run_rust('--dry-run')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(self.tools_run(), [])
+
+    def test_check_reports_missing_programs(self):
+        self.have('cargo')
+        self.assertEqual(self.run_rust().returncode, 0)
+        run = self.stack('--check', env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        (self.programs / 'cargo-llvm-cov').unlink()
+        (self.programs / 'cargo').unlink()
+        run = self.stack('--check', env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertEqual(run.returncode, 1)
+        self.assertIn('Missing program: cargo (for the rust profile): fakeprog check cargo failed. Install Rust with '
+                      'rustup', run.stdout)
+        self.assertIn('Missing program: cargo-llvm-cov (for the rust profile): fakeprog check cargo-llvm-cov failed. '
+                      'just install runs: fakeprog install cargo-llvm-cov', run.stdout)
+        # --check changes nothing: it runs no install.
+        self.assertFalse((self.programs / 'cargo-llvm-cov').exists())
+
+    def test_check_counts_pending_tools_and_leaves_out_tools_being_removed(self):
+        self.have('cargo', 'cargo-llvm-cov')
+        self.assertEqual(self.run_rust().returncode, 0)
+        (self.programs / 'cargo-llvm-cov').unlink()
+        record = self.saved()
+        record['tools'], record['removing_tools'] = ['rust:lint', 'rust:test'], ['rust:test']
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        run = self.stack('--check', env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertNotIn('Missing program', run.stdout)
+        record['tools'], record['pending_tools'] = ['rust:lint'], ['rust:test']
+        record.pop('removing_tools')
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        run = self.stack('--check', env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertIn('Missing program: cargo-llvm-cov', run.stdout)
+        self.assertEqual(run.returncode, 1)
+        record['removing_profiles'] = ['rust']
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        run = self.stack('--check', env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertNotIn('Missing program', run.stdout)
+
+    def test_check_fails_when_a_profile_is_malformed(self):
+        self.have('cargo', 'cargo-llvm-cov')
+        self.assertEqual(self.run_rust().returncode, 0)
+        self.edit_profile('rust', lambda p: (with_programs(p), p['programs'][0].pop('description')))
+        run = self.stack('--check', env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertEqual(run.returncode, 1)
+        self.assertIn('The programs of the rust profile are not checked', run.stdout)
+
+    def test_check_skips_a_profile_without_a_clone_and_clones_nothing(self):
+        self.have('cargo')
+        self.assertEqual(self.run_rust().returncode, 0)
+        shutil.rmtree(self.packages / 'jnprofile-rust')
+        run = self.stack('--check', env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertIn('The programs of the rust profile are not checked', run.stdout)
+        self.assertNotIn('Cloning', run.stderr)
+        self.assertFalse((self.packages / 'jnprofile-rust').exists())
+
+
+# PartsTests, StepTests and ProgramTests use the fixtures of StackTests, and run only their own tests.
+for _class in (PartsTests, StepTests, ProgramTests):
     for _name in [name for name in dir(StackTests) if name.startswith('test_') and name not in _class.__dict__]:
         setattr(_class, _name, None)
 # The loader would find the class under this name too, and run its tests twice.
