@@ -242,8 +242,8 @@ path, and it must not hold a `..` part. The `role` is `required` or
 `optional`. A file without a `role` counts as `optional`.
 
 A listed file that exists must stay inside the base folder, also through a
-symbolic link, and on Unix it must have one hard link only. `jagt result
-lint` checks these rules only with `--check-files`.
+symbolic link. On Unix, it must have one hard link only. `jagt result lint`
+checks these rules only with `--check-files`.
 
 In v1, leave out checksums. Add them only when the task asks for them.
 
