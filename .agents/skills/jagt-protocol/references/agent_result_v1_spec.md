@@ -8,9 +8,10 @@ If the two differ, this page wins.
 The page agrees with
 [the contract of the agentic packets](protocol_contract.md). The contract
 gives the whole protocol. This page gives the details of the result packet.
-The rules for a check describe what `jagt result lint` of jagt 0.5.0 does.
-jagt 0.3.0 and 0.4.0 miss some of these checks. For example, both pass a
-YAML merge key, and 0.3.0 passes a path with a `..` part.
+The rules for a check describe what `jagt result lint` does in the next jagt
+release after 0.5.0. Earlier versions miss some of these checks. jagt 0.5.0
+passes a symbolic link that leads out of the base folder. jagt 0.3.0 and
+0.4.0 also pass a YAML merge key, and 0.3.0 passes a path with a `..` part.
 
 ## Terms
 
@@ -236,8 +237,11 @@ outputs:
 `outputs.files` is a list of mappings, and each mapping has a `path`. Each
 `path` is relative to the root of the repository. It must not be an absolute
 path, and it must not hold a `..` part. The `role` is `required` or
-`optional`. A file without a `role` counts as `optional`. `jagt result lint`
-checks these rules only with `--check-files`.
+`optional`. A file without a `role` counts as `optional`.
+
+A listed file that exists must stay inside the base folder, also through a
+symbolic link. `jagt result lint` checks these rules only with
+`--check-files`.
 
 In v1, leave out checksums. Add them only when the task asks for them.
 
@@ -289,7 +293,10 @@ These options add checks to the default check:
   must be a nonce, as the section "Terms" defines it.
 - **`--check-files`** checks `outputs.files` by the rules of the section
   "File outputs". Each required file must exist and be a file. The check
-  follows a symbolic link.
+  follows a symbolic link, but a listed file that exists must have its real
+  path inside the real base folder. So a link that leads out of the base
+  folder fails, for a required or an optional file. jagt 0.5.0 and earlier
+  pass such a link.
 - **`--base-dir D`** works with `--check-files`. It gives the folder that the
   file paths are relative to. Its default is the current folder, so run the
   check from the root of the repository, or pass the root as `D`.
