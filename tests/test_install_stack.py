@@ -17,6 +17,7 @@ from unittest import mock
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'scripts'))
 import install_stack  # noqa: E402
+from lint_steps import STEPS  # noqa: E402
 
 RECORDS_PROFILE = {'python': '.agents/jnprofile-python-install.json',
                    'typescript': '.agents/jnprofile-typescript-install.json',
@@ -369,8 +370,8 @@ def commit(path):
 # The text of a source file of a part, by its suffix.
 SOURCES = {'.toml': 'line-length = 120\n', '.json': '{}\n',
            '.yaml': 'repos:\n  - repo: https://r\n    rev: v1\n    hooks: []\n'}
-# The lines of the installer at the top of .gitignore: the history and the file of a run that stopped.
-JN = ['.agents/stack-log.jsonl', '.agents/stack-pending.json']
+# The lines of the installer at the top of .gitignore: the history, the file of a run that stopped, and the run log.
+JN = ['.agents/stack-log.jsonl', '.agents/stack-pending.json', '.agents/log/']
 
 
 class StackTests(unittest.TestCase):
@@ -491,7 +492,10 @@ class StackTests(unittest.TestCase):
         saved = self.saved()
         # The prose role ships a recipe file, so the index exists, and the record holds its hash.
         self.assertEqual(list(saved.pop('generated')), ['.agents/just/index.just'])
-        self.assertEqual(saved, {'version': 2, 'profiles': [], 'tools': [], 'started': True, 'parts': {}, 'parts_version': 1,
+        # The installer writes its lines of the run log, and the steps of just check, with none provided.
+        self.assertEqual(sorted(saved.pop('parts')), ['.gitignore', '.worktreedisposable'])
+        self.assertEqual((saved.pop('steps'), saved.pop('provided_steps')), (list(STEPS), []))
+        self.assertEqual(saved, {'version': 2, 'profiles': [], 'tools': [], 'started': True, 'parts_version': 1,
                                         'variants': {'tasker': 'git'}, 'choices': {
             'cx': False, 'jagt-protocol': False, 'prose': True, 'reporter': False, 'tasker': True}})
         # With no profile, the project still gets the starter Justfile, which imports the recipe file.
@@ -707,14 +711,16 @@ class StackTests(unittest.TestCase):
         self.assertNotIn('typecheck.just', module)
         self.assertIn('verify: (fmt "--check") lint test', module)
         run = self.just_in_target('lint', '--fix')
-        self.assertEqual((run.returncode, run.stdout.strip()), (0, 'python lint --fix'), run.stderr)
+        # jlog step prints its record after the output of the step.
+        self.assertEqual((run.returncode, run.stdout.splitlines()[0]), (0, 'python lint --fix'), run.stderr)
         self.assertEqual(self.just_in_target('python', 'test').stdout.strip(), 'python test')
         run = self.just_in_target('verify')
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(run.stdout.split(), ['python', 'fmt', '--check', 'python', 'lint', 'python', 'test'])
         # A tool that goes takes its recipes with it, and one that comes adds its check to verify.
         self.assertEqual(self.stack('--without', 'lint').returncode, 0)
-        self.assertNotIn('lint', self.just_in_target('--summary').stdout.split())
+        self.assertNotIn('python::lint', self.just_in_target('--summary').stdout.split())
+        self.assertIn('\nlint:\n    jlog skip lint', (self.target / '.agents/just/index.just').read_text())
         self.assertEqual(self.stack('typecheck').returncode, 0)
         self.assertIn('verify: test typecheck', (self.target / '.agents/just/python.just').read_text())
         self.assertIn('typecheck', self.just_in_target('--summary').stdout.split())
@@ -756,17 +762,18 @@ class StackTests(unittest.TestCase):
         justfile.write_text(own)
         run = self.stack('prose')
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn("Changed Justfile: adds import? '.agents/install.just'", run.stderr)
-        self.assertNotIn('put these lines in it', run.stderr)
+        self.assertIn("Changed Justfile: adds export JLOG_RUN := env(\"JLOG_RUN\", uuid()), import? '.agents/install.just'",
+                      run.stderr)
+        self.assertNotIn('put this line in it', run.stderr)
         text = justfile.read_text()
         self.assertTrue(text.startswith('# begin lines of jnterfaces, the installer'), text)
-        self.assertIn("\nimport? '.agents/install.just'\n# end lines of jnterfaces.", text)
+        self.assertIn(f"\nimport? '.agents/install.just'\n{install_stack.JLOG_LINE}\n# end lines of jnterfaces.", text)
         self.assertTrue(text.endswith('\n\n' + own), text)
         self.assertEqual(self.saved()['parts']['Justfile']["import? '.agents/install.just'"]['state'], 'added')
         self.assertIn("import? 'roles/nossaifd.just'", (self.target / '.agents/just/index.just').read_text())
         summary = self.just_in_target('--summary')
         self.assertEqual(summary.returncode, 0, summary.stderr)
-        self.assertEqual(sorted(summary.stdout.split()), ['build', 'install', 'prose', 'uninstall'])
+        self.assertLessEqual({'build', 'install', 'prose', 'uninstall', 'check', 'lint'}, set(summary.stdout.split()))
         run = self.just_in_target('prose', 'a.md')
         self.assertEqual((run.returncode, run.stdout.strip()), (0, 'prose a.md'), run.stderr)
         # A second run changes nothing, and --check finds the block. The project commits the files first.
@@ -780,7 +787,9 @@ class StackTests(unittest.TestCase):
         justfile.write_text(text + '\nmore:\n    @echo more\n')
         self.assertEqual(self.stack('--without', 'prose').returncode, 0)
         self.assertEqual(justfile.read_text(), text + '\nmore:\n    @echo more\n')
-        self.assertEqual(sorted(self.just_in_target('--summary').stdout.split()), ['build', 'install', 'more', 'uninstall'])
+        summary = set(self.just_in_target('--summary').stdout.split())
+        self.assertLessEqual({'build', 'install', 'more', 'uninstall', 'check'}, summary)
+        self.assertNotIn('prose', summary)
 
     @unittest.skipUnless(shutil.which('just'), 'needs just')
     def test_an_import_that_the_justfile_has_is_not_added_again(self):
@@ -790,18 +799,23 @@ class StackTests(unittest.TestCase):
             justfile.write_text(own)
             run = self.stack('prose')
             self.assertEqual(run.returncode, 0, run.stderr)
-            self.assertEqual(justfile.read_text(), own)
-            self.assertNotIn('Justfile', self.saved().get('parts', {}))
+            # The block has the line of the run ID only.
+            self.assertTrue(justfile.read_text().endswith('\n\n' + own), justfile.read_text())
+            self.assertEqual(justfile.read_text().count('install.just'), 1)
+            self.assertEqual(list(self.saved()['parts']['Justfile']), [install_stack.JLOG_LINE])
+            justfile.write_text(own)
+            (self.target / '.agents/stack.json').unlink()
             self.assertIn('prose', self.just_in_target('--summary').stdout.split(), run.stderr)
             self.assertNotIn('does not parse', run.stderr)
         # A copy of the line after the block makes the block go, and the copy stays.
         justfile.write_text('x:\n    @echo x\n')
-        self.assertEqual(self.stack().returncode, 0)
+        self.assertEqual(self.stack('prose').returncode, 0)
         text = justfile.read_text()
         self.assertIn('# begin lines of jnterfaces', text)
         justfile.write_text(text + "import '.agents/install.just'\n")
         self.assertEqual(self.stack().returncode, 0)
-        self.assertEqual(justfile.read_text(), "x:\n    @echo x\nimport '.agents/install.just'\n")
+        self.assertTrue(justfile.read_text().endswith("\n\nx:\n    @echo x\nimport '.agents/install.just'\n"))
+        self.assertEqual(justfile.read_text().count('install.just'), 1)
         self.assertIn('prose', self.just_in_target('--summary').stdout.split())
 
     @unittest.skipUnless(shutil.which('just'), 'needs just')
@@ -813,8 +827,7 @@ class StackTests(unittest.TestCase):
         run = self.stack()
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(justfile.read_text(), 'x:\n    @echo x\n')
-        self.assertIn("put these lines in it: import? '.agents/install.just'; "
-                      "import? '.agents/just/roles/nossaifd.just'", run.stderr)
+        self.assertIn("put this line in it: import? '.agents/install.just'", run.stderr)
         # A line that you move out of the block stays where you put it.
         justfile.write_text("x:\n    @echo x\nimport? '.agents/install.just'\n")
         for _ in range(2):
@@ -831,16 +844,15 @@ class StackTests(unittest.TestCase):
         self.assertEqual(justfile.read_text(), own)
         self.assertIn('does not parse with the block of the installer', run.stderr)
         self.assertRegex(run.stderr, r'(?i)just said: error: recipe `install` first defined')
-        self.assertIn("put these lines in it: import? '.agents/install.just'; "
-                      "import? '.agents/just/roles/nossaifd.just'", run.stderr)
-        self.assertNotIn('also with an empty index', run.stderr)
+        self.assertIn("put this line in it: import? '.agents/install.just'", run.stderr)
+        self.assertNotIn('also with an index with no module', run.stderr)
         self.assertNotIn('Justfile', self.saved()['parts'])
         self.assertEqual(self.just_in_target('install').stdout.strip(), 'mine')
         # The next run does not try again while the Justfile stays as it is, and --check names the clash.
         run = self.stack()
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertNotIn('Changed Justfile', run.stderr)
-        self.assertIn('put these lines in it', run.stderr)
+        self.assertIn('put this line in it', run.stderr)
         run = self.stack('--check')
         self.assertRegex(run.stdout, r'(?i)did not parse with it\. just said: error: recipe `install`')
         # After the fix, the next run adds the block.
@@ -852,13 +864,13 @@ class StackTests(unittest.TestCase):
         self.assertIn('prose', self.just_in_target('--summary').stdout.split())
 
     @unittest.skipUnless(shutil.which('just'), 'needs just')
-    def test_a_role_recipe_that_clashes_leaves_the_modules(self):
+    def test_a_role_recipe_that_clashes_stops_the_install_and_the_justfile_still_parses(self):
         justfile = self.target / 'Justfile'
         justfile.write_text('prose:\n    @echo mine\n')
         run = self.stack('prose')
-        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.returncode, 1, run.stderr)
         self.assertIn('# begin lines of jnterfaces', justfile.read_text())
-        self.assertIn('The Justfile does not parse with the recipes of the profiles and roles', run.stderr)
+        self.assertIn('The recipe prose is in Justfile and in the recipe file of a role', run.stderr)
         self.assertEqual(self.just_in_target('prose').stdout.strip(), 'mine')
         self.assertEqual(self.just_in_target('install', '--help').returncode, 0)
 
@@ -867,7 +879,8 @@ class StackTests(unittest.TestCase):
         justfile.write_text('x:\n    @echo x\n')
         run = self.stack('prose', '--dry-run')
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn("Would change Justfile: adds import? '.agents/install.just'", run.stdout)
+        self.assertIn("Would change Justfile: adds export JLOG_RUN := env(\"JLOG_RUN\", uuid()), import? "
+                      "'.agents/install.just'", run.stdout)
         self.assertEqual(justfile.read_text(), 'x:\n    @echo x\n')
         run = self.stack('--check')
         self.assertIn("Justfile does not import .agents/install.just. The next just install adds the line "
@@ -950,8 +963,7 @@ class StackTests(unittest.TestCase):
         justfile.write_text('python:\n    @echo mine\n')
         run = self.stack('--profile', 'python', 'prose')
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn('so the index has the recipes of the roles only', run.stderr)
-        self.assertNotIn('as a module only', run.stderr)
+        self.assertIn('so the index has no module', run.stderr)
         self.assertEqual(self.just_in_target('python').stdout.strip(), 'mine')
         self.assertEqual(self.just_in_target('prose', 'a').stdout.strip(), 'prose a')
 
@@ -1003,12 +1015,12 @@ class StackTests(unittest.TestCase):
         self.assertEqual(justfile.read_text(), text)
         self.assertRegex(run.stderr, r'(?i)just said: error: recipe `install` first defined')
         self.assertRegex(run.stderr, r'(?i)without the block, just says: error: variable `jn_copier` not defined')
-        self.assertIn('(These line numbers do not count the 4 lines of the block.)', run.stderr)
+        self.assertIn('(These line numbers do not count the 5 lines of the block.)', run.stderr)
         # A second recipe x: the error of the real file has the line numbers of the real file.
         justfile.write_text(justfile.read_text().replace('y:\n    @echo {{jn_copier}}\ninstall:\n    @echo mine\n',
                                                          'x:\n    @echo again\n'))
         run = self.stack()
-        self.assertRegex(run.stderr, r'(?i)recipe `x` first defined on line 6 is redefined on line 8')
+        self.assertRegex(run.stderr, r'(?i)recipe `x` first defined on line 7 is redefined on line 9')
         self.assertNotIn('Without the block', run.stderr)
 
     @unittest.skipUnless(shutil.which('just'), 'needs just')
@@ -1025,7 +1037,7 @@ class StackTests(unittest.TestCase):
     def test_a_clash_error_says_that_its_line_numbers_count_the_block(self):
         (self.target / 'Justfile').write_text('install:\n    @echo mine\n')
         run = self.stack('prose')
-        self.assertIn('(The line numbers count the 4 lines of the block at the start of Justfile.)', run.stderr)
+        self.assertIn('(The line numbers count the 5 lines of the block at the start of Justfile.)', run.stderr)
 
     @unittest.skipUnless(shutil.which('just'), 'needs just')
     def test_a_dry_run_and_check_promise_no_block_that_the_run_would_not_add(self):
@@ -1217,7 +1229,12 @@ sys.exit(run.returncode)
             justfile.write_text(text)
             run = self.stack()
             self.assertEqual(run.returncode, 0, run.stderr)
-            self.assertIn('Rename the recipe, alias or module of the project with that name', run.stderr)
+            # The index leaves out a name of the Justfile. Only a module of that name makes the Justfile fail.
+            if recipe == 'python':
+                self.assertIn('Rename the recipe, alias or module of the project with that name', run.stderr)
+            else:
+                self.assertNotIn('does not parse', run.stderr)
+                self.assertNotIn(f'\n{recipe}', (self.target / '.agents/just/index.just').read_text())
             self.assertEqual(self.just_in_target('--summary').returncode, 0, text)
             self.assertEqual(self.just_in_target(recipe).stdout.strip(), out)
             self.assertEqual(self.just_in_target('install', '--help').returncode, 0)
@@ -1263,15 +1280,15 @@ sys.exit(run.returncode)
         self.assertTrue(module.is_file())
 
     @unittest.skipUnless(shutil.which('just'), 'needs just')
-    def test_a_project_not_started_by_jnterfaces_gets_modules_only(self):
+    def test_a_project_not_started_by_jnterfaces_gets_the_index_without_its_names(self):
         (self.target / 'Justfile').write_text("import? '.agents/install.just'\n\nlint:\n    @echo mine\n")
         run = self.stack('--profile', 'python', '--defaults')
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn('was not started by jnterfaces', run.stderr)
-        self.assertEqual(run.stderr.count('adds the recipes of each profile as a module only'), 1)
+        self.assertEqual(run.stderr.count('The lint of steps: lint: its last line is not jlog step lint'), 1)
         index = (self.target / '.agents/just/index.just').read_text()
         self.assertIn("mod python 'python.just'", index)
-        self.assertNotIn('verify', index)
+        self.assertIn('\nverify:', index)
+        self.assertNotIn('\nlint', index)
         self.assertEqual(self.just_in_target('lint').stdout.strip(), 'mine')
         self.assertEqual(self.just_in_target('python', 'lint').stdout.strip(), 'python lint')
         self.assertEqual(self.just_in_target('python', 'verify').returncode, 0)
@@ -1426,7 +1443,7 @@ sys.exit(run.returncode)
         run = self.stack('--profile', 'python', '--defaults', env={'JNTERFACES_COMMAND': 'just install --profile python'})
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(self.rules(), JN + ['.venv/', 'dist/', '.local/', '.ruff_cache/'])
-        self.assertEqual(self.rules('.worktreedisposable'), ['.venv/', '__pycache__/', '.ruff_cache/'])
+        self.assertEqual(self.rules('.worktreedisposable'), ['.agents/log/', '.venv/', '__pycache__/', '.ruff_cache/'])
         self.assertFalse((self.target / '.agents/.gitattributes').exists())
         text = (self.target / '.gitignore').read_text()
         self.assertIn('# begin lines of python:lint, the lint tool of the python profile, from jnprofile-python at ', text)
@@ -1445,7 +1462,7 @@ sys.exit(run.returncode)
     def test_two_profiles_share_a_file_and_each_takes_its_lines_out(self):
         self.assertEqual(self.stack('--profile', 'python,typescript', '--defaults').returncode, 0)
         self.assertEqual(self.rules(), JN + ['.venv/', 'dist/', '.local/', '.ruff_cache/', 'node_modules/'])
-        self.assertEqual(self.rules('.worktreedisposable'), ['.venv/', '__pycache__/', '.ruff_cache/', 'node_modules/'])
+        self.assertEqual(self.rules('.worktreedisposable'), ['.agents/log/', '.venv/', '__pycache__/', '.ruff_cache/', 'node_modules/'])
         dry = self.stack('--without', 'python', '--dry-run')
         self.assertIn('Would change .gitignore: removes .ruff_cache, .venv', dry.stdout)
         self.assertEqual(self.rules(), JN + ['.venv/', 'dist/', '.local/', '.ruff_cache/', 'node_modules/'])
@@ -1453,7 +1470,7 @@ sys.exit(run.returncode)
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(self.rules(), JN + ['node_modules/', 'dist/', '.local/'])
         self.assertIn('# begin lines of typescript, the typescript profile', (self.target / '.gitignore').read_text())
-        self.assertEqual(self.rules('.worktreedisposable'), ['node_modules/'])
+        self.assertEqual(self.rules('.worktreedisposable'), ['.agents/log/', 'node_modules/'])
 
     def test_lint_takes_out_its_lines_and_an_unchanged_config_file(self):
         self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
@@ -2031,8 +2048,9 @@ sys.exit(run.returncode)
     def test_an_existing_justfile_is_kept_and_gets_the_import_line(self):
         (self.target / 'justfile').write_text('test:\n    echo hi\n')
         run = self.stack('--profile', 'python')
-        self.assertIn("Changed justfile: adds import? '.agents/install.just'", run.stderr)
+        self.assertIn("Changed justfile: adds export JLOG_RUN", run.stderr)
         self.assertTrue((self.target / 'justfile').read_text().endswith("\nimport? '.agents/install.just'\n"
+                                                                        + install_stack.JLOG_LINE + "\n"
                                                                         "# end lines of jnterfaces. They stay while the "
                                                                         "project keeps .agents/stack.json.\n\n"
                                                                         "test:\n    echo hi\n"))
@@ -2675,10 +2693,418 @@ class PartsTests(StackTests):
         self.assertFalse((self.target / 'CLAUDE.md').exists())
 
 
+@unittest.skipUnless(shutil.which('just') and shutil.which('jlog'), 'needs just and jlog')
+class StepTests(StackTests):
+    """The steps of just check, the no-op steps, jlog as the shell, JLOG_RUN, and the lint of steps."""
 
-# PartsTests uses the fixtures of StackTests, and runs only its own tests.
-for _name in [name for name in dir(StackTests) if name.startswith('test_') and name not in PartsTests.__dict__]:
-    setattr(PartsTests, _name, None)
+    def records(self, root=None, kind=None):
+        """The records of the run log, of one kind or of all."""
+        path = (root or self.target) / '.agents/log/just.jsonl'
+        found = [json.loads(line) for line in path.read_text().splitlines()] if path.is_file() else []
+        return [record for record in found if kind is None or record['kind'] == kind]
+
+    def just_in(self, root, *args):
+        return subprocess.run(['just', *args], cwd=root, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+
+    def index(self):
+        return (self.target / '.agents/just/index.just').read_text()
+
+    def test_a_new_repository_with_no_language_passes_check_and_logs_each_step_as_skipped(self):
+        run = self.stack('--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        index = self.index()
+        self.assertIn(install_stack.SHELL_LINE, index)
+        for step in STEPS:
+            self.assertIn(f'\n{step}:\n    jlog skip {step} "', index)
+        self.assertIn(f'\ncheck: {" ".join(STEPS)}\n    jlog pass\n', index)
+        self.assertEqual((self.saved()['steps'], self.saved()['provided_steps']), (list(STEPS), []))
+        commit(self.target)
+        run = self.just_in(self.target, 'check')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(sorted(record['step'] for record in self.records(kind='skip')), sorted(STEPS))
+        self.assertEqual(len(self.records(kind='pass')), 1)
+        # Each line of the run shares the run ID of the root Justfile.
+        self.assertEqual(len({record['run'] for record in self.records(kind='line')}), 1)
+        self.assertEqual(git(self.target, 'status', '--porcelain'), '')
+
+    def test_check_in_a_fresh_clone_leaves_no_file_that_git_does_not_ignore(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults', '--without', 'tasker').returncode, 0)
+        commit(self.target)
+        clone = self.base / 'clone'
+        git(self.base, 'clone', '-q', str(self.target), str(clone))
+        run = self.just_in(clone, 'check')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(git(clone, 'status', '--porcelain', '--untracked-files=all'), '')
+        self.assertTrue(self.records(clone, 'pass'))
+        # The log folder is ignored, and a worktree with only the log folder can be pruned.
+        self.assertIn('.agents/log/', (clone / '.gitignore').read_text().splitlines())
+        self.assertIn('.agents/log/', (clone / '.worktreedisposable').read_text().splitlines())
+
+    def test_the_steps_of_a_profile_end_with_jlog_step_and_share_the_run_of_the_root(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose').returncode, 0)
+        self.assertEqual(self.saved()['provided_steps'], ['lint', 'test', 'diff-check'])
+        index = self.index()
+        self.assertIn('\nlint *args:\n    just --justfile "{{justfile()}}" python lint "$@"\n    jlog step lint\n', index)
+        # fmt is no step, so its combined recipe has no jlog step, and fmt-check is a no-op step.
+        self.assertNotIn('jlog step fmt\n', index)
+        self.assertIn('\nfmt-check:\n    jlog skip fmt-check "', index)
+        self.assertIn('\ndiff-check:\n    git diff --check "$(git rev-parse -q --verify HEAD || git hash-object -t tree '
+                      '/dev/null)"\n    jlog step diff-check\n', index)
+        module = (self.target / '.agents/just/python.just').read_text()
+        self.assertIn(install_stack.SHELL_LINE, module)
+        # Only the root Justfile makes the run ID.
+        self.assertIn(install_stack.JLOG_LINE, (self.target / 'Justfile').read_text())
+        self.assertNotIn('JLOG_RUN', index + module + (self.target / '.agents/install.just').read_text())
+        # The repository has no commit yet, and the diff check still runs.
+        run = self.just_in(self.target, 'diff-check')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        (self.target / '.agents/log/just.jsonl').unlink()
+        commit(self.target)
+        run = self.just_in(self.target, 'check')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(sorted(record['step'] for record in self.records(kind='step')), ['diff-check', 'lint', 'test'])
+        lines = self.records(kind='line')
+        # The lines of the module ran in inner just calls, and they share the run of the root.
+        self.assertIn('echo python lint "$@"', [record['line'] for record in lines])
+        self.assertEqual(len({record['run'] for record in lines}), 1)
+
+    def test_a_justfile_of_its_own_gets_the_steps_without_its_names_and_the_run_id_in_the_block(self):
+        justfile = self.target / 'Justfile'
+        own = 'test:\n    @echo mine\n    jlog step test\n'
+        justfile.write_text(own)
+        run = self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        text = justfile.read_text()
+        self.assertIn(f"\nimport? '.agents/install.just'\n{install_stack.JLOG_LINE}\n# end lines of jnterfaces.", text)
+        index = self.index()
+        # No recipe of the index has the name test of the Justfile, and the other steps are there.
+        self.assertNotIn('\ntest', index)
+        self.assertIn('\nlint *args:', index)
+        self.assertIn('\ntypecheck:\n    jlog skip typecheck', index)
+        self.assertEqual(self.just_in(self.target, 'test').stdout.splitlines()[0], 'mine')
+        # A second run writes the same index.
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertEqual(self.index(), index)
+        commit(self.target)
+        run = self.just_in(self.target, 'check')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        # A Justfile that sets JLOG_RUN itself gets no second line of it.
+        justfile.write_text("import? '.agents/install.just'\nexport JLOG_RUN := 'x'\n")
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(justfile.read_text(), "import? '.agents/install.just'\nexport JLOG_RUN := 'x'\n")
+
+    def test_a_role_recipe_and_a_recipe_of_the_justfile_with_one_name_stop_the_install(self):
+        self.assertEqual(self.stack('prose').returncode, 0)
+        index = self.index()
+        justfile = self.target / 'Justfile'
+        justfile.write_text(justfile.read_text() + '\nprose:\n    @echo mine\n')
+        run = self.stack()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('The recipe prose is in Justfile and in the recipe file of a role, .agents/just/roles/'
+                      'nossaifd.just', run.stderr)
+        self.assertEqual(self.index(), index)
+
+    def test_a_role_file_that_the_justfile_imports_itself_is_no_clash(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text("import? '.agents/install.just'\nimport? '.agents/just/roles/nossaifd.just'\n")
+        run = self.stack('prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("import? 'roles/nossaifd.just'", self.index())
+
+    def test_a_justfile_that_sets_its_shell_gets_no_shell_from_the_index(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('set shell := ["bash", "-c"]\n\nbuild:\n    @echo build\n')
+        run = self.stack('--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('Put jlog in front of the shell: set shell := ["jlog", "bash", "-c"]', run.stderr)
+        self.assertNotIn('set shell', self.index())
+        self.assertEqual(self.just_in(self.target, '--summary').returncode, 0)
+        # just check fails with that shell, so just install --check fails too.
+        commit(self.target)
+        self.assertNotEqual(self.just_in(self.target, 'check').returncode, 0)
+        run = self.stack('--check')
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertIn('sets its own shell without jlog, so the index sets none, and just check fails', run.stdout)
+        # Wrapped in jlog, the shell keeps working, and the installer says nothing more about it.
+        justfile.write_text(justfile.read_text().replace('["bash", "-c"]', '["jlog", "bash", "-c"]'))
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('Put jlog in front', run.stderr)
+        commit(self.target)
+        run = self.just_in(self.target, 'check')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertTrue(self.records(kind='pass'))
+
+    def test_two_imported_files_cannot_both_set_the_shell(self):
+        # So the index sets the shell, and .agents/install.just does not: a project that sets its own shell would
+        # clash with a fixed line in .agents/install.just.
+        self.assertNotIn('set shell', (REPO / '.agents/install.just').read_text())
+        (self.target / 'a.just').write_text(install_stack.SHELL_LINE + '\n')
+        (self.target / 'b.just').write_text(install_stack.SHELL_LINE + '\n')
+        (self.target / 'Justfile').write_text("import 'a.just'\nimport 'b.just'\nx:\n    echo x\n")
+        run = self.just_in(self.target, '--summary')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('is redefined', run.stderr)
+
+    def test_a_module_that_meets_a_name_of_the_justfile_leaves_the_steps(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text("import? '.agents/install.just'\n\npython:\n    @echo mine\n")
+        run = self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('so the index has no module', run.stderr)
+        index = self.index()
+        self.assertNotIn('mod python', index)
+        self.assertIn('\nlint:\n    jlog skip lint', index)
+        self.assertEqual(self.saved()['provided_steps'], [])
+
+    def test_an_alias_with_the_name_of_a_step_keeps_the_justfile_parsing(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text("import? '.agents/install.just'\n\nhello:\n    @echo hi\n\nalias lint := hello\n")
+        run = self.stack('--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('lint in the project is an alias, a module, or a recipe that needs an argument', run.stderr)
+        self.assertNotIn('does not parse', run.stderr)
+        self.assertIn('\ncheck: fmt-check typecheck ', self.index())
+        self.assertEqual(self.just_in(self.target, '--summary').returncode, 0)
+
+    def test_the_installer_stops_with_the_install_line_when_jlog_is_missing(self):
+        tools = self.base / 'tools'
+        tools.mkdir()
+        for name in ('git', 'just'):
+            (tools / name).symlink_to(shutil.which(name))
+        run = subprocess.run([sys.executable, self.packages / 'jnterfaces/scripts/install_stack.py', '--target',
+                              self.target, '--defaults'], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                             env=dict(os.environ, PATH=f'{self.bin}:{tools}', TOOL_LOG=str(self.log)))
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('jlog is not on PATH', run.stderr)
+        self.assertIn(install_stack.JLOG_INSTALL, run.stderr)
+        self.assertFalse((self.target / '.agents').exists())
+
+    def test_the_lint_finds_steps_that_the_run_log_cannot_see(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose').returncode, 0)
+        self.assertEqual(self.stack('--check').returncode, 0)
+        justfile = self.target / 'Justfile'
+        start = justfile.read_text()
+        cases = {
+            'typecheck:\n    #!/usr/bin/env sh\n    ty check\n': 'typecheck: it has a shebang line',
+            '[script]\ntypecheck:\n    ty check\n': 'typecheck: it has a shebang line or the attribute [script]',
+            'typecheck:\n    -ty check\n    jlog step typecheck\n': 'typecheck: it has a line with the prefix -',
+            '[no-cd]\ntypecheck:\n    ty check\n    jlog step typecheck\n': 'typecheck: it has the attribute [no-cd]',
+            "[working-directory('src')]\ntypecheck:\n    ty check\n    jlog step typecheck\n":
+                'typecheck: it has the attribute [working-directory]',
+            'typecheck:\n    ty check\n': 'typecheck: its last line is not jlog step typecheck',
+            'check:\n    @echo done\n': 'check: its last line is not jlog pass',
+            'typecheck: helper\n    jlog step typecheck\nhelper:\n    -ty check\n': 'helper: it has a line with the prefix -',
+            # The last line continues the line before it, so the shell runs the two as one line.
+            'typecheck:\n    echo typing \\\n    jlog step typecheck\n': 'typecheck: its last line is not jlog step',
+            # A dependency after && runs after the last line.
+            'typecheck: && helper\n    jlog step typecheck\nhelper:\n    ty check\n':
+                'typecheck: its last line is not jlog step',
+        }
+        for recipe, finding in cases.items():
+            justfile.write_text(start + '\n' + recipe)
+            run = self.stack()
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertIn(f'The lint of steps: {finding}', run.stderr)
+            run = self.stack('--check')
+            self.assertEqual(run.returncode, 1, recipe)
+            self.assertIn(f'The lint of steps: {finding}', run.stdout)
+        # The setting working-directory that the installer writes into each module is allowed, and so is a line that
+        # continues a line before it.
+        # A comment after the line of jlog is allowed too. A module of the project is no step, because check never
+        # runs it.
+        (self.target / 'web.just').write_text('test:\n    #!/bin/sh\n    echo hi\n')
+        for allowed in ('\ntypecheck:\n    echo a \\\n    -b\n    jlog step typecheck\n',
+                        '\ntypecheck:\n    ty check\n    jlog step typecheck  # the end\n',
+                        "\nmod web 'web.just'\n"):
+            justfile.write_text(start + allowed)
+            run = self.stack()
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertNotIn('lint of steps', run.stderr)
+            run = self.stack('--check')
+            self.assertEqual(run.returncode, 0, run.stdout)
+            self.assertNotIn('lint of steps', run.stdout)
+
+    def test_the_lint_reads_the_steps_of_a_module(self):
+        dump = {'recipes': {}, 'modules': {'python': {'recipes': {'test': {
+            'shebang': True, 'attributes': [], 'body': [['#!/bin/sh'], ['pytest']], 'dependencies': []}}}}}
+        self.assertEqual(install_stack.lint_project(dump, ['python']),
+                         ['python::test: it has a shebang line or the attribute [script], so its lines do not run '
+                          'through jlog'])
+
+    def test_the_lint_command_finds_a_shebang_step_in_a_justfile(self):
+        justfile = self.base / 'old.just'
+        justfile.write_text('test:\n    #!/usr/bin/env sh\n    pytest\n\nfmt:\n    #!/usr/bin/env sh\n    ruff\n')
+        run = subprocess.run([sys.executable, REPO / 'scripts/lint_steps.py', justfile], capture_output=True, text=True)
+        self.assertEqual(run.returncode, 1)
+        self.assertIn('the step test: it has a shebang line', run.stdout)
+        # fmt is no step.
+        self.assertNotIn('fmt', run.stdout)
+        run = subprocess.run([sys.executable, REPO / 'scripts/lint_steps.py',
+                              *sorted((REPO / '.agents/skills/just/assets/templates').glob('*.just'))],
+                             capture_output=True, text=True)
+        self.assertEqual((run.returncode, run.stdout), (0, ''))
+
+    def role(self, text):
+        """Give the nossaifd role of the test packages a recipe file of this text."""
+        role = self.packages / 'nossaifd/.agents/just/roles/nossaifd.just'
+        role.write_text(text)
+        commit(self.packages / 'nossaifd')
+
+    def parses(self):
+        run = self.just_in(self.target, '--summary')
+        self.assertEqual(run.returncode, 0, run.stderr)
+
+    def test_a_stop_after_a_profile_is_gone_leaves_a_justfile_that_parses(self):
+        self.assertEqual(self.stack('prose', '--profile', 'python', '--defaults', '--without', 'tasker').returncode, 0)
+        justfile = self.target / 'Justfile'
+        justfile.write_text(justfile.read_text() + '\nprose:\n    @echo mine\n')
+        run = self.stack('--without', 'python')
+        self.assertEqual(run.returncode, 1)
+        self.assertFalse((self.target / '.agents/just/python.just').exists())
+        self.assertNotIn('mod python', self.index())
+        self.parses()
+
+    def test_a_justfile_that_uses_a_recipe_of_the_index_installs_and_parses(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text("import? '.agents/install.just'\n\nci: check\n    @echo ci\n")
+        run = self.stack('--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('does not parse', run.stderr)
+        self.parses()
+
+    def test_an_alias_of_a_recipe_of_the_index_does_not_freeze_the_index(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose').returncode, 0)
+        justfile = self.target / 'Justfile'
+        justfile.write_text(justfile.read_text() + '\nalias t := test\n')
+        run = self.stack('--profile', 'python', 'typecheck')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        # The new tool reaches the index, and the record says the same as the index.
+        self.assertIn('\ntypecheck *args:\n    just --justfile', self.index())
+        self.assertIn('typecheck', self.saved()['provided_steps'])
+        self.parses()
+
+    def test_a_kept_index_keeps_the_steps_that_it_provides(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose').returncode, 0)
+        provided = self.saved()['provided_steps']
+        path = self.target / '.agents/just/index.just'
+        path.write_text(path.read_text() + '\n# my edit\n')
+        run = self.stack('--profile', 'python', 'typecheck')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertTrue(self.index().endswith('# my edit\n'))
+        self.assertEqual(self.saved()['provided_steps'], provided)
+
+    def test_a_role_file_that_does_not_parse_alone_stops_the_install(self):
+        self.role('prose-check: lint\n    @echo prose\n    jlog step prose-check\n')
+        run = self.stack('prose', '--profile', 'python', '--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 1)
+        self.assertIn('roles/nossaifd.just', run.stderr)
+        self.assertIn('does not parse', run.stderr)
+
+    def test_a_role_recipe_with_the_name_of_a_step_of_a_profile_stops_the_install(self):
+        self.role('prose-check:\n    @echo prose\n    jlog step prose-check\n\nlint:\n    @echo rolelint\n    '
+                  'jlog step lint\n')
+        run = self.stack('prose', '--profile', 'python', '--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 1)
+        self.assertIn('The recipe lint is in a recipe file of a role and in a profile', run.stderr)
+
+    def test_a_role_step_counts_as_provided_and_runs_in_check(self):
+        self.role('prose-check:\n    @echo prose\n    jlog step prose-check\n')
+        run = self.stack('prose', '--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.saved()['provided_steps'], ['prose-check'])
+        self.assertNotIn('jlog skip prose-check', self.index())
+        commit(self.target)
+        run = self.just_in(self.target, 'check')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual([record['step'] for record in self.records(kind='step')], ['prose-check'])
+
+    def test_a_jlog_run_in_a_file_that_the_justfile_imports_counts(self):
+        (self.target / 'vars.just').write_text('export JLOG_RUN := "fixed"\n')
+        justfile = self.target / 'Justfile'
+        justfile.write_text("import 'vars.just'\n\nbuild:\n    @echo b\n")
+        run = self.stack('--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        text = justfile.read_text()
+        self.assertIn(install_stack.IMPORT_LINE, text)
+        self.assertNotIn(install_stack.JLOG_LINE, text)
+        self.parses()
+
+    def test_a_jlog_run_that_is_not_exported_gets_a_note(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('JLOG_RUN := "x"\n\nbuild:\n    @echo b\n')
+        run = self.stack('--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('sets JLOG_RUN but does not export it', run.stderr)
+
+    def test_check_names_a_justfile_without_jlog_run(self):
+        self.assertEqual(self.stack('--defaults', '--without', 'tasker').returncode, 0)
+        justfile = self.target / 'Justfile'
+        justfile.write_text(justfile.read_text().replace(install_stack.JLOG_LINE + '\n', ''))
+        commit(self.target)
+        run = self.stack('--check')
+        self.assertIn(f'does not set JLOG_RUN, so the inner just calls of one just check get run IDs of their own. '
+                      f'Add this line to it: {install_stack.JLOG_LINE}', run.stdout + run.stderr)
+
+    def test_a_step_of_the_justfile_that_needs_an_argument_stays_out_of_check(self):
+        self.assertEqual(self.stack('--defaults', '--without', 'tasker').returncode, 0)
+        justfile = self.target / 'Justfile'
+        justfile.write_text(justfile.read_text() + '\nlint path:\n    echo {{path}}\n    jlog step lint\n')
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('lint in the project is an alias, a module, or a recipe that needs an argument', run.stderr)
+        self.assertNotIn(' lint ', next(line for line in self.index().splitlines() if line.startswith('check:')))
+        self.parses()
+
+    def test_a_shell_or_a_step_that_the_justfile_gets_later_is_mended_by_a_direct_run(self):
+        # The Justfile then does not parse, so just install cannot run. The installer script itself can.
+        self.assertEqual(self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose').returncode, 0)
+        justfile = self.target / 'Justfile'
+        justfile.write_text(justfile.read_text() + '\nset shell := ["jlog", "bash", "-c"]\n\nlint:\n    @echo mine\n'
+                            '    jlog step lint\n')
+        self.assertNotEqual(self.just_in(self.target, '--summary').returncode, 0)
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.parses()
+        self.assertNotIn('set shell', self.index())
+        self.assertNotIn('\nlint', self.index())
+        commit(self.target)
+        run = self.just_in(self.target, 'check')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
+    def test_check_fails_when_the_justfile_does_not_parse(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose').returncode, 0)
+        justfile = self.target / 'Justfile'
+        # The index sets the shell too, so just stops with "Setting shell is redefined".
+        justfile.write_text(justfile.read_text() + '\nset shell := ["bash", "-c"]\n')
+        commit(self.target)
+        run = self.stack('--check')
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertIn('Justfile does not parse, so just check and just install cannot run', run.stdout)
+
+    def test_the_lint_command_checks_the_ends_of_steps_in_a_justfile_with_the_index(self):
+        justfile = self.base / 'Justfile'
+        justfile.write_text("import? './.agents/install.just'\n\nlint:\n    ruff check\n\ntest:\n    pytest\n    jlog step test\n")
+        run = subprocess.run([sys.executable, REPO / 'scripts/lint_steps.py', justfile], capture_output=True, text=True)
+        self.assertEqual(run.returncode, 1)
+        self.assertIn('the step lint: its last line is not jlog step lint', run.stdout)
+        self.assertNotIn('the step test', run.stdout)
+        # Without the import, check does not come from the index, so the ends do not count.
+        justfile.write_text('lint:\n    ruff check\n')
+        run = subprocess.run([sys.executable, REPO / 'scripts/lint_steps.py', justfile], capture_output=True, text=True)
+        self.assertEqual((run.returncode, run.stdout), (0, ''))
+
+    def test_the_log_folder_is_reserved(self):
+        self.assertTrue(install_stack.shared_files.reserved('.agents/log/just.jsonl'))
+
+
+# PartsTests and StepTests use the fixtures of StackTests, and run only their own tests.
+for _class in (PartsTests, StepTests):
+    for _name in [name for name in dir(StackTests) if name.startswith('test_') and name not in _class.__dict__]:
+        setattr(_class, _name, None)
+# The loader would find the class under this name too, and run its tests twice.
+del _class
 
 if __name__ == '__main__':
     unittest.main()

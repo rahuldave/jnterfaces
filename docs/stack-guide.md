@@ -66,8 +66,12 @@ install` clones new copies into `~/.local/share/skill-packages`.
 
 ## What a machine needs
 
-A machine needs `git`, `just` and `uv`. The installer, Python, the Python
-tools and Node all come through `uv`. The roles need more programs:
+A machine needs `git`, `just`, `uv` and `jlog`. The installer, Python, the
+Python tools and Node all come through `uv`. jlog is the shell of each recipe
+in `.agents/just`, and it logs each line in the run log. When jlog is missing,
+the installer stops and writes nothing. To install jlog, clone
+https://github.com/rahuldave/jlog, run `git checkout v0.1.0` in the clone,
+then run `just install`. The roles need more programs:
 
 | Role or tool | Program | How the stack handles a missing program |
 |---|---|---|
@@ -154,12 +158,91 @@ Each tool of a profile has one recipe file, for example
 
 - **`python.just`**, a module for each profile. It imports the recipe files
   of the installed tools only, and its `verify` runs their checks. Its
-  recipes run in the folder of the project. `just python lint` runs one.
-- **`index.just`**, which `.agents/install.just` imports. It has a `mod` line
-  for each profile. In a project that jnterfaces started, it also has a
-  combined recipe for each recipe name. So `just lint` runs the `lint` of
-  each language. Its `verify` runs the `verify` of each language, then
-  `git diff --check`.
+  recipes run in the folder of the project. `just python lint` runs one. A
+  module has settings of its own, so it sets jlog as its shell.
+- **`index.just`**, which `.agents/install.just` imports. It sets jlog as the
+  shell of the Justfile, with `set shell := ["jlog", "sh", "-cu"]`. It has a
+  `mod` line for each profile, and a combined recipe for each recipe name. So
+  `just lint` runs the `lint` of each language. Its `verify` runs the `verify`
+  of each language, then `git diff --check`. It also has the steps of `just
+  check`.
+
+**The steps of just check.** `just check` runs these steps in every project:
+
+```text
+fmt-check lint typecheck test coverage-check integration docstring-check docs-check prose-check diff-check
+```
+
+- **A combined step** ends with the line `jlog step NAME`, so the run log
+  shows that the step passed.
+- **A no-op step** is a step that no profile, role or recipe of the Justfile
+  has. Its one line is `jlog skip NAME "REASON"`. In a new project with no
+  language, each step is a no-op step, and `just check` passes.
+- **`diff-check`** runs `git diff --check` against the last commit, when the
+  project has a profile.
+- **`check`** depends on each step, and its last line is `jlog pass`.
+- **`.agents/stack.json`** lists the steps under `steps`, and the steps that
+  a profile or a role provides under `provided_steps`. jlog counts a skip only
+  for a step that is not in `provided_steps`.
+
+**Where the shell is set.** just stops with "Setting `shell` is redefined"
+when two files of one Justfile set the shell. A test with just 1.50.0 showed
+this for two imported files too. So the index sets the shell, and
+`.agents/install.just` does not. A Justfile that sets its own shell gets an
+index without the setting. Then the installer asks you to put jlog in front of
+the shell, for example `set shell := ["jlog", "bash", "-c"]`.
+
+**The run ID.** The root Justfile has the line `export JLOG_RUN :=
+env("JLOG_RUN", uuid())`. So all the lines of one `just check` share one run
+in the run log, also the lines of the inner `just` calls. A module or an
+imported file must not have the line, because it would make a second ID.
+
+**How the installer reads the names of the project.** It reads names with
+`just --dump`. It runs these steps:
+
+1. It keeps a copy of the old index. Then it writes the index with the `mod`
+   lines, and with a placeholder recipe for each name of the old index. So a
+   recipe of the Justfile can still depend on `check`, for example `ci:
+   check`.
+2. It reads the names of the Justfile. If the Justfile does not parse, it
+   tries again with no `mod` line, because a module can meet a name of the
+   project. If the Justfile still does not parse, it stops with the error of
+   just.
+3. It reads the names of each role file and each module. A role file must
+   parse alone.
+4. It writes the whole index without each name of the project. It writes a
+   no-op step only for a step that no role file and no combined recipe has.
+5. When it stops before the end, it puts the old index back. If the old index
+   does not parse now, for example because a module is gone, it writes an
+   index with no recipe.
+
+The installer stops, and names the recipe and the file, in these cases:
+
+- A recipe of the Justfile and a recipe of a role file have the same name.
+  just would stop with "Recipe redefined".
+- A recipe of a role file has the name of a step of a profile, such as
+  `lint`. The step of the profile would not run in `just check`.
+
+**When a later edit breaks the Justfile.** The index leaves out the names that
+the Justfile has when you run `just install`. Two later edits make the
+Justfile stop parsing:
+
+- You add `set shell` to the Justfile. The index sets the shell too.
+- You add a recipe with the name of a recipe of the index, such as `lint`,
+  and the Justfile does not have `set allow-duplicate-recipes`.
+
+Then `just install` cannot run, because just cannot read the Justfile, and
+`just install --check` fails. Run the installer itself in the folder of the
+project. It writes the index again without the new names. The command finds
+the clone of jnterfaces as `.agents/install.just` does:
+
+```bash
+uv run --script "${JNTERFACES_DIR:-${SKILL_PACKAGES_DIR:-$HOME/.local/share/skill-packages}/jnterfaces}/scripts/install_stack.py" --target .
+```
+
+The shell that you set must start with jlog, for example `set shell :=
+["jlog", "bash", "-c"]`. `jlog step`, `jlog skip` and `jlog pass` work only in
+a recipe that runs through jlog, so with another shell `just check` fails.
 
 Commit these files. `.agents/install.just` imports the index with `import?`,
 so a clone without it does not have the recipes, and just gives no error.
@@ -182,49 +265,50 @@ installer adds one block of lines at the start of that Justfile:
 # begin lines of jnterfaces, the installer, from jnterfaces at 1a2b3c4.
 # Last written to Justfile by `just install prose`. The record is parts."Justfile" in .agents/stack.json.
 import? '.agents/install.just'
+export JLOG_RUN := env("JLOG_RUN", uuid())
 # end lines of jnterfaces. They stay while the project keeps .agents/stack.json.
 ```
 
 The block is a part, as in `.gitignore`. The installer changes only the
-block, and your lines stay as they are. The index then gives the modules and
-the recipes of the roles, for example `just python lint` and `just prose`. It
-gives no combined recipes, such as `just lint`. A Justfile of your own often
-has its own `lint` or `test`. Without `set allow-duplicate-recipes`, the two
-names make the Justfile fail to parse.
+block, and your lines stay as they are. The block has no line of `JLOG_RUN`
+when the Justfile sets `JLOG_RUN` itself. The index leaves out each name of
+the Justfile, so a `lint` or `test` of your own stays, and the index gives the
+other steps.
 
 The installer adds no block in these cases:
 
 - The Justfile already imports `.agents/install.just`, with `import` or
-  `import?`, in single or double quotes. If the Justfile has the block and a
-  line of yours too, the block goes.
-- The Justfile starts with a `#!` line, or it is a symlink. Add the line
+  `import?`, in single or double quotes, and sets `JLOG_RUN`. If the Justfile
+  has the block and a line of yours too, the line goes from the block.
+- The Justfile starts with a `#!` line, or it is a symlink. Add the lines
   yourself.
 - The Justfile does not parse before the run. Fix it, then run `just
   install` again.
-- You deleted the block. The installer records the line as declined, and it
-  does not add it again. To have it back, add the line after the blocks.
+- You deleted the block. The installer records the lines as declined, and it
+  does not add them again. To have them back, add the lines after the blocks.
 
 **A clash with the block.** The block imports `.agents/install.just`, which
 has the recipes `install` and `uninstall` and the variable `jn_copier`. A
 recipe of yours with one of these names makes the Justfile fail to parse.
 Then the installer takes the block out again. It names the clash, and it
-prints the lines to add by hand. The index then has the modules only.
+prints the lines to add by hand.
 
 The record keeps the hash of your Justfile, so the next run does not try
 again until you change the Justfile.
 
-**A name that meets a name of the index.** An alias, a module, or a recipe
-in a project without `set allow-duplicate-recipes` can have the name of a
-recipe or a module of the index. Then the Justfile does not parse.
+**The lint of steps.** A step that hides its lines from the run log can make
+a gate wrong. `just install` and `just install --check` name each step that
+has one of these:
 
-The installer checks the Justfile after it writes the index. If it does not
-parse, the installer first leaves out the combined recipes and the recipes of
-the roles. Then it leaves out the modules too. In a project that jnterfaces
-did not start, it tries the recipes of the roles alone before it leaves out
-everything.
+- A shebang line or the attribute `[script]`.
+- A line with the prefix `-`, so just goes on when the line fails.
+- The attribute `[no-cd]` or `[working-directory]`. The setting `set
+  working-directory` that the installer writes into each module is allowed.
+- No `jlog step NAME` or `jlog skip NAME` as its last line, or, for `check`,
+  no `jlog pass`.
 
-The installer names the clash, and `just install` keeps working. To get the
-recipes back, rename the alias, module or recipe of the project.
+The lint also reads the dependencies of each step. `just install --check`
+exits with 1 when the lint finds a step.
 
 **The record.** `.agents/stack.json` holds the hash of each file that `just
 install` wrote in `.agents/just`, under `generated`. The installer changes or

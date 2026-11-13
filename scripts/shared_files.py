@@ -32,10 +32,12 @@ PENDING = Path('.agents/stack-pending.json')
 RECORD = '.agents/stack.json'
 FORMATS = json.loads((Path(__file__).resolve().parent / 'formats.json').read_text())
 # The history and the file of a run that stopped describe one clone, so git does not keep them.
-JNTERFACES_LINES = {'.gitignore': [LOG.as_posix(), PENDING.as_posix()]}
+# Nor does it keep the run log of jlog, and a worktree that holds only the run log can be pruned.
+RUN_LOG = '.agents/log/'
+JNTERFACES_LINES = {'.gitignore': [LOG.as_posix(), PENDING.as_posix(), RUN_LOG], '.worktreedisposable': [RUN_LOG]}
 # The files and folders of the installer itself, which no owner may name.
 RESERVED = (LOG.as_posix(), RECORD, PENDING.as_posix())
-RESERVED_FOLDERS = ('.agents/just/', '.agents/config/', '.agents/instructions/')
+RESERVED_FOLDERS = ('.agents/just/', '.agents/config/', '.agents/instructions/', RUN_LOG)
 OWNER = r'[a-z][a-z0-9_-]*(?::[a-z][a-z0-9_-]*)?'
 STATES = ('added', 'present', 'declined', 'released')
 UNIT_STATES = ('added', 'present', 'declined', 'kept', 'seeded')

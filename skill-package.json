@@ -18,7 +18,8 @@
     "required": [
       {"name": "just", "check": "just --version"},
       {"name": "uv", "check": "uv --version", "description": "Runs the installer, and the tools of the profiles."},
-      {"name": "git", "check": "git --version", "description": "Clones the packages and records their revisions."}
+      {"name": "git", "check": "git --version", "description": "Clones the packages and records their revisions."},
+      {"name": "jlog", "check": "jlog --version", "description": "The shell of each recipe that just install writes. It logs each line in .agents/log. Install it with git clone https://github.com/rahuldave/jlog, then just install in the clone."}
     ],
     "optional": [
       {"name": "jagt", "check": "jagt --version", "description": "Renders and checks agentic Just packets for the jagt-protocol skill. The skill needs jagt 0.3.0 or later, which gives each packet a nonce."},
