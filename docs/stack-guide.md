@@ -356,24 +356,30 @@ uv run ~/Projects/jnterfaces/scripts/install_stack.py --target . prose
   - a UserPromptSubmit hook and a Stop hook, in `.claude/settings.json` and in
     `.codex/hooks.json`
   - the workflow `.github/workflows/nossaifd-prose.yml`, which checks the
-    prose of each pull request.
+    prose of each pull request. The installer does not write it while the
+    `tasker` role is on. Layer 2 tells why.
 - `CLAUDE.md`, with the line `@AGENTS.md`, when the project has none. Claude
   Code reads `CLAUDE.md` and not `AGENTS.md`, so the line gives it the
   instruction.
 - `.agents/install.just`, the records, and `.agents/stack.json`.
 - The starter Justfile, which imports `.agents/install.just`. So `just
   install`, `just uninstall` and `just install --help` work.
+- Two empty lists, `.agents/generated.txt` and
+  `.agents/coverage-exclude.txt`, in a project that the installer starts.
+  The lists are yours. The installer never writes them again, and a list that
+  you delete stays deleted.
 
-`just prose` runs the checker on the Markdown files that Git tracks, or on the
-pages that you name. With no names, it leaves out `AGENTS.md` and `CLAUDE.md`,
-which are instructions for agents:
+`just prose-check` runs the checker on the Markdown pages that changed since
+the last commit, or on the pages that you name. With no names, it leaves out
+`AGENTS.md` and `CLAUDE.md`, which are instructions for agents. It is the step
+`prose-check` of `just check`:
 
 ```bash
-just prose
-just prose -v README.md
+just prose-check
+just prose-check -v README.md
 ```
 
-`just prose` runs only the nossaifd checker. The declaude skill has its own
+`just prose-check` runs only the nossaifd checker. The declaude skill has its own
 scripts, which an agent runs when it revises a draft.
 
 An agent finds the nossaifd and declaude skills by their descriptions,
@@ -432,6 +438,23 @@ just install tasker
   the rest of the file stays.
 - `CLAUDE.md`, with the line `@AGENTS.md`, if the project has none. Layer 1
   tells why.
+
+**The prose workflow goes.** With the `tasker` role, `just check` in CI runs
+`prose-check`. So the workflow `.github/workflows/nossaifd-prose.yml` of the
+`prose` role would check the prose twice:
+
+- The installer removes the workflow when the installer wrote it and you did
+  not change it.
+- If you changed the workflow, the installer keeps it and says so. Delete it
+  yourself if you do not want it.
+- While the `tasker` role is on, no install writes the workflow again.
+- `just uninstall tasker` writes the workflow again, while the `prose` role
+  is on.
+- If you delete the workflow, it stays deleted.
+- When the `prose` role is off, the rule does not hold. A workflow that
+  `prose` left stays.
+
+`drop_with` in `stack.json` of jnterfaces holds this rule.
 
 **Variants.** `just install tasker=gitwt` works on each task in its own Git
 worktree, and keeps the main checkout on `main`. The default, `tasker=git`,
@@ -753,7 +776,7 @@ again.
 
 | Mixin | Command | Works now | Does not work |
 |---|---|---|---|
-| Writing skills | `install_stack.py prose` | The nossaifd and declaude skills, the writing flow, `CLAUDE.md`, the starter Justfile and `just prose` | none |
+| Writing skills | `install_stack.py prose` | The nossaifd and declaude skills, the writing flow, `CLAUDE.md`, the starter Justfile and `just prose-check` | none |
 | Task tracker | `just install tasker` | The skills, the hooks, `AGENTS.md`, the variant, the worktree recipes | Needs `gest`, which `uv` does not give |
 | Python profile | `just install --profile python` | The package, the manifest, `.gitignore`, the defaults | none |
 | TypeScript profile | `just install --profile typescript` | The package, the manifest, `.gitignore`, the defaults | none |
@@ -791,6 +814,6 @@ The installer fixes closed these gaps:
 
 The role recipes closed these gaps:
 
-- **`just prose`** checks the Markdown of the project.
+- **`just prose-check`** checks the Markdown of the project.
 - **`just uninstall tasker`** takes the lines of the role out of `AGENTS.md`.
 - **jnprofile-typescript** is on GitHub.

@@ -50,7 +50,15 @@
       "choice": "prose",
       "repository": "https://github.com/rahuldave/nossaifd",
       "about": "write plain English, with its guide, its checker, its writing flow, and the declaude skill, from the declauding skill by Oskar Austegard",
-      "default": true
+      "default": true,
+      "drop_with": {
+        "tasker": {
+          "files": [
+            ".github/workflows/nossaifd-prose.yml"
+          ],
+          "why": "just check in CI runs prose-check, so the workflow of prose would check the prose twice"
+        }
+      }
     },
     {
       "name": "sklanes",

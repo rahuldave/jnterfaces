@@ -333,7 +333,7 @@ class SkillTest(unittest.TestCase):
             self.skipTest('no nossaifd check.py; set NOSSAIFD_CHECK')
         pages = [REPO / 'README.md', REPO / 'AGENTS.md', *sorted(SKILLS.glob('*/SKILL.md')),
                  *sorted(SKILLS.glob('*/references/*.md'))]
-        self.assertEqual(sorted(pages[2:]), sorted(SKILLS.rglob('*.md')), 'just prose must check every shipped page')
+        self.assertEqual(sorted(pages[2:]), sorted(SKILLS.rglob('*.md')), 'just prose-check must check every shipped page')
         with tempfile.TemporaryDirectory() as temp:
             for page in pages:
                 body = re.sub(r'\A---\n.*?\n---\n', '', page.read_text(), flags=re.S)

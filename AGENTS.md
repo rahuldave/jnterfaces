@@ -7,7 +7,7 @@ Other repositories install copies of the skills.
 - Run `just check` before every commit.
 - Run `just package-lint` after a change to `skill-package.json` or to the
   installer.
-- Write Markdown by the nossaifd writing guide, and check it with `just prose`.
+- Write Markdown by the nossaifd writing guide, and check it with `just prose-check`.
 - Keep the skills free of paths from one machine. An installed copy has no
   `docs/` folder, so a skill names only files inside `.agents/skills/`.
 - A merge publishes the source only. Installed copies change only when someone

@@ -492,8 +492,10 @@ class StackTests(unittest.TestCase):
         saved = self.saved()
         # The prose role ships a recipe file, so the index exists, and the record holds its hash.
         self.assertEqual(list(saved.pop('generated')), ['.agents/just/index.just'])
-        # The installer writes its lines of the run log, and the steps of just check, with none provided.
-        self.assertEqual(sorted(saved.pop('parts')), ['.gitignore', '.worktreedisposable'])
+        # The installer writes its lines of the run log, and the steps of just check, with none provided. It started
+        # the project, so it also wrote its two lists.
+        self.assertEqual(sorted(saved.pop('parts')), ['.agents/coverage-exclude.txt', '.agents/generated.txt',
+                                                      '.gitignore', '.worktreedisposable'])
         self.assertEqual((saved.pop('steps'), saved.pop('provided_steps')), (list(STEPS), []))
         self.assertEqual(saved, {'version': 2, 'profiles': [], 'tools': [], 'started': True, 'parts_version': 1,
                                         'variants': {'tasker': 'git'}, 'choices': {
@@ -2206,7 +2208,13 @@ sys.exit(run.returncode)
                        lambda r: r['packages'][1].update(record='.GIT/config'),
                        lambda r: r['packages'][1].update(needs='jnterfaces'),
                        lambda r: r['packages'][2].pop('about'),
-                       lambda r: r['packages'][0]['optional_skills'].append({'choice': 'tasker', 'about': 'twice'})):
+                       lambda r: r['packages'][0]['optional_skills'].append({'choice': 'tasker', 'about': 'twice'}),
+                       lambda r: r['packages'][2]['drop_with'].update(nope={'files': ['x'], 'why': 'w'}),
+                       lambda r: r['packages'][2]['drop_with'].update(prose={'files': ['x'], 'why': 'w'}),
+                       lambda r: r['packages'][2]['drop_with']['tasker'].update(files=['../x']),
+                       lambda r: r['packages'][2]['drop_with']['tasker'].update(files=[]),
+                       lambda r: r['packages'][2]['drop_with']['tasker'].pop('why'),
+                       lambda r: r['packages'][0].update(drop_with={'tasker': {'files': ['x'], 'why': 'w'}})):
             broken = json.loads(json.dumps(registry))
             change(broken)
             path = self.base / 'broken.json'
@@ -2460,6 +2468,213 @@ class PartsTests(StackTests):
             self.assertTrue(install_stack.guard_applies(self.target, guard), mine)
         (self.target / 'pyproject.toml').write_text('[tool.ruff-x]\na = 1\n')
         self.assertFalse(install_stack.guard_applies(self.target, guard))
+
+    WORKFLOW = '.github/workflows/nossaifd-prose.yml'
+
+    def prose_with_workflow(self):
+        """nossaifd with its prose workflow as a seed and as a starter, as the real package ships it."""
+        root = self.packages / 'nossaifd'
+        manifest = json.loads((root / 'skill-package.json').read_text())
+        source = '.agents/skills/nossaifd/assets/prose-check.yml'
+        (root / source).parent.mkdir(parents=True, exist_ok=True)
+        (root / source).write_text('name: prose\n')
+        manifest['install_extras'].update(seed={self.WORKFLOW: source}, starter={self.WORKFLOW: source})
+        (root / 'skill-package.json').write_text(json.dumps(manifest))
+        commit(root)
+
+    def test_the_tasker_role_drops_the_prose_workflow_and_a_reinstall_does_not_write_it(self):
+        self.prose_with_workflow()
+        workflow = self.target / self.WORKFLOW
+        run = self.stack('prose', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(workflow.read_text(), 'name: prose\n')
+        self.assertIn('hash', self.saved()['parts'][self.WORKFLOW]['(starter)'])
+        # A dry run says so and changes nothing.
+        run = self.stack('tasker', '--dry-run')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(f'Would remove {self.WORKFLOW}', run.stdout)
+        self.assertTrue(workflow.exists())
+        run = self.stack('tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(f'Removed {self.WORKFLOW}, which the installer wrote: the tasker role is on', run.stderr)
+        self.assertFalse(workflow.exists())
+        self.assertFalse((self.target / '.github').exists())
+        self.assertNotIn(self.WORKFLOW, self.saved()['parts'])
+        # A reinstall of every role, or of prose alone, while tasker is on writes no workflow.
+        for args in ((), ('prose',), ('--defaults',)):
+            run = self.stack(*args)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertFalse(workflow.exists(), args)
+        # Without tasker, the starter of prose writes the workflow again.
+        run = self.stack('--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(workflow.read_text(), 'name: prose\n')
+
+    def test_a_prose_workflow_that_you_deleted_stays_deleted_after_tasker_comes_and_goes(self):
+        self.prose_with_workflow()
+        workflow = self.target / self.WORKFLOW
+        self.assertEqual(self.stack('prose', '--without', 'tasker').returncode, 0)
+        workflow.unlink()
+        for args in (('--without', 'tasker'), ('tasker',), ('--without', 'tasker')):
+            run = self.stack(*args)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertFalse(workflow.exists(), args)
+
+    def test_a_hashless_starter_that_differs_is_kept_without_blaming_you(self):
+        self.prose_with_workflow()
+        workflow = self.target / self.WORKFLOW
+        self.assertEqual(self.stack('prose', '--without', 'tasker').returncode, 0)
+        record = self.saved()
+        del record['parts'][self.WORKFLOW]['(starter)']['hash']
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        workflow.write_text('name: other\n')
+        run = self.stack('tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('the installer cannot tell whether you changed it', run.stderr)
+        self.assertEqual(workflow.read_text(), 'name: other\n')
+
+    def test_with_tasker_on_from_the_start_the_prose_workflow_is_never_written(self):
+        self.prose_with_workflow()
+        run = self.stack('--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertFalse((self.target / self.WORKFLOW).exists())
+        self.assertNotIn(self.WORKFLOW, self.saved()['parts'])
+
+    def test_an_edited_prose_workflow_stays_when_tasker_comes(self):
+        self.prose_with_workflow()
+        workflow = self.target / self.WORKFLOW
+        self.assertEqual(self.stack('prose', '--without', 'tasker').returncode, 0)
+        workflow.write_text('name: mine\n')
+        run = self.stack('tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(f'Kept {self.WORKFLOW}: you changed it, so it stays yours', run.stderr)
+        self.assertEqual(workflow.read_text(), 'name: mine\n')
+        self.assertEqual(self.saved()['parts'][self.WORKFLOW]['(file)'], {'state': 'kept', 'needs': ['prose']})
+        # The note comes once, and the file stays yours after tasker goes too.
+        run = self.stack()
+        self.assertNotIn('Kept ' + self.WORKFLOW, run.stderr)
+        self.assertEqual(self.stack('--without', 'tasker').returncode, 0)
+        self.assertEqual(workflow.read_text(), 'name: mine\n')
+
+    def test_an_edited_prose_workflow_that_you_delete_stays_deleted_after_tasker_goes(self):
+        self.prose_with_workflow()
+        workflow = self.target / self.WORKFLOW
+        self.assertEqual(self.stack('prose', '--without', 'tasker').returncode, 0)
+        workflow.write_text('name: mine\n')
+        self.assertEqual(self.stack('tasker').returncode, 0)
+        # The note said that you may delete it. You do, and it stays deleted while prose is on.
+        workflow.unlink()
+        for args in ((), ('--without', 'tasker'), ('--without', 'tasker')):
+            run = self.stack(*args)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertFalse(workflow.exists(), args)
+
+    def test_a_kept_seed_that_you_delete_stays_deleted_after_tasker_goes(self):
+        self.prose_with_workflow()
+        workflow = self.target / self.WORKFLOW
+        self.assertEqual(self.stack('prose', '--without', 'tasker').returncode, 0)
+        record = self.saved()
+        record['parts'][self.WORKFLOW] = {'(seed)': {'state': 'seeded', 'holder': 'prose', 'needs': ['prose'],
+                                                      'hash': 'x'}}
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        workflow.write_text('name: mine\n')
+        run = self.stack('tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(f'Kept {self.WORKFLOW}', run.stderr)
+        self.assertEqual(sorted(self.saved()['parts'][self.WORKFLOW]), ['(file)', '(starter)'])
+        workflow.unlink()
+        self.assertEqual(self.stack('--without', 'tasker').returncode, 0)
+        self.assertFalse(workflow.exists())
+
+    def test_a_prose_workflow_that_prose_left_behind_stays_when_tasker_comes(self):
+        self.prose_with_workflow()
+        workflow = self.target / self.WORKFLOW
+        self.assertEqual(self.stack('prose', '--without', 'tasker').returncode, 0)
+        self.assertEqual(self.stack('--without', 'prose,tasker').returncode, 0)
+        self.assertTrue(workflow.exists())
+        # Without prose, just check runs no prose-check, so the reason of the rule does not hold.
+        run = self.stack('tasker', '--without', 'prose')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn(f'Removed {self.WORKFLOW}', run.stderr)
+        self.assertEqual(workflow.read_text(), 'name: prose\n')
+
+    def test_a_run_that_stopped_after_it_dropped_the_workflow_lets_the_workflow_come_back(self):
+        self.prose_with_workflow()
+        workflow = self.target / self.WORKFLOW
+        self.assertEqual(self.stack('prose', '--without', 'tasker').returncode, 0)
+        # A run with tasker that stopped after it removed the workflow and before it saved the record.
+        old = self.saved()['parts'][self.WORKFLOW]
+        (self.target / '.agents/stack-pending.json').write_text(
+            json.dumps({'files': {self.WORKFLOW: {'old': old, 'new': {}}}}))
+        workflow.unlink()
+        run = self.stack('tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn(self.WORKFLOW, self.saved()['parts'])
+        run = self.stack('--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(workflow.read_text(), 'name: prose\n')
+
+    def test_a_prose_workflow_of_yours_stays_when_tasker_comes(self):
+        self.prose_with_workflow()
+        workflow = self.target / self.WORKFLOW
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text('name: prose\n')
+        self.assertEqual(self.stack('prose', '--without', 'tasker').returncode, 0)
+        self.assertNotIn(self.WORKFLOW, self.saved()['parts'])
+        self.assertEqual(self.stack('tasker').returncode, 0)
+        self.assertEqual(workflow.read_text(), 'name: prose\n')
+
+    def test_a_starter_record_without_a_hash_counts_when_the_file_is_as_the_source_ships_it(self):
+        self.prose_with_workflow()
+        self.assertEqual(self.stack('prose', '--without', 'tasker').returncode, 0)
+        record = self.saved()
+        del record['parts'][self.WORKFLOW]['(starter)']['hash']
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        run = self.stack('tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertFalse((self.target / self.WORKFLOW).exists())
+
+    def test_the_tasker_role_drops_a_prose_workflow_that_the_old_seed_wrote(self):
+        # An install of the old installer: the package record of nossaifd holds the seed, and the record of the
+        # stack has no parts yet.
+        self.prose_with_workflow()
+        self.assertEqual(self.stack('prose', '--without', 'tasker').returncode, 0)
+        workflow = self.target / self.WORKFLOW
+        record = self.saved()
+        del record['parts'], record['parts_version']
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        own = self.target / RECORDS['nossaifd']
+        data = json.loads(own.read_text())
+        data['seeds'] = {self.WORKFLOW: hashlib.sha256(workflow.read_bytes()).hexdigest()}
+        own.write_text(json.dumps(data))
+        run = self.stack('tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertFalse(workflow.exists())
+        self.assertNotIn(self.WORKFLOW, self.saved()['parts'])
+        self.assertFalse(json.loads(own.read_text()).get('seeds'))
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertFalse(workflow.exists())
+
+    def test_the_installer_writes_the_two_lists_empty_once_in_a_project_it_starts(self):
+        run = self.stack('--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        listed = [self.target / '.agents/generated.txt', self.target / '.agents/coverage-exclude.txt']
+        self.assertEqual([path.read_text() for path in listed], ['', ''])
+        # The lists are yours: a run keeps what you add, and a list that you delete stays deleted.
+        listed[0].write_text('docs/api/\n')
+        listed[1].unlink()
+        for _ in range(2):
+            run = self.stack()
+            self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(listed[0].read_text(), 'docs/api/\n')
+        self.assertFalse(listed[1].exists())
+
+    def test_a_project_that_the_installer_did_not_start_gets_no_lists(self):
+        (self.target / 'Justfile').write_text("import? '.agents/install.just'\n")
+        run = self.stack('--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertFalse((self.target / '.agents/generated.txt').exists())
+        self.assertFalse((self.target / '.agents/coverage-exclude.txt').exists())
 
     def test_a_role_adds_its_parts_and_a_starter_and_takes_them_out(self):
         self.role_with_parts()

@@ -66,7 +66,7 @@ for both. At a terminal, the installer asks about each role. Add
 | Role | Default | What it gives |
 |---|---|---|
 | `tasker` | yes | The `g*` skills, which track work with Gest, the agent hooks, a starter `AGENTS.md` and the worktree recipes |
-| `prose` | yes | The nossaifd writing guide, its checker, `just prose`, the declaude skill, from the declauding skill by Oskar Austegard, and the [writing flow](https://rahuldave.github.io/nossaifd/): an instruction, two hooks and a GitHub workflow |
+| `prose` | yes | The nossaifd writing guide, its checker, `just prose-check`, the declaude skill, from the declauding skill by Oskar Austegard, and the [writing flow](https://rahuldave.github.io/nossaifd/): an instruction, two hooks and a GitHub workflow |
 | `cx` | no | The `cx` skill: run the file stages of a recipe only when they are out of date. It needs the `cx` program. |
 | `jagt-protocol` | no | The `jagt-protocol` skill: the packets of agentic recipes. It needs the `jagt` program. |
 | `reporter` | no | The sklanes skill: report requests for human attention to a Lanes inbox |
@@ -82,10 +82,13 @@ The installer then does these steps:
 2. It adds the default tools of the profile, with `uv add --group` or `npm
    install --save-dev`.
 3. It writes the starter `Justfile`, the starter `AGENTS.md`, and a
-   `CLAUDE.md` that imports `AGENTS.md`. With the `prose` role, it also writes
-   the workflow `.github/workflows/nossaifd-prose.yml`. Each of these files is
-   yours from then on.
-4. It saves the choices in `.agents/stack.json`.
+   `CLAUDE.md` that imports `AGENTS.md`. With the `prose` role and without the
+   `tasker` role, it also writes the workflow
+   `.github/workflows/nossaifd-prose.yml`. Each of these files is yours from
+   then on.
+4. It writes two empty lists, `.agents/generated.txt` and
+   `.agents/coverage-exclude.txt`. You or an agent add paths to them later.
+5. It saves the choices in `.agents/stack.json`.
 
 Run `just` alone to list the recipes. Then run `just verify`, which passes in a
 project with no code yet.
@@ -274,13 +277,16 @@ source folder, the docs and the branches.
 
 ## The writing checker
 
-`just prose` checks each Markdown file that Git tracks against the writing
-guide. It leaves out `AGENTS.md`, `CLAUDE.md` and the folders of the
-installer. Name pages to check only them, and add `-v` to see the soft notes:
+`just prose-check` checks each Markdown page that changed since the last
+commit against the writing guide. It leaves out `AGENTS.md`, `CLAUDE.md` and
+the folders of the installer. Name pages to check only them, and add `-v` to
+see the soft notes:
 
 ```bash
-just prose -v README.md
+just prose-check -v README.md
 ```
+
+It is the step `prose-check` of `just check`.
 
 ## What to commit
 
@@ -289,7 +295,9 @@ Commit these files:
 - `.agents/`, `.claude/` and `.codex/`, which hold the skills, the records and
   the hooks
 - `AGENTS.md`, `CLAUDE.md` and the `Justfile`
-- `.github/workflows/nossaifd-prose.yml`, if the `prose` role is on
+- `.github/workflows/nossaifd-prose.yml`, if the `prose` role is on and the
+  `tasker` role is off
+- `.agents/generated.txt` and `.agents/coverage-exclude.txt`
 - `pyproject.toml` and `uv.lock`, or `package.json` and `package-lock.json`
 - the config files `ruff.toml`, `.pre-commit-config.yaml`, `ty.toml`,
   `biome.json` and `tsconfig.json`

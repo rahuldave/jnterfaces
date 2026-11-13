@@ -34,8 +34,8 @@ package-lint:
     git -C "$tool_root/package-maker" checkout --quiet 6a5938c49ca71c374dc1a234a4d15134c484a741
     uv run --no-project python "$tool_root/package-maker/skills/skill-package-maker/scripts/lint_skill_bundle.py" .
 
-# Check the prose of the Markdown with nossaifd check.py, without front matter: just prose ~/Projects/nossaifd/check.py
-prose checker:
+# Check the prose of the Markdown with nossaifd check.py, without front matter: just prose-check ~/Projects/nossaifd/check.py
+prose-check checker:
     #!/usr/bin/env bash
     set -uo pipefail
     work="$(mktemp -d)"; trap 'rm -rf -- "$work"' EXIT; status=0
