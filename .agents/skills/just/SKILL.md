@@ -111,7 +111,7 @@ these files, all in `.agents/just`:
   line to it.
 
 A role package can also ship a recipe file in `.agents/just/roles`, such as
-the `just prose` of the `prose` role. The index imports it.
+the `just prose-check` of the `prose` role. The index imports it.
 
 Do not edit the files in `.agents/just`. Put the recipes of the project in
 the Justfile.

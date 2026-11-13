@@ -83,8 +83,8 @@ the worktree recipes `just worktree-new NAME`, `just worktree-sync`,
 
 **The recipes of a role.** A role package can ship a recipe file,
 `.agents/just/roles/<package>.just`. In a project that jnterfaces started, the
-index imports it. For example, `prose` gives `just prose`, which checks the
-Markdown of the project. For another project, the installer names the line to
+index imports it. For example, `prose` gives `just prose-check`, which checks
+the Markdown of the project. For another project, the installer names the line to
 add to its Justfile.
 
 **Starter files.** A role can write a starter file, such as the `AGENTS.md` of

@@ -369,16 +369,17 @@ uv run ~/Projects/jnterfaces/scripts/install_stack.py --target . prose
   The lists are yours. The installer never writes them again, and a list that
   you delete stays deleted.
 
-`just prose` runs the checker on the Markdown files that Git tracks, or on the
-pages that you name. With no names, it leaves out `AGENTS.md` and `CLAUDE.md`,
-which are instructions for agents:
+`just prose-check` runs the checker on the Markdown pages that changed since
+the last commit, or on the pages that you name. With no names, it leaves out
+`AGENTS.md` and `CLAUDE.md`, which are instructions for agents. It is the step
+`prose-check` of `just check`:
 
 ```bash
-just prose
-just prose -v README.md
+just prose-check
+just prose-check -v README.md
 ```
 
-`just prose` runs only the nossaifd checker. The declaude skill has its own
+`just prose-check` runs only the nossaifd checker. The declaude skill has its own
 scripts, which an agent runs when it revises a draft.
 
 An agent finds the nossaifd and declaude skills by their descriptions,
@@ -772,7 +773,7 @@ again.
 
 | Mixin | Command | Works now | Does not work |
 |---|---|---|---|
-| Writing skills | `install_stack.py prose` | The nossaifd and declaude skills, the writing flow, `CLAUDE.md`, the starter Justfile and `just prose` | none |
+| Writing skills | `install_stack.py prose` | The nossaifd and declaude skills, the writing flow, `CLAUDE.md`, the starter Justfile and `just prose-check` | none |
 | Task tracker | `just install tasker` | The skills, the hooks, `AGENTS.md`, the variant, the worktree recipes | Needs `gest`, which `uv` does not give |
 | Python profile | `just install --profile python` | The package, the manifest, `.gitignore`, the defaults | none |
 | TypeScript profile | `just install --profile typescript` | The package, the manifest, `.gitignore`, the defaults | none |
@@ -810,6 +811,6 @@ The installer fixes closed these gaps:
 
 The role recipes closed these gaps:
 
-- **`just prose`** checks the Markdown of the project.
+- **`just prose-check`** checks the Markdown of the project.
 - **`just uninstall tasker`** takes the lines of the role out of `AGENTS.md`.
 - **jnprofile-typescript** is on GitHub.

@@ -66,7 +66,7 @@ for both. At a terminal, the installer asks about each role. Add
 | Role | Default | What it gives |
 |---|---|---|
 | `tasker` | yes | The `g*` skills, which track work with Gest, the agent hooks, a starter `AGENTS.md` and the worktree recipes |
-| `prose` | yes | The nossaifd writing guide, its checker, `just prose`, the declaude skill, from the declauding skill by Oskar Austegard, and the [writing flow](https://rahuldave.github.io/nossaifd/): an instruction, two hooks and a GitHub workflow |
+| `prose` | yes | The nossaifd writing guide, its checker, `just prose-check`, the declaude skill, from the declauding skill by Oskar Austegard, and the [writing flow](https://rahuldave.github.io/nossaifd/): an instruction, two hooks and a GitHub workflow |
 | `cx` | no | The `cx` skill: run the file stages of a recipe only when they are out of date. It needs the `cx` program. |
 | `jagt-protocol` | no | The `jagt-protocol` skill: the packets of agentic recipes. It needs the `jagt` program. |
 | `reporter` | no | The sklanes skill: report requests for human attention to a Lanes inbox |
@@ -277,13 +277,16 @@ source folder, the docs and the branches.
 
 ## The writing checker
 
-`just prose` checks each Markdown file that Git tracks against the writing
-guide. It leaves out `AGENTS.md`, `CLAUDE.md` and the folders of the
-installer. Name pages to check only them, and add `-v` to see the soft notes:
+`just prose-check` checks each Markdown page that changed since the last
+commit against the writing guide. It leaves out `AGENTS.md`, `CLAUDE.md` and
+the folders of the installer. Name pages to check only them, and add `-v` to
+see the soft notes:
 
 ```bash
-just prose -v README.md
+just prose-check -v README.md
 ```
+
+It is the step `prose-check` of `just check`.
 
 ## What to commit
 
