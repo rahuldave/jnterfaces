@@ -1242,6 +1242,40 @@ def import_verdict(target, justfile, text):
     return ('clash', error) if error else (None, None)
 
 
+def raw_record(target):
+    """The record in .agents/stack.json as it is, or {} when it is missing, a symlink or not JSON."""
+    path = target / RECORD
+    try:
+        return json.loads(path.read_text()) if path.is_file() and not path.is_symlink() else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def generated_notes(target, record):
+    """The notes on the files that just install wrote in .agents/just, which the project commits: one for each file
+    that is gone, and one for each file that git does not track. Return the notes and True when a file is gone."""
+    generated = record.get('generated') if isinstance(record, dict) else None
+    if not isinstance(generated, dict) or not generated:
+        return [], False
+    # A key that an edit of the record points outside the project is not a file of the project.
+    inside = [path for path in generated if isinstance(path, str) and not Path(path).is_absolute()
+              and (target / path).resolve().is_relative_to(target.resolve())]
+    gone = sorted(path for path in inside if not (target / path).is_file())
+    notes = [f'{path} is gone, so just does not have the recipes of the profiles and roles, and it gives no error. '
+             f'Run just install to write it again, then commit it.' for path in gone]
+    here = sorted(path for path in inside if path not in gone)
+    if here:
+        run = subprocess.run(['git', '-C', str(target), 'ls-files', '-z', '--', *here], capture_output=True)
+        if run.returncode == 0:
+            tracked = set(run.stdout.decode(errors='surrogateescape').split('\0'))
+            loose = [path for path in here if path not in tracked]
+            if loose:
+                notes.append(f'git does not track {", ".join(loose)}. Commit {"them" if len(loose) > 1 else "it"}: '
+                             f'a clone without {"them" if len(loose) > 1 else "it"} does not have the recipes of the '
+                             f'profiles and roles, and just gives no error.')
+    return notes, bool(gone)
+
+
 def justfile_note(target, record):
     """For just install --check: the note when the Justfile lacks the import of the recipe file and the record has no
     line of it, or None."""
@@ -1568,13 +1602,11 @@ def main(argv=None):
     if target == ROOT:
         raise StackError('The target must not be this jnterfaces clone')
     if args.check:
-        try:
-            raw = json.loads((target / RECORD).read_text()) if (target / RECORD).is_file() and not (
-                target / RECORD).is_symlink() else {}
-        except (OSError, ValueError):
-            raw = {}
+        raw = raw_record(target)
         note = justfile_note(target, raw)
-        return shared_files.check(target, read_parts(target), [note] if note else [])
+        notes, gone = generated_notes(target, raw)
+        code = shared_files.check(target, read_parts(target), ([note] if note else []) + notes)
+        return 1 if gone else code
     overrides = {}
     for item in args.clone:
         name, sep, path = item.partition('=')
@@ -1977,6 +2009,8 @@ def main(argv=None):
     for name, variant in sorted(variants.items()):
         print(f'  {name}: {variant} ({choices[name]["variants"][variant]["about"]})')
     print(f'Saved in {RECORD}. Run just install again without names to install the same set.')
+    for note in generated_notes(target, raw_record(target))[0]:
+        say(note)
     return 0
 
 

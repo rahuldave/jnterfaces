@@ -161,6 +161,11 @@ Each tool of a profile has one recipe file, for example
   each language. Its `verify` runs the `verify` of each language, then
   `git diff --check`.
 
+Commit these files. `.agents/install.just` imports the index with `import?`,
+so a clone without it does not have the recipes, and just gives no error.
+`just install` names each file that git does not track, and
+`just install --check` fails when one is gone.
+
 **A project that jnterfaces started.** When the project has no Justfile, the
 installer writes the starter Justfile, and `.agents/stack.json` records
 `"started": true`. The starter Justfile has `set allow-duplicate-recipes`. So

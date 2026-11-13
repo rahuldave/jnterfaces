@@ -166,8 +166,15 @@ no profile.
 **The recipes follow the tools.** The profile package has one recipe file for
 each tool. `just install` writes a module for each profile in `.agents/just`,
 which imports the recipe files of the installed tools only. It also writes
-`.agents/just/index.just`, which `.agents/install.just` imports. In a project
-that jnterfaces started, with its starter Justfile:
+`.agents/just/index.just`, which `.agents/install.just` imports.
+
+**Commit the files in `.agents/just`.** `.agents/install.just` imports the
+index with `import?`, so just gives no error when the index is missing. A
+clone without the index does not have the recipes of the profiles and roles.
+So `just install` names each file there that git does not track, and
+`just install --check` fails when one of them is gone.
+
+In a project that jnterfaces started, with its starter Justfile:
 
 - **`just python lint`** runs the `lint` of one language.
 - **`just lint`** runs the `lint` of each language of the project.
