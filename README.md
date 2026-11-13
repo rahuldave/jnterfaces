@@ -176,10 +176,14 @@ that jnterfaces started, with its starter Justfile:
 
 The starter Justfile has `set allow-duplicate-recipes`. So a recipe of the
 same name in the Justfile, such as `lint`, takes the place of the combined
-one. A project with a Justfile of its own gets the modules only, such as
-`just python lint`. `.agents/stack.json` records the hash of each
-file that `just install` writes in `.agents/just`, and the installer changes
-only a file whose hash is the recorded one. With more than one language, a
+one. A project with a Justfile of its own gets the modules and the recipes of
+the roles, such as `just python lint` and `just prose`. It gets no combined
+recipes. The installer adds the line `import? '.agents/install.just'` to that
+Justfile, in a block of its own.
+
+`.agents/stack.json` records the hash of each file that `just install`
+writes in `.agents/just`, and the installer changes only a file whose hash is
+the recorded one. With more than one language, a
 combined recipe gives the same arguments to each language.
 
 **The source files.** A profile can name the globs of its source files with

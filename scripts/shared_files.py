@@ -1713,14 +1713,17 @@ def verb(old, new, dry_run):
     return 'Would change' if dry_run else 'Changed'
 
 
-def check(target, parts):
-    """Compare the record of the parts with the files. Print each difference. Return 1 for a broken block, a run that
-    stopped or a file that cannot be read, else 0."""
+def check(target, parts, extra=()):
+    """Compare the record of the parts with the files. Print each difference, after the notes in extra. Return 1 for
+    a broken block, a run that stopped or a file that cannot be read, else 0."""
     notes = []
 
     def note(text):
         notes.append(text)
         print(text)
+
+    for text in extra:
+        note(text)
 
     failed = False
     try:

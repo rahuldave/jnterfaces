@@ -27,6 +27,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import shlex
 import shutil
 import subprocess
@@ -410,20 +411,23 @@ def role_owners(packages, clones):
 
 
 def sync_files(target, profiles, kept, kept_tools, every, dry_run, parts, roles=(), gone_roles=(), unsure=(),
-               migrating=False, quiet=False, after=None):
+               migrating=False, quiet=False, after=None, justfile=None):
     """Bring the shared files to the owners that stay: kept profiles, kept_tools and roles. every holds each profile
     of the run, also the ones that go, and gone_roles each role that goes. Return the new parts. quiet prints no
     notes, for the dry pass that checks the files before the package commands run. after gets the files that the
-    run writes or removes, as shared_files.sync says."""
+    run writes or removes, as shared_files.sync says. justfile holds the lines of the installer in the Justfile, as
+    justfile_lines gives them."""
     commits = {name: commit_of(profiles[name]['root']) for name in every}
+    parts = move_justfile_parts(target, parts)
     known = owners_of(profiles, every, {f'{n}:{t}' for n in every for t in profiles[n]['tools']}, commits, target,
                       parts)
     active = owners_of(profiles, kept, set(kept_tools), commits, target, parts) + list(roles)
     known += list(roles) + list(gone_roles)
-    if any(owner.lines or owner.files or owner.parts or owner.units or owner.starter for owner in known) or parts:
+    if (any(owner.lines or owner.files or owner.parts or owner.units or owner.starter for owner in known) or parts
+            or justfile):
         installer = shared_files.Owner('jnterfaces', 'the installer', 'jnterfaces', commit_of(ROOT),
                                        'They stay while the project keeps .agents/stack.json.',
-                                       copy.deepcopy(shared_files.JNTERFACES_LINES))
+                                       dict(copy.deepcopy(shared_files.JNTERFACES_LINES), **(justfile or {})))
         active, known = [installer] + active, [installer] + known
     command = os.environ.get('JNTERFACES_COMMAND') or shlex.join(['install_stack.py', *sys.argv[1:]])
     sources = {profiles[name]['package']['name']: commits[name] for name in every}
@@ -1091,15 +1095,15 @@ def justfile_of(target):
     return None
 
 
-def write_justfile(target, dry_run):
-    """Write the starter Justfile when the target has none, else check that it imports the recipe file."""
+def write_justfile(target, dry_run, started=False):
+    """Write the starter Justfile when the target has none. A Justfile that jnterfaces did not start gets the import
+    of the recipe file as a block, from sync_files; for a started one, check that it imports the recipe file."""
     existing = justfile_of(target)
     if existing is not None:
         if existing.is_symlink():
             print(f'{existing.name} is a symlink, so the installer leaves it alone. Make sure that it has the line '
                   f'{IMPORT_LINE}', file=sys.stderr)
-            return False
-        elif '.agents/install.just' not in existing.read_text(errors='replace'):
+        elif started and not imports_install(existing.read_text(errors='replace')):
             print(f'Add this line to {existing.name}, so that just install works: {IMPORT_LINE}', file=sys.stderr)
         return False
     template = ROOT / 'templates/project.just'
@@ -1109,6 +1113,160 @@ def write_justfile(target, dry_run):
     write_new(target, Path('Justfile'), template.read_bytes().replace(b'PROJECT', target.name.encode()))
     print('Wrote Justfile; it is yours now. Put the recipes of the project in it.')
     return True
+
+
+# An import of the recipe file in a Justfile: import or import?, in single or double quotes, with or without ./ at
+# the start, and a comment after it or not.
+INSTALL_IMPORT = re.compile(r'''^import\??[ \t]+(['"])(\./)?\.agents/install\.just\1[ \t]*(#.*)?$''')
+
+
+def user_rows(text):
+    """The lines of a Justfile outside the block of the installer."""
+    _, user, _ = shared_files.parse(text, {'jnterfaces'}, shared_files.HASH)
+    return [shared_files.bare(row) for row in user]
+
+
+def imports_install(text, own=True):
+    """Whether a Justfile imports .agents/install.just. With own False, a line in the block of the installer does not
+    count."""
+    rows = text.splitlines() if own else user_rows(text)
+    return any(INSTALL_IMPORT.match(row.rstrip('\r')) for row in rows)
+
+
+def has_block(text):
+    """Whether a Justfile has the block of the installer with the import of the recipe file."""
+    blocks, _, _ = shared_files.parse(text, {'jnterfaces'}, shared_files.HASH)
+    return any(shared_files.bare(row).strip() == IMPORT_LINE for row in blocks.get('jnterfaces', []))
+
+
+def justfile_text(justfile):
+    """The text of a plain Justfile without a byte-order mark, or None for a symlink or a file that cannot be read."""
+    if justfile is None or justfile.is_symlink() or not justfile.is_file():
+        return None
+    try:
+        return justfile.read_bytes().decode('utf-8', errors='surrogateescape').removeprefix('\ufeff')
+    except OSError:
+        return None
+
+
+def justfile_lines(target, started, clash=None, parts=None):
+    """The lines that the installer adds to the Justfile, as {name of the Justfile: [line]}: the import of the recipe
+    file, for a Justfile that jnterfaces did not start and that has no import of it of its own. The index imports the
+    recipes of the profiles and the roles, so this one line is enough. clash is the record of a run that took the
+    line out again, because the Justfile did not parse with it: while the Justfile stays as it was then, the line
+    stays out. parts is the record of the parts: a line that the installer added and that a person moved out of the
+    block stays the installer's line, so the installer lists it while it is there, and never takes it out."""
+    justfile = justfile_of(target)
+    text = justfile_text(justfile)
+    if text is None:
+        return {}
+    claim = ((move_justfile_parts(target, parts) or {}).get(justfile.name) or {}).get(IMPORT_LINE) or {}
+    if claim.get('state') == 'added' and any(shared_files.normal(row) == IMPORT_LINE for row in user_rows(text)):
+        return {justfile.name: [IMPORT_LINE]}
+    if started or imports_install(text, own=False):
+        return {}
+    # just reads a #! line only at the very start, and a block comes before every line.
+    if text.startswith('#!'):
+        return {}
+    if isinstance(clash, dict) and clash.get('hash') == hashlib.sha256(justfile.read_bytes()).hexdigest():
+        return {}
+    return {justfile.name: [IMPORT_LINE]}
+
+
+def move_justfile_parts(target, parts):
+    """The parts with the record of the Justfile under the name that the Justfile has now. A Justfile that you renamed,
+    also only in its letter case, keeps the lines of the installer: the old name is no other file now."""
+    justfile = justfile_of(target)
+    if not isinstance(parts, dict) or justfile is None or justfile.name in parts:
+        return parts
+    for name in JUSTFILES:
+        old = target / name
+        if name == justfile.name or name not in parts:
+            continue
+        try:
+            same = old.exists() and os.path.samefile(old, justfile)
+        except OSError:
+            same = False
+        if same or not old.exists():
+            moved = {key: value for key, value in parts.items() if key != name}
+            moved[justfile.name] = parts[name]
+            return moved
+    return parts
+
+
+def drop_justfile_parts(parts):
+    """Take the record of each Justfile name out of the parts, in place, for a new starter Justfile: the lines of the
+    old file went with it."""
+    for name in JUSTFILES:
+        if isinstance(parts, dict):
+            parts.pop(name, None)
+
+
+def text_error(target, text):
+    """The first error line of just for a Justfile with this text, or None when it parses or just is missing. just
+    reads a temporary file next to the Justfile, so the imports of the text find the same files."""
+    if not shutil.which('just'):
+        return None
+    probe = target / f'.jnterfaces-probe-{secrets.token_hex(4)}.just'
+    try:
+        probe.write_bytes(text.encode('utf-8', errors='surrogateescape'))
+        return just_error(target, probe)
+    except OSError:
+        return None
+    finally:
+        probe.unlink(missing_ok=True)
+
+
+def without_block(text):
+    """The text of a Justfile without the block of the installer."""
+    _, user, _ = shared_files.parse(text, {'jnterfaces'}, shared_files.HASH)
+    return ''.join(user)
+
+
+def import_verdict(target, justfile, text):
+    """Whether the Justfile can take the import: ('broken', error) when it does not parse as it is, ('clash', error)
+    when it parses without the import and not with it, else (None, None). The index stays as it is now, so a clash
+    may still go away when the real run writes the index with less."""
+    error = just_error(target, justfile)
+    if error:
+        return 'broken', error
+    # Before the first install, the project has no .agents/install.just, so the copy imports the one of jnterfaces.
+    line = IMPORT_LINE
+    if not (target / '.agents/install.just').is_file():
+        line = 'import? ' + json.dumps(str(ROOT / '.agents/install.just'))
+    error = text_error(target, line + '\n' + text)
+    return ('clash', error) if error else (None, None)
+
+
+def justfile_note(target, record):
+    """For just install --check: the note when the Justfile lacks the import of the recipe file and the record has no
+    line of it, or None."""
+    record = record if isinstance(record, dict) else {}
+    justfile = justfile_of(target)
+    text = justfile_text(justfile)
+    if text is None or imports_install(text):
+        return None
+    if record.get('started') is True:
+        return f'{justfile.name} does not import .agents/install.just. Add this line to it: {IMPORT_LINE}'
+    parts = move_justfile_parts(target, record.get('parts') if isinstance(record.get('parts'), dict) else {})
+    if isinstance(parts.get(justfile.name), dict) and IMPORT_LINE in parts[justfile.name]:
+        return None
+    clash = record.get('justfile_clash')
+    if (isinstance(clash, dict) and isinstance(clash.get('error'), str)
+            and clash.get('hash') == hashlib.sha256(justfile.read_bytes()).hexdigest()):
+        return (f'{justfile.name} does not import .agents/install.just. A run of just install took the line out, '
+                f'because {justfile.name} did not parse with it. just said: {clash["error"]}')
+    if text.startswith('#!'):
+        return (f'{justfile.name} does not import .agents/install.just, and the installer does not add the line '
+                f'before its #! line. Add this line to it: {IMPORT_LINE}')
+    kind, error = import_verdict(target, justfile, text)
+    if kind == 'broken':
+        return (f'{justfile.name} does not import .agents/install.just, and it does not parse, so the next just '
+                f'install adds no import. Fix it first. just said: {error}')
+    if kind == 'clash':
+        return (f'{justfile.name} does not import .agents/install.just. The next just install adds the line '
+                f'{IMPORT_LINE} only if {justfile.name} still parses with it, and now it does not. just said: {error}')
+    return f'{justfile.name} does not import .agents/install.just. The next just install adds the line {IMPORT_LINE}'
 
 
 CLAUDE_IMPORT = '@AGENTS.md'
@@ -1246,15 +1404,15 @@ def just_dump(target, justfile):
 
 
 def index_text(modules, recipes, aggregate=True, roles=()):
-    """The index: a module for each profile, the recipe file of each role, and, for each recipe name of the profiles,
-    a recipe that runs it in each profile that has it. verify also runs git diff --check. A project that jnterfaces
-    did not start gets the modules only."""
+    """The index: a module for each profile, the recipe file of each role, and, with aggregate, for each recipe name
+    of the profiles, a recipe that runs it in each profile that has it. verify also runs git diff --check. A project
+    that jnterfaces did not start gets the modules and the recipes of the roles, without the combined recipes."""
     lines = [HEADER, '# The recipes of the profiles and roles of this project. .agents/install.just imports this file.',
              '']
     lines += [f"mod {name} '{name}.just'" for name in modules]
+    lines += [f"import? '{role}'" for role in roles]
     if not aggregate:
         return '\n'.join(lines) + '\n'
-    lines += [f"import? '{role}'" for role in roles]
     names = sorted({recipe for name in modules for recipe in recipes.get(name, {})} - {'verify'})
     for recipe in names:
         having = [name for name in modules if recipe in recipes.get(name, {})]
@@ -1275,10 +1433,12 @@ def index_text(modules, recipes, aggregate=True, roles=()):
     return '\n'.join(lines) + '\n'
 
 
-def write_recipes(target, profiles, active, tools, dry_run, generated, started, known=(), roles=()):
+def write_recipes(target, profiles, active, tools, dry_run, generated, started, known=(), roles=(), adding=False):
     """Write .agents/just: a module for each active profile with the recipes of its installed tools, and the index.
     A file that the user changed stays as it is. If the Justfile does not parse with the index, the index gets the
-    modules only, then nothing."""
+    modules only, then nothing. adding is True while the run is still to add the import of the recipe file to the
+    Justfile, so that the run does not tell the user to add it. Return the error of just when the Justfile does not
+    parse, also with an empty index."""
     folder = target / RECIPES
     if folder.is_symlink() or (folder.exists() and not folder.is_dir()):
         print(f'{folder} is not a plain folder, so the recipes of the profiles are not written.', file=sys.stderr)
@@ -1317,44 +1477,59 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
     index = folder / 'index.just'
     justfile = justfile_of(target)
     started = started or justfile is None
+    text = justfile_text(justfile) if justfile is not None else None
+    # A Justfile that jnterfaces did not start reads the index when it imports the recipe file: through the block of
+    # the installer, or through a line of its own.
+    imported = started or (text is not None and imports_install(text))
     roles = [role for role in roles if (folder / role).is_file()]
     texts = {index_text(kept, recipes, aggregate=True, roles=roles), index_text(kept, recipes, aggregate=False),
-             index_text({}, recipes, aggregate=False)}
+             index_text(kept, recipes, aggregate=False, roles=roles), index_text({}, recipes, aggregate=False),
+             index_text({}, recipes, aggregate=False, roles=roles)}
     same = index.is_file() and not index.is_symlink() and index.read_text(errors='replace') in texts
     if not same and not owned_by_install(target, index, generated):
         say(f'Kept {index.relative_to(target)}: just install did not write it as it is now, so it leaves it alone.')
         error = just_error(target, justfile) if justfile is not None else None
         if error:
             say(f'The Justfile does not parse with the index that you kept. just said: {error}')
-        return
-    if kept and not started:
-        say(f'{justfile.name} was not started by jnterfaces, so just install adds the recipes of each profile as a '
-            f'module only: just {next(iter(kept))} NAME.')
-    if roles and not started:
-        say(f'{justfile.name} was not started by jnterfaces, so the recipes of the roles are not added. To add them, '
-            'put these lines in it: ' + '; '.join(f"import? '.agents/just/{role}'" for role in roles))
+        return error
+    if (kept or roles) and not imported and text is not None and not adding:
+        say(f'{justfile.name} does not import .agents/install.just, so the recipes of the profiles and roles are not '
+            f'in it. To add them, put these lines in it: '
+            + '; '.join([IMPORT_LINE] + [f"import? '.agents/just/{role}'" for role in roles]))
+    if not imported:
         roles = []
     if not (kept or roles or index.exists()):
-        return
+        return None
     folder.mkdir(parents=True, exist_ok=True)
     # The Justfile must still parse, so that just install keeps working. If a name of the project meets a name of
-    # the index, the index gets the modules only, then nothing.
-    tries = [('all', kept, started)] if started else []
-    if not started:
-        roles = []
-    tries += [('modules', kept, False), ('none', {}, False)]
+    # the index, the index gets less: the modules only, then nothing. A project that jnterfaces did not start gets no
+    # combined recipes: their names, such as lint and test, are the names of the recipes of a project, and its
+    # Justfile may not have set allow-duplicate-recipes.
+    # A project that jnterfaces did not start keeps the recipes of the roles when only a module clashes.
+    tries = [('all', kept, True, roles)] if started else [('roles', kept, False, roles)] if roles else []
+    tries += [('modules', kept, False, ())]
+    tries += [('role recipes', {}, False, roles)] if roles and not started else []
+    tries += [('none', {}, False, ())]
     first = None
-    for kind, chosen, aggregate in tries:
-        write_generated(target, index, index_text(chosen, recipes, aggregate=aggregate, roles=roles), generated)
+    kinds = {'all': 'combined recipes', 'roles': 'recipes', 'modules': 'modules', 'role recipes': 'recipes'}
+    has = {'modules': 'the modules only', 'role recipes': 'the recipes of the roles only', 'none': 'none of them'}
+    for kind, chosen, aggregate, with_roles in tries:
+        write_generated(target, index, index_text(chosen, recipes, aggregate=aggregate, roles=with_roles), generated)
         error = just_error(target, justfile) if justfile is not None else None
         if error is None:
             if first:
-                say(f'The Justfile does not parse with the {"combined recipes" if first[0] == "all" else "modules"} '
-                    f'of the profiles and roles, so the index has {"the modules only" if kind == "modules" else "none of them"}. '
-                    f'Rename the recipe, alias or module of the project with that name. just said: {first[1]}')
-            return
+                say(f'The Justfile does not parse with the {kinds[first[0]]} of the profiles and roles, so the index '
+                    f'has {has[kind]}. Rename the recipe, alias or module of the project with that name. just said: '
+                    f'{first[1]}')
+            if chosen and not started and imported:
+                say(f'{justfile.name} was not started by jnterfaces, so just install adds the recipes of each profile '
+                    f'as a module only: just {next(iter(chosen))} NAME.')
+            return None
         first = first or (kind, error)
-    say(f'The Justfile does not parse, also with an empty index. just said: {error}')
+    # The caller takes the block of the installer out of the Justfile again, and says why.
+    if text is None or not has_block(text):
+        say(f'The Justfile does not parse, also with an empty index. just said: {error}')
+    return error
 
 
 def main(argv=None):
@@ -1389,7 +1564,13 @@ def main(argv=None):
     if target == ROOT:
         raise StackError('The target must not be this jnterfaces clone')
     if args.check:
-        return shared_files.check(target, read_parts(target))
+        try:
+            raw = json.loads((target / RECORD).read_text()) if (target / RECORD).is_file() and not (
+                target / RECORD).is_symlink() else {}
+        except (OSError, ValueError):
+            raw = {}
+        note = justfile_note(target, raw)
+        return shared_files.check(target, read_parts(target), [note] if note else [])
     overrides = {}
     for item in args.clone:
         name, sep, path = item.partition('=')
@@ -1526,6 +1707,13 @@ def main(argv=None):
             if present is not None:
                 owned[key] = sorted(set(owned[key]) & present)
     commands = tool_steps(target, profiles, active, tools_add, tools_remove, tools, owned, args.dry_run)
+
+    def lines_now():
+        # The lines of the installer in the Justfile, from the Justfile as it is now.
+        return justfile_lines(target, bool((record or {}).get('started')) or state.get('started', False),
+                              state.get('clash', (record or {}).get('raw', {}).get('justfile_clash')),
+                              state.get('parts', parts))
+    state = {}
     for name in active:
         init = profiles[name].get('init')
         if init and any(step[1] == name for step in commands) and (target / init['file']).is_symlink():
@@ -1545,9 +1733,21 @@ def main(argv=None):
             print('Would run: ' + ' '.join(command) if command else f'The project already has the packages of {tool}'
                   if entry.get('packages') else f'{tool} needs no packages')
         after = {}
+        dry_lines = lines_now()
+        justfile = justfile_of(target)
+        text = justfile_text(justfile)
+        if dry_lines and text is not None and not has_block(text) and not imports_install(text):
+            kind, error = import_verdict(target, justfile, text)
+            if kind == 'broken':
+                dry_lines = {}
+                print(f'{justfile.name} does not parse, so the real run would add no import to it. just said: {error}')
+            elif kind == 'clash':
+                dry_lines = {}
+                print(f'{justfile.name} does not parse with the line {IMPORT_LINE}, so the real run would add it only '
+                      f'if {justfile.name} still parses with it. just said: {error}')
         sync_files(target, profiles, [n for n in active if n not in leaving], tools, active, True, parts, roles,
-                   gone_roles, unsure, migrating, after=after)
-        write_justfile(target, True)
+                   gone_roles, unsure, migrating, after=after, justfile=dry_lines)
+        write_justfile(target, True, bool((record or {}).get('started')))
         write_claude_md(target, True, after)
         write_recipes(target, profiles, [n for n in active if n not in leaving], tools, True, {}, False)
         if any(step[7] for step in commands):
@@ -1559,7 +1759,7 @@ def main(argv=None):
     # A dry pass over the shared files first: a conflict of two owners or an own file that git ignores stops the run
     # here, before a package command changes the project.
     sync_files(target, profiles, [n for n in active if n not in leaving], tools, active, True, parts, roles,
-               gone_roles, unsure, migrating, quiet=True)
+               gone_roles, unsure, migrating, quiet=True, justfile=lines_now())
     parts, unsure, migrating = move_from_log(target, record, packages, clones, False)
     for package, options in steps:
         if run_installer(clones[package['name']], options, target, heads.get(package['name']), False):
@@ -1573,11 +1773,13 @@ def main(argv=None):
     # The files that just install writes in .agents/just, with their hashes, and whether it wrote the Justfile. A
     # file is the installer's to change only while its hash is the recorded one.
     generated = dict((record or {}).get('generated', {}))
-    state = {'started': bool((record or {}).get('started')), 'parts': parts}
+    state.update(started=bool((record or {}).get('started')), parts=parts,
+                 clash=(record or {}).get('raw', {}).get('justfile_clash'))
+    state['adding'] = bool(lines_now())
     # The keys that save writes. It keeps each other key of the record, so that it never drops one.
     managed = {'version', 'profiles', 'choices', 'tools', 'variants', 'owned_packages', 'added_packages',
                'pending_tools', 'removing_tools', 'removing_profiles', 'generated', 'started', 'parts',
-               'parts_version', 'code'}
+               'parts_version', 'code', 'justfile_clash'}
 
     def save(tool_list, waiting, going=()):
         record_file.parent.mkdir(exist_ok=True)
@@ -1609,11 +1811,13 @@ def main(argv=None):
             record['code'] = code
         write_recipes(target, profiles, [name for name in kept_profiles if name not in leaving], tool_list, False,
                       generated, state['started'], registry_profiles,
-                      [f'roles/{package["name"]}.just' for package, _ in steps])
+                      [f'roles/{package["name"]}.just' for package, _ in steps], state['adding'])
         if generated:
             record['generated'] = dict(sorted(generated.items()))
         if state['started']:
             record['started'] = True
+        if isinstance(state['clash'], dict):
+            record['justfile_clash'] = state['clash']
         record['parts'], record['parts_version'] = state['parts'], 1
         for key, value in old.items():
             if key not in managed:
@@ -1622,8 +1826,10 @@ def main(argv=None):
 
     # Save the roles before the tools run, so that a failed tool keeps the roles that were installed.
     save(saved_tools, [t for t in tools_add if t not in saved_tools], tools_remove)
-    if write_justfile(target, False):
+    if write_justfile(target, False, state['started']):
         state['started'] = True
+        state['adding'] = False
+        drop_justfile_parts(parts)
     for name in active:
         prepare(target, profiles[name], [step for step in commands if step[1] == name])
     done = list(saved_tools)
@@ -1702,9 +1908,59 @@ def main(argv=None):
     # The line files and the whole files change after the package commands succeeded, as D12 of
     # notes/plan-shared-files.md says.
     after = {}
+    adding = lines_now()
+    justfile = justfile_of(target)
+    text = justfile_text(justfile)
+    before = justfile.read_bytes() if adding and text is not None and not has_block(text) else None
+    if before is not None and not any(shared_files.normal(row) == IMPORT_LINE for row in user_rows(text)):
+        # A Justfile that does not parse already gets no block: the block would not be the cause.
+        error = just_error(target, justfile)
+        if error:
+            adding = {}
+            before = None
+            say(f'{justfile.name} does not parse, so the installer adds no import to it. Fix it, then run just '
+                f'install again. just said: {error}')
     state['parts'] = sync_files(target, profiles, [name for name in active if name not in leaving], tools, active,
-                                False, parts, roles, gone_roles, unsure, migrating, after=after)
+                                False, parts, roles, gone_roles, unsure, migrating, after=after, justfile=adding)
+    state['adding'] = False
+    justfile = justfile_of(target)
+    text = justfile_text(justfile)
+    added = justfile.read_bytes() if before is not None and text is not None else None
+    # A clash of the record that the Justfile no longer matches is gone: the Justfile changed since.
+    if isinstance(state['clash'], dict) and (text is None or state['clash'].get('hash')
+                                             != hashlib.sha256(justfile.read_bytes()).hexdigest()):
+        state['clash'] = None
     save(tools, [])
+    text = justfile_text(justfile)
+    error = just_error(target, justfile) if text is not None and has_block(text) else None
+    # A Justfile that does not parse without the block either has another fault: the block is not the cause, so it
+    # stays.
+    other = text_error(target, without_block(text)) if error else None
+    lines = len(shared_files.rows_of(text)) - len(shared_files.rows_of(without_block(text))) if error else 0
+    if other:
+        # Taking the block out would not make the Justfile parse, so the block stays. The error of the real file
+        # comes first: a line of yours can need a name of the import, and then the copy names that name.
+        say(f'{justfile.name} does not parse, also without the block of the installer, so the block stays. Fix the '
+            f'Justfile, then run just install again. just said: {error}'
+            + (f' Without the block, just says: {other} (These line numbers do not count the {lines} lines of the '
+               f'block.)' if re.sub(r'\d+', 'N', other) != re.sub(r'\d+', 'N', error) else ''))
+    elif error:
+        # The Justfile does not parse with the import, also with an empty index, so the block goes again. The record
+        # keeps the hash of the Justfile without it: the next run tries again only when the Justfile changed.
+        untouched = added is not None and justfile.read_bytes() == added
+        state['parts'] = sync_files(target, profiles, [name for name in active if name not in leaving], tools,
+                                    active, False, state['parts'], roles, gone_roles, (), False, after=after,
+                                    quiet=True, justfile={})
+        # The block was new in this run, and nothing else changed the Justfile since, so it gets back its bytes as
+        # they were. Else the writer took out the block only.
+        if untouched:
+            shared_files.write(justfile, before)
+        state['clash'] = {'hash': hashlib.sha256(justfile.read_bytes()).hexdigest(), 'error': error}
+        say(f'{justfile.name} does not parse with the block of the installer, which imports .agents/install.just, so '
+            f'the installer took the block out again. Rename the recipe or variable of the project that just names, '
+            f'then run just install again. just said: {error} (The line numbers count the {lines} lines of the block '
+            f'at the start of {justfile.name}.)')
+        save(tools, [])
     shared_files.finish(target)
     write_claude_md(target, False, after)
     print(f'Installed in {target}:')

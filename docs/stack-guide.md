@@ -128,7 +128,8 @@ named profile or tool and no named role, a terminal asks about each role.
 
 After that, the project has `.agents/install.just`. A Justfile that has the
 line `import? '.agents/install.just'` gets the recipes `just install` and
-`just uninstall`.
+`just uninstall`. If the project has a Justfile of its own, the installer adds
+this line to it, as the next section tells.
 
 **The agents.** Codex reads skills from `.agents/skills`. Claude Code reads
 skills from `.claude/skills`. So for each installed skill, the installer makes
@@ -170,17 +171,56 @@ language, so `just python verify` still runs the `lint` of the profile. A
 recipe of yours can also depend on a recipe of the index, for example `ci:
 verify`.
 
-**A project that jnterfaces did not start**, such as one with its own
-Justfile, gets the modules only, for example `just python lint`.
+**A project that jnterfaces did not start** has a Justfile of its own. The
+installer adds one block of lines at the start of that Justfile:
+
+```just
+# begin lines of jnterfaces, the installer, from jnterfaces at 1a2b3c4.
+# Last written to Justfile by `just install prose`. The record is parts."Justfile" in .agents/stack.json.
+import? '.agents/install.just'
+# end lines of jnterfaces. They stay while the project keeps .agents/stack.json.
+```
+
+The block is a part, as in `.gitignore`. The installer changes only the
+block, and your lines stay as they are. The index then gives the modules and
+the recipes of the roles, for example `just python lint` and `just prose`. It
+gives no combined recipes, such as `just lint`. A Justfile of your own often
+has its own `lint` or `test`. Without `set allow-duplicate-recipes`, the two
+names make the Justfile fail to parse.
+
+The installer adds no block in these cases:
+
+- The Justfile already imports `.agents/install.just`, with `import` or
+  `import?`, in single or double quotes. If the Justfile has the block and a
+  line of yours too, the block goes.
+- The Justfile starts with a `#!` line, or it is a symlink. Add the line
+  yourself.
+- The Justfile does not parse before the run. Fix it, then run `just
+  install` again.
+- You deleted the block. The installer records the line as declined, and it
+  does not add it again. To have it back, add the line after the blocks.
+
+**A clash with the block.** The block imports `.agents/install.just`, which
+has the recipes `install` and `uninstall` and the variable `jn_copier`. A
+recipe of yours with one of these names makes the Justfile fail to parse.
+Then the installer takes the block out again. It names the clash, and it
+prints the lines to add by hand. The index then has the modules only.
+
+The record keeps the hash of your Justfile, so the next run does not try
+again until you change the Justfile.
 
 **A name that meets a name of the index.** An alias, a module, or a recipe
 in a project without `set allow-duplicate-recipes` can have the name of a
 recipe or a module of the index. Then the Justfile does not parse.
 
 The installer checks the Justfile after it writes the index. If it does not
-parse, the installer writes the index with the modules only, then with none,
-and it names the clash. So `just install` keeps working. To get the recipes
-back, rename the alias, module or recipe of the project.
+parse, the installer first leaves out the combined recipes and the recipes of
+the roles. Then it leaves out the modules too. In a project that jnterfaces
+did not start, it tries the recipes of the roles alone before it leaves out
+everything.
+
+The installer names the clash, and `just install` keeps working. To get the
+recipes back, rename the alias, module or recipe of the project.
 
 **The record.** `.agents/stack.json` holds the hash of each file that `just
 install` wrote in `.agents/just`, under `generated`. The installer changes or
