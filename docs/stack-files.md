@@ -60,6 +60,7 @@ declarations, then writes the project and its records.
 | `.agents/config/<profile>/...` | the project | the installer | The own files of the tools. |
 | `.agents/instructions/<role>.md` | the project | the installer | The own file of a role. A line in `AGENTS.md` points to it. |
 | `.agents/install.just` | the project | the installer | The recipes `just install` and `just uninstall`. |
+| `.agents/log/` | the project | jlog | The run log of the recipes. Git ignores it, and no owner of a part may name it. |
 | `.agents/skills/` and `.claude/skills/` | the project | the installer | The skills, and a link to each one for Claude Code. |
 | `.claude/hooks/` and `.codex/hooks/` | the project | the tasker role, through `install_extras.files` | The hook scripts. The hook entries go in `.claude/settings.json` and `.codex/hooks.json` as parts. |
 | `Justfile` | the project | the installer once, then you | The starter Justfile, when the project has none. It is yours from then on. In a Justfile of your own, the installer adds one block with the line `import? '.agents/install.just'`. |
@@ -209,6 +210,8 @@ The record has these keys:
 | `owned_packages` | The packages that the installer added, keyed by their place in the manifest. A removal takes out only these. For Python the place is `profile:group`. For TypeScript it is the profile, because npm has no groups. | `{"python:lint": ["pre-commit", "ruff"]}` |
 | `generated` | The hash of `index.just` and of each `<profile>.just` that the installer wrote. | |
 | `started` | `true` when the installer wrote the starter Justfile. | `true` |
+| `steps` | The steps of `just check`, in their order. `jlog pass` reads them. | `["fmt-check", "lint", ...]` |
+| `provided_steps` | The steps that an installed profile or role provides. `jlog pass` counts a skip only for a step that is not in this list. | `["lint", "test", "diff-check"]` |
 | `justfile_clash` | The hash of your Justfile and the error of `just`, when a run took the block out again because the Justfile did not parse with it. While the Justfile keeps this hash, the installer does not add the block. | |
 | `parts` | Each unit of each shared file. See below. | |
 | `parts_version` | The version of the format of `parts`. | `1` |

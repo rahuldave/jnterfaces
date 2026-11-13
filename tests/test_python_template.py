@@ -1,8 +1,10 @@
 """Run the test and cov recipes of the python-uv.just template with real just, uv and pytest."""
 from pathlib import Path
+import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -26,7 +28,7 @@ testpaths = ["tests"]
 PASS = 'def test_pass():\n    assert True\n'
 
 
-@unittest.skipUnless(shutil.which('just') and shutil.which('uv'), 'needs just and uv')
+@unittest.skipUnless(shutil.which('just') and shutil.which('uv') and shutil.which('jlog'), 'needs just, uv and jlog')
 class TestRecipeTests(unittest.TestCase):
     def project(self, files, extra=''):
         temp = tempfile.TemporaryDirectory()
@@ -35,13 +37,16 @@ class TestRecipeTests(unittest.TestCase):
         shutil.copy(TEMPLATE, root / 'Justfile')
         (root / 'pyproject.toml').write_text(PYPROJECT.format(extra=extra))
         (root / 'tests').mkdir()
+        # jlog writes its log in .agents/log, and only when .agents is there.
+        (root / '.agents').mkdir()
         for name, text in files.items():
             (root / name).parent.mkdir(parents=True, exist_ok=True)
             (root / name).write_text(text)
         return root
 
     def just(self, root, *args, env=None):
-        run = subprocess.run(['just', *args], cwd=root, capture_output=True, text=True,
+        # The index sets jlog as the shell, so the recipes run through jlog here too.
+        run = subprocess.run(['just', '--shell', 'jlog', '--shell-arg=sh', '--shell-arg=-cu', *args], cwd=root, capture_output=True, text=True,
                              env=dict(os.environ, **(env or {})))
         return run.returncode, run.stdout + run.stderr
 
@@ -96,6 +101,22 @@ class TestRecipeTests(unittest.TestCase):
     def test_verify_runs_the_tests_with_no_arguments(self):
         # So that verify passes on a project with no tests yet.
         self.assertIn('\n    just test\n', TEMPLATE.read_text())
+
+    def test_a_test_that_passes_logs_the_step_and_one_that_fails_does_not(self):
+        root = self.project({'tests/test_a.py': PASS})
+        self.assertEqual(self.just(root, 'test')[0], 0)
+        log = (root / '.agents/log/just.jsonl').read_text().splitlines()
+        steps = [json.loads(line) for line in log if json.loads(line).get('kind') == 'step']
+        self.assertEqual([record['step'] for record in steps], ['test'])
+        root = self.project({'tests/test_a.py': 'def test_f():\n    assert False\n'})
+        self.assertEqual(self.just(root, 'test')[0], 1)
+        log = root / '.agents/log/just.jsonl'
+        self.assertNotIn('"step"', log.read_text() if log.exists() else '')
+
+    def test_each_step_of_the_template_ends_with_its_line_of_jlog(self):
+        run = subprocess.run([sys.executable, str(REPO / 'scripts/lint_steps.py'), str(TEMPLATE)], capture_output=True,
+                             text=True)
+        self.assertEqual((run.returncode, run.stdout), (0, ''))
 
 
 if __name__ == '__main__':

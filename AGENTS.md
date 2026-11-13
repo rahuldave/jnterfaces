@@ -22,6 +22,6 @@ Other repositories install copies of the skills.
 - `stack.json` lists the packages, their roles, the old names and the
   profiles. When you add a package, a role or a profile, or change a default,
   change `stack.json` and the tables in `README.md` together.
-- Only this repository has an installer. A project may assume `just` and `uv`
+- Only this repository has an installer. A project may assume `just`, `uv` and `jlog`
   only. Run Python with `uv run`, not `python3`, and get every other tool
   through `uv` or `uvx`.

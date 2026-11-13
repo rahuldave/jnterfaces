@@ -12,13 +12,16 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - uses: extractions/setup-just@v3
       - name: Check syntax
         run: just lint
+      - name: Build jlog, the shell of the recipes that the installer writes
+        # The commit 6fccbf9 is the tag v0.1.0 of jlog.
+        run: cargo install --locked --git https://github.com/rahuldave/jlog --rev 6fccbf92d47a7b66f0e5b4dce7046c25c29a364a jlog
       - name: Build jagt for the protocol demo test
         run: cargo install --locked --git https://github.com/rahuldave/jagt jagt
       - name: Get the nossaifd writing checker

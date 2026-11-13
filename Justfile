@@ -10,13 +10,14 @@ default:
 # Python comes from uv, so the machine needs just and uv only
 python := "uv run --no-project --quiet --with tomlkit==0.15.2 --with ruamel.yaml==0.19.1 python"
 
-# Check the shell scripts, the Python, the JSON and the Justfile templates for syntax, and check that each link to an optional skill has a fallback
+# Check the shell scripts, the Python, the JSON and the Justfile templates for syntax, lint the steps of the templates, and check that each link to an optional skill has a fallback
 lint:
     for script in .agents/skills/*/scripts/*.sh; do bash -n "$script"; done
     {{python}} -m py_compile scripts/*.py tests/*.py
     {{python}} -m json.tool skill-package.json > /dev/null
     {{python}} -m json.tool stack.json > /dev/null
     for template in .agents/skills/just/assets/templates/*.just .agents/install.just; do just --justfile "$template" --summary > /dev/null; done
+    {{python}} scripts/lint_steps.py .agents/skills/just/assets/templates/*.just templates/project.just
     find .agents/skills -type f \( -name '*.md' -o -name '*.sh' -o -name '*.just' -o -name '*.yaml' -o -name '*.txt' \) -exec {{python}} scripts/check_skill_links.py --package . {} +
 
 # Run the tests. Extra arguments go to unittest: just test tests.test_skills. Set JAGT_BIN to run the jagt demo with jagt 0.3.0 or later

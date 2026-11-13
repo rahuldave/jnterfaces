@@ -21,8 +21,8 @@ The documentation site is https://rahuldave.github.io/jnterfaces/. It is built f
 
 ## Install into a repository
 
-jnterfaces is the base of every project. Besides Git, a project needs two
-programs only, `just` and `uv`. One command installs everything else:
+jnterfaces is the base of every project. Besides Git, a project needs three
+programs only, `just`, `uv` and `jlog`. One command installs everything else:
 
 ```bash
 just install
@@ -94,7 +94,10 @@ file stays.
 
 ### Start a new project
 
-1. Install `git`, `just` and `uv`.
+1. Install `git`, `just`, `uv` and `jlog`. jlog logs each line of the
+   recipes that `just install` writes. To install it, clone
+   https://github.com/rahuldave/jlog, run `git checkout v0.1.0` in the
+   clone, then run `just install`.
 2. Choose the folder of the package clones. The default is
    `~/.local/share/skill-packages`. To use another folder, export
    `SKILL_PACKAGES_DIR` in your shell profile first, for example `export
@@ -180,13 +183,16 @@ In a project that jnterfaces started, with its starter Justfile:
 - **`just lint`** runs the `lint` of each language of the project.
 - **`just verify`** runs every installed check of each language, then `git
   diff --check`.
+- **`just check`** runs the steps of every project, from `fmt-check` to
+  `diff-check`, and ends with `jlog pass`. A step that no profile, role or
+  recipe of the Justfile has is a no-op step that logs the skip. So in a new
+  project with no language, `just check` passes.
 
-The starter Justfile has `set allow-duplicate-recipes`. So a recipe of the
-same name in the Justfile, such as `lint`, takes the place of the combined
-one. A project with a Justfile of its own gets the modules and the recipes of
-the roles, such as `just python lint` and `just prose`. It gets no combined
-recipes. The installer adds the line `import? '.agents/install.just'` to that
-Justfile, in a block of its own.
+A recipe of the Justfile with the name of a combined recipe, such as `lint`,
+takes the place of the combined recipe. The index leaves that name out. A project with a
+Justfile of its own gets the same index. The installer adds a block of two
+lines to that Justfile. They are `import? '.agents/install.just'`, and the
+line of the run ID, `export JLOG_RUN := env("JLOG_RUN", uuid())`.
 
 `.agents/stack.json` records the hash of each file that `just install`
 writes in `.agents/just`, and the installer changes only a file whose hash is

@@ -3,10 +3,14 @@
 # just install adds the recipes of each tool: just install lint adds a tool, and just uninstall lint takes it out.
 import? '.agents/install.just'
 
+# One run ID for this just call and each just call inside it, for the run log of jlog. Keep it in this file only
+export JLOG_RUN := env("JLOG_RUN", uuid())
+
 # Each word after a recipe's name reaches its commands whole, as "$1", "$2" and so on; "$@" is all of them
 set positional-arguments
 
-# A recipe of this file with the name of a recipe of just install, such as lint, takes its place
+# A recipe of this file with the name of a recipe of just install, such as lint, takes its place. A step of just
+# check, such as lint, ends with the line: jlog step lint
 set allow-duplicate-recipes
 
 [private]

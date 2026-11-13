@@ -34,12 +34,25 @@ import subprocess
 import sys
 import tomllib
 
+import lint_steps
+from lint_steps import REASONS, STEPS
 import shared_files
 
 ROOT = Path(__file__).resolve().parents[1]
 RECORD = Path('.agents/stack.json')
 JUSTFILES = ('justfile', 'Justfile', '.justfile', 'JUSTFILE')
 IMPORT_LINE = "import? '.agents/install.just'"
+# One run ID for a just call and each just call inside it, for the run log of jlog. Only the root Justfile has it: a
+# module would make an ID of its own.
+JLOG_LINE = 'export JLOG_RUN := env("JLOG_RUN", uuid())'
+JLOG_RUN = re.compile(r'^\s*(export\s+)?JLOG_RUN\s*:=')
+# jlog is the shell of each recipe that the installer writes, so it logs each line.
+SHELL_LINE = 'set shell := ["jlog", "sh", "-cu"]'
+# The note for a Justfile that sets a shell without jlog: jlog step, jlog skip and jlog pass then fail.
+SHELL_NOTE = ('{name} sets its own shell without jlog, so the index sets none, and just check fails: jlog step, jlog '
+              'skip and jlog pass work only in a recipe that runs through jlog. Put jlog in front of the shell: '
+              'set shell := {line}')
+JLOG_INSTALL = 'clone https://github.com/rahuldave/jlog, run git checkout v0.1.0 in the clone, then run just install'
 
 
 class StackError(Exception):
@@ -423,12 +436,11 @@ def sync_files(target, profiles, kept, kept_tools, every, dry_run, parts, roles=
                       parts)
     active = owners_of(profiles, kept, set(kept_tools), commits, target, parts) + list(roles)
     known += list(roles) + list(gone_roles)
-    if (any(owner.lines or owner.files or owner.parts or owner.units or owner.starter for owner in known) or parts
-            or justfile):
-        installer = shared_files.Owner('jnterfaces', 'the installer', 'jnterfaces', commit_of(ROOT),
-                                       'They stay while the project keeps .agents/stack.json.',
-                                       dict(copy.deepcopy(shared_files.JNTERFACES_LINES), **(justfile or {})))
-        active, known = [installer] + active, [installer] + known
+    # The installer always has its lines: each project has the index, whose recipes write the run log of jlog.
+    installer = shared_files.Owner('jnterfaces', 'the installer', 'jnterfaces', commit_of(ROOT),
+                                   'They stay while the project keeps .agents/stack.json.',
+                                   dict(copy.deepcopy(shared_files.JNTERFACES_LINES), **(justfile or {})))
+    active, known = [installer] + active, [installer] + known
     command = os.environ.get('JNTERFACES_COMMAND') or shlex.join(['install_stack.py', *sys.argv[1:]])
     sources = {profiles[name]['package']['name']: commits[name] for name in every}
     sources.update({owner.package: owner.commit for owner in roles})
@@ -1103,8 +1115,13 @@ def write_justfile(target, dry_run, started=False):
         if existing.is_symlink():
             print(f'{existing.name} is a symlink, so the installer leaves it alone. Make sure that it has the line '
                   f'{IMPORT_LINE}', file=sys.stderr)
-        elif started and not imports_install(existing.read_text(errors='replace')):
-            print(f'Add this line to {existing.name}, so that just install works: {IMPORT_LINE}', file=sys.stderr)
+        elif started:
+            text = existing.read_text(errors='replace')
+            if not imports_install(text):
+                print(f'Add this line to {existing.name}, so that just install works: {IMPORT_LINE}', file=sys.stderr)
+            if not any(JLOG_RUN.match(row) for row in text.splitlines()):
+                print(f'Add this line to {existing.name}, so that the just calls of one just check share one run in '
+                      f'the run log: {JLOG_LINE}', file=sys.stderr)
         return False
     template = ROOT / 'templates/project.just'
     if dry_run:
@@ -1134,9 +1151,9 @@ def imports_install(text, own=True):
 
 
 def has_block(text):
-    """Whether a Justfile has the block of the installer with the import of the recipe file."""
+    """Whether a Justfile has the block of the installer with the import of the recipe file or the run ID."""
     blocks, _, _ = shared_files.parse(text, {'jnterfaces'}, shared_files.HASH)
-    return any(shared_files.bare(row).strip() == IMPORT_LINE for row in blocks.get('jnterfaces', []))
+    return any(shared_files.bare(row).strip() in (IMPORT_LINE, JLOG_LINE) for row in blocks.get('jnterfaces', []))
 
 
 def justfile_text(justfile):
@@ -1150,9 +1167,10 @@ def justfile_text(justfile):
 
 
 def justfile_lines(target, started, clash=None, parts=None):
-    """The lines that the installer adds to the Justfile, as {name of the Justfile: [line]}: the import of the recipe
-    file, for a Justfile that jnterfaces did not start and that has no import of it of its own. The index imports the
-    recipes of the profiles and the roles, so this one line is enough. clash is the record of a run that took the
+    """The lines that the installer adds to the Justfile, as {name of the Justfile: [line]}, for a Justfile that
+    jnterfaces did not start: the import of the recipe file, when the Justfile has no import of it of its own, and
+    the line of JLOG_RUN, when the Justfile does not set JLOG_RUN. The index imports the recipes of the profiles and
+    the roles, so the one import is enough. clash is the record of a run that took the
     line out again, because the Justfile did not parse with it: while the Justfile stays as it was then, the line
     stays out. parts is the record of the parts: a line that the installer added and that a person moved out of the
     block stays the installer's line, so the installer lists it while it is there, and never takes it out."""
@@ -1160,17 +1178,31 @@ def justfile_lines(target, started, clash=None, parts=None):
     text = justfile_text(justfile)
     if text is None:
         return {}
-    claim = ((move_justfile_parts(target, parts) or {}).get(justfile.name) or {}).get(IMPORT_LINE) or {}
-    if claim.get('state') == 'added' and any(shared_files.normal(row) == IMPORT_LINE for row in user_rows(text)):
-        return {justfile.name: [IMPORT_LINE]}
-    if started or imports_install(text, own=False):
-        return {}
+    claims = (move_justfile_parts(target, parts) or {}).get(justfile.name) or {}
+    rows = user_rows(text)
+    moved = [line for line in (IMPORT_LINE, JLOG_LINE) if ((claims.get(line) or {}).get('state') == 'added'
+                                                            and any(shared_files.normal(row) == line for row in rows))]
     # just reads a #! line only at the very start, and a block comes before every line.
-    if text.startswith('#!'):
-        return {}
-    if isinstance(clash, dict) and clash.get('hash') == hashlib.sha256(justfile.read_bytes()).hexdigest():
-        return {}
-    return {justfile.name: [IMPORT_LINE]}
+    if (started or text.startswith('#!') or (isinstance(clash, dict) and clash.get('hash')
+                                             == hashlib.sha256(justfile.read_bytes()).hexdigest())):
+        return {justfile.name: moved} if moved else {}
+    lines = [IMPORT_LINE] if IMPORT_LINE in moved or not imports_install(text, own=False) else []
+    # The line of the run ID goes into the block too, unless the Justfile sets JLOG_RUN itself, also in a file that it
+    # imports.
+    if JLOG_LINE in moved or not sets_jlog_run(target, text, rows):
+        lines.append(JLOG_LINE)
+    return {justfile.name: lines} if lines else {}
+
+
+def sets_jlog_run(target, text, rows):
+    """Whether a Justfile sets JLOG_RUN itself, outside the block of the installer: in its own lines or in a file that
+    it imports. A JLOG_RUN that is not exported does not reach the inner just calls, so the installer says so."""
+    dump = text_dump(target, without_block(text)) or {}
+    assignment = (dump.get('assignments') or {}).get('JLOG_RUN')
+    if assignment and not assignment.get('export') and not (dump.get('settings') or {}).get('export'):
+        say(f'The Justfile sets JLOG_RUN but does not export it, so each inner just call makes a run ID of its own. '
+            f'Use this line: {JLOG_LINE}')
+    return assignment is not None or any(JLOG_RUN.match(row) for row in rows)
 
 
 def move_justfile_parts(target, parts):
@@ -1204,6 +1236,20 @@ def drop_justfile_parts(parts):
     for name in JUSTFILES:
         if isinstance(parts, dict):
             parts.pop(name, None)
+
+
+def text_dump(target, text):
+    """The JSON dump of a Justfile with this text, or None, read as text_error reads it."""
+    if not shutil.which('just'):
+        return None
+    probe = target / f'.jnterfaces-probe-{secrets.token_hex(4)}.just'
+    try:
+        probe.write_bytes(text.encode('utf-8', errors='surrogateescape'))
+        return just_dump(target, probe)
+    except OSError:
+        return None
+    finally:
+        probe.unlink(missing_ok=True)
 
 
 def text_error(target, text):
@@ -1274,6 +1320,19 @@ def generated_notes(target, record):
                              f'a clone without {"them" if len(loose) > 1 else "it"} does not have the recipes of the '
                              f'profiles and roles, and just gives no error.')
     return notes, bool(gone)
+
+
+def jlog_note(target):
+    """For just install --check: the note when a Justfile that imports the recipe file does not set JLOG_RUN, or
+    None. The installer does not add the line to a started Justfile or before a #! line."""
+    justfile = justfile_of(target)
+    text = justfile_text(justfile)
+    if text is None or not imports_install(text):
+        return None
+    if any(JLOG_RUN.match(row) for row in text.splitlines()) or sets_jlog_run(target, text, user_rows(text)):
+        return None
+    return (f'{justfile.name} does not set JLOG_RUN, so the inner just calls of one just check get run IDs of their '
+            f'own. Add this line to it: {JLOG_LINE}')
 
 
 def justfile_note(target, record):
@@ -1371,7 +1430,8 @@ HEADER = '# Written by just install. Do not edit: the next just install writes i
 def module_text(name, profile, installed):
     """The module of one profile: its settings, an import of the recipe file of each installed tool, and verify."""
     lines = [HEADER, f'# The recipes of the {name} profile: just {name} NAME. They run in the folder of the project.',
-             'set positional-arguments', "set working-directory := '../..'", '']
+             'set positional-arguments', "set working-directory := '../..'",
+             '# A module has settings of its own, so it sets jlog as its shell too', SHELL_LINE, '']
     files = [profile.get('base', {}).get('recipes')] + [profile['tools'][tool].get('recipes') for tool in installed]
     lines += [f"import? '{name}/{file}'" for file in dict.fromkeys(f for f in files if f)]
     steps = [step for tool in installed for step in profile['tools'][tool].get('verify', [])]
@@ -1441,42 +1501,153 @@ def just_dump(target, justfile):
         return None
 
 
-def index_text(modules, recipes, aggregate=True, roles=()):
-    """The index: a module for each profile, the recipe file of each role, and, with aggregate, for each recipe name
-    of the profiles, a recipe that runs it in each profile that has it. verify also runs git diff --check. A project
-    that jnterfaces did not start gets the modules and the recipes of the roles, without the combined recipes."""
+def recipe_line(name, recipe, takes):
+    """The line of a combined recipe that runs the recipe of one module."""
+    return f'    just --justfile "{{{{justfile()}}}}" {name} {recipe}' + (' "$@"' if takes else '')
+
+
+def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runnable=None):
+    """The index. Its form with full False has the modules only: the installer reads the names of the project with
+    it. The whole index also has the setting of the shell, the recipe file of each role, and for each recipe name of
+    the profiles a combined recipe that runs it in each profile that has it. A combined recipe of a step ends with
+    jlog step. Each step that nothing defines is a no-op step that logs a skip, and check runs the steps and ends
+    with jlog pass. The index leaves out each name in taken: the names of the project and of the roles. runnable
+    holds the names in taken that are recipes. check depends only on a recipe, because just cannot depend on an
+    alias or a module."""
     lines = [HEADER, '# The recipes of the profiles and roles of this project. .agents/install.just imports this file.',
              '']
+    if full and shell:
+        lines += ['# Each line of a recipe runs through jlog, which adds it to the run log in .agents/log', SHELL_LINE,
+                  '']
     lines += [f"mod {name} '{name}.just'" for name in modules]
-    lines += [f"import? '{role}'" for role in roles]
-    if not aggregate:
+    if not full:
         return '\n'.join(lines) + '\n'
-    names = sorted({recipe for name in modules for recipe in recipes.get(name, {})} - {'verify'})
+    lines += [f"import? '{role}'" for role in roles]
+    taken = set(taken)
+    names = sorted({recipe for name in modules for recipe in recipes.get(name, {})} - {'verify'} - taken)
     for recipe in names:
         having = [name for name in modules if recipe in recipes.get(name, {})]
         takes = [name for name in having if recipes[name][recipe]]
         lines += ['', f'# just {recipe} for each language that has it: {", ".join(having)}']
-        if takes:
-            lines += ['[positional-arguments]', f'{recipe} *args:']
-        else:
-            lines += [f'{recipe}:']
-        lines += [f'    just --justfile "{{{{justfile()}}}}" {name} {recipe}' + (' "$@"' if name in takes else '')
-                  for name in having]
-    if modules:
-        lines += ['', f'# Every installed check of each language, then the check of git for whitespace errors',
+        lines += ['[positional-arguments]', f'{recipe} *args:'] if takes else [f'{recipe}:']
+        lines += [recipe_line(name, recipe, name in takes) for name in having]
+        lines += [f'    jlog step {recipe}'] if recipe in STEPS else []
+    if modules and 'verify' not in taken:
+        lines += ['', '# Every installed check of each language, then the check of git for whitespace errors',
                   'verify:'] + [f'    just --justfile "{{{{justfile()}}}}" {name} verify' for name in modules]
         lines += ['    git diff --check']
-    if modules and 'diff-check' not in names:
-        lines += ['', '# Find whitespace errors in the changes', 'diff-check:', '    git diff --check']
+    real = set(names)
+    if modules and 'diff-check' not in real | taken:
+        # git diff HEAD also checks the changes that are not staged. A repository with no commit compares with the
+        # empty tree.
+        lines += ['', '# Find whitespace errors in the changes against the last commit', 'diff-check:',
+                  '    git diff --check "$(git rev-parse -q --verify HEAD || git hash-object -t tree /dev/null)"',
+                  '    jlog step diff-check']
+        real.add('diff-check')
+    for step in STEPS:
+        if step not in real | taken:
+            lines += ['', f'# No profile or role of this repository has {step}, so the step logs a skip', f'{step}:',
+                      f'    jlog skip {step} {json.dumps(REASONS[step])}']
+            real.add(step)
+    runnable = taken if runnable is None else set(runnable)
+    if 'check' not in taken:
+        steps = [step for step in STEPS if step in real or step in runnable]
+        lines += ['', '# Everything a commit must pass: each step, then the pass of jlog for the worktree',
+                  f'check: {" ".join(steps)}', '    jlog pass']
     return '\n'.join(lines) + '\n'
 
 
-def write_recipes(target, profiles, active, tools, dry_run, generated, started, known=(), roles=(), adding=False):
+# The line of a stub of the index, in the form with which the installer reads the names of the project.
+STUB = 'jnterfaces-stub-of-the-index'
+
+
+def probe_text(modules, stubs=(), setting=False):
+    """The index in the form with which the installer reads the names of the project: the modules, and a stub of each
+    name in stubs. With setting, the form also sets allow-duplicate-recipes, so that a recipe of the Justfile takes
+    the place of a stub of the same name."""
+    lines = [HEADER, '# The installer reads the names of the project with this form. The next step replaces it.', '']
+    lines += ['set allow-duplicate-recipes'] if setting and stubs else []
+    lines += [f"mod {name} '{name}.just'" for name in modules]
+    for name in stubs:
+        lines += ['', f'{name} *args:', f'    {STUB}']
+    return '\n'.join(lines) + '\n'
+
+
+def is_stub(recipe):
+    """True for a recipe of the dump that is a stub of probe_text."""
+    return (recipe.get('body') or []) == [[f'{STUB}']]
+
+
+def needs_arguments(recipe):
+    """True for a recipe of a dump with a parameter that has no default, other than a parameter of the form *args."""
+    return any(param.get('default') is None and param.get('kind') != 'star' for param in recipe.get('parameters') or [])
+
+
+def names_of(dump):
+    """The names that a Justfile defines at its top: its recipes, its aliases and its modules."""
+    dump = dump or {}
+    return set(dump.get('recipes') or {}) | set(dump.get('aliases') or {}) | set(dump.get('modules') or {})
+
+
+def provided_of(modules, recipes, role_recipes):
+    """The steps that an installed profile or role provides, in the order of the steps. With a profile, the index
+    also provides diff-check."""
+    having = {recipe for name in modules for recipe in recipes.get(name, {})}
+    having |= {recipe for dump in role_recipes.values() for recipe in (dump or {}).get('recipes') or {}}
+    return [step for step in STEPS if step in having or (step == 'diff-check' and modules)]
+
+
+def lint_project(dump, modules=()):
+    """The findings of the lint of steps for the dump of a root Justfile that imports the index: each step and check
+    at the top, which must also end with their lines of jlog, and the steps of each module of a profile in modules.
+    check never runs another module of the project, so the lint leaves it alone."""
+    findings = lint_steps.lint(dump, STEPS + ('check',), ending=STEPS + ('check',))
+    for name, module in sorted(((dump or {}).get('modules') or {}).items()):
+        if name in modules:
+            findings += [f'{name}::{finding}' for finding in lint_steps.lint(module, STEPS)]
+    return findings
+
+
+def step_findings(target, record):
+    """For just install --check: the findings of the lint of steps, when the Justfile imports the recipe file."""
+    record = record if isinstance(record, dict) else {}
+    justfile = justfile_of(target)
+    text = justfile_text(justfile)
+    if text is None or not (record.get('started') is True or imports_install(text)):
+        return []
+    profiles = [name for name in record.get('profiles') or [] if isinstance(name, str)]
+    dump = just_dump(target, justfile)
+    if dump is None:
+        error = just_error(target, justfile)
+        if not error:
+            return []
+        return [f'{justfile.name} does not parse, so just check and just install cannot run. Run the installer itself, '
+                f'as the section "When a later edit breaks the Justfile" of docs/stack-guide.md in jnterfaces says. '
+                f'just said: {error}']
+    shell = shell_of(dump)
+    found = []
+    if shell and Path(shell[0] or '').name != 'jlog':
+        found.append(SHELL_NOTE.format(name=justfile.name, line=json.dumps(['jlog'] + shell)))
+    return found + lint_project(dump, profiles)
+
+
+def shell_of(dump):
+    """The shell that a dump sets, as a list, or None."""
+    shell = ((dump or {}).get('settings') or {}).get('shell')
+    return [shell.get('command')] + list(shell.get('arguments') or []) if isinstance(shell, dict) else None
+
+
+def write_recipes(target, profiles, active, tools, dry_run, generated, started, known=(), roles=(), adding=False,
+                  out=None):
     """Write .agents/just: a module for each active profile with the recipes of its installed tools, and the index.
-    A file that the user changed stays as it is. If the Justfile does not parse with the index, the index gets the
-    modules only, then nothing. adding is True while the run is still to add the import of the recipe file to the
-    Justfile, so that the run does not tell the user to add it. Return the error of just when the Justfile does not
-    parse, also with an empty index."""
+    A file that the user changed stays as it is. The index comes in the order of the spec of the commit gates: the
+    installer keeps the old index, writes the index with the modules only, reads the names of the project from a
+    dump of the Justfile, then writes the whole index without those names. When it stops before the end, it puts the
+    old index back. adding is True while the run is still to add the import of the recipe file to the Justfile, so
+    that the run does not tell the user to add it. out gets the steps and the provided steps for .agents/stack.json.
+    Return the error of just when the Justfile does not parse."""
+    out = {} if out is None else out
+    out['steps'] = list(STEPS)
     folder = target / RECIPES
     if folder.is_symlink() or (folder.exists() and not folder.is_dir()):
         print(f'{folder} is not a plain folder, so the recipes of the profiles are not written.', file=sys.stderr)
@@ -1519,55 +1690,141 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
     # A Justfile that jnterfaces did not start reads the index when it imports the recipe file: through the block of
     # the installer, or through a line of its own.
     imported = started or (text is not None and imports_install(text))
-    roles = [role for role in roles if (folder / role).is_file()]
-    texts = {index_text(kept, recipes, aggregate=True, roles=roles), index_text(kept, recipes, aggregate=False),
-             index_text(kept, recipes, aggregate=False, roles=roles), index_text({}, recipes, aggregate=False),
-             index_text({}, recipes, aggregate=False, roles=roles)}
-    same = index.is_file() and not index.is_symlink() and index.read_text(errors='replace') in texts
-    if not same and not owned_by_install(target, index, generated):
+    present = [role for role in roles if (folder / role).is_file()]
+    roles = present if imported else []
+    candidates = {index_text(kept, recipes, full=False), index_text({}, recipes, full=False)}
+    same = index.is_file() and not index.is_symlink() and index.read_text(errors='replace') in candidates
+
+    def keep():
+        out.pop('provided_steps', None)
         say(f'Kept {index.relative_to(target)}: just install did not write it as it is now, so it leaves it alone.')
         error = just_error(target, justfile) if justfile is not None else None
         if error:
             say(f'The Justfile does not parse with the index that you kept. just said: {error}')
         return error
-    if (kept or roles) and not imported and text is not None and not adding:
+
+    if index.is_symlink() or (index.exists() and not index.is_file()):
+        return keep()
+    # An index with no recorded hash can still be the whole index of a run that stopped before its record. The
+    # installer knows that only after it wrote the index again, so it compares at the end and puts the file back.
+    mine = same or owned_by_install(target, index, generated)
+    if (kept or present) and not imported and text is not None and not adding:
         say(f'{justfile.name} does not import .agents/install.just, so the recipes of the profiles and roles are not '
-            f'in it. To add them, put these lines in it: '
-            + '; '.join([IMPORT_LINE] + [f"import? '.agents/just/{role}'" for role in roles]))
-    if not imported:
-        roles = []
-    if not (kept or roles or index.exists()):
-        return None
+            f'in it. To add them, put this line in it: {IMPORT_LINE}')
     folder.mkdir(parents=True, exist_ok=True)
-    # The Justfile must still parse, so that just install keeps working. If a name of the project meets a name of
-    # the index, the index gets less: the modules only, then nothing. A project that jnterfaces did not start gets no
-    # combined recipes: their names, such as lint and test, are the names of the recipes of a project, and its
-    # Justfile may not have set allow-duplicate-recipes.
-    # A project that jnterfaces did not start keeps the recipes of the roles when only a module clashes.
-    tries = [('all', kept, True, roles)] if started else [('roles', kept, False, roles)] if roles else []
-    tries += [('modules', kept, False, ())]
-    tries += [('role recipes', {}, False, roles)] if roles and not started else []
-    tries += [('none', {}, False, ())]
-    first = None
-    kinds = {'all': 'combined recipes', 'roles': 'recipes', 'modules': 'modules', 'role recipes': 'recipes'}
-    has = {'modules': 'the modules only', 'role recipes': 'the recipes of the roles only', 'none': 'none of them'}
-    for kind, chosen, aggregate, with_roles in tries:
-        write_generated(target, index, index_text(chosen, recipes, aggregate=aggregate, roles=with_roles), generated)
-        error = just_error(target, justfile) if justfile is not None else None
-        if error is None:
-            if first:
-                say(f'The Justfile does not parse with the {kinds[first[0]]} of the profiles and roles, so the index '
-                    f'has {has[kind]}. Rename the recipe, alias or module of the project with that name. just said: '
-                    f'{first[1]}')
-            if chosen and not started and imported:
-                say(f'{justfile.name} was not started by jnterfaces, so just install adds the recipes of each profile '
-                    f'as a module only: just {next(iter(chosen))} NAME.')
-            return None
-        first = first or (kind, error)
-    # The caller takes the block of the installer out of the Justfile again, and says why.
-    if text is None or not has_block(text):
-        say(f'The Justfile does not parse, also with an empty index. just said: {error}')
-    return error
+    key = index.relative_to(target).as_posix()
+    old, old_hash = (index.read_bytes() if index.is_file() else None), generated.get(key)
+
+    def put_back():
+        if old is None:
+            remove_generated(target, index, generated)
+            return
+        index.write_bytes(old)
+        if old_hash is None:
+            generated.pop(key, None)
+        else:
+            generated[key] = old_hash
+
+    def restore():
+        # Step 5: put the old index back, so that just check keeps the steps that it had, and the record keeps its
+        # old provided steps. An old index that no longer parses, for example because it names a module that is
+        # gone, gives way to an index with no recipe, so that just install still runs.
+        out.pop('provided_steps', None)
+        put_back()
+        if mine and old is not None and justfile is not None and just_error(target, justfile):
+            write_generated(target, index, index_text({}, recipes, full=False), generated)
+            if just_error(target, justfile):
+                put_back()
+            else:
+                out['provided_steps'] = []
+                say('The old index did not parse either, so the index has no recipe now. just check comes back with '
+                    'the next just install that works.')
+
+    # Step 3 of the order: each role file alone, as each module. A role file must parse alone, or the installer
+    # cannot know its names.
+    role_recipes = {}
+    for role in roles:
+        role_recipes[role] = just_dump(target, folder / role)
+        if role_recipes[role] is None:
+            raise StackError(f'The recipe file of a role, .agents/just/{role}, does not parse alone, so the installer '
+                             f'cannot read its names. just said: {just_error(target, folder / role)}. The index stays '
+                             f'as it was.')
+    role_names = {name for dump in role_recipes.values() for name in names_of(dump)}
+    for name in sorted(role_names & {recipe for module in kept for recipe in recipes.get(module, {})} & set(STEPS)):
+        raise StackError(f'The recipe {name} is in a recipe file of a role and in a profile, so the role would hide '
+                         f'the step of the profile. Take the role or the tool out. The index stays as it was.')
+    # Steps 1 and 2: the index with the modules only, then the names of the project from a dump of the Justfile. The
+    # Justfile can name a recipe of the index, for example ci: check, so the first forms also hold a stub of each
+    # name that the index can write. A recipe of the Justfile takes the place of a stub, so the stubs that stay show
+    # which names are not the Justfile's own.
+    stubs = sorted(set(STEPS) | {'check', 'verify'} | {recipe for module in kept for recipe in recipes.get(module, {})})
+    forms = [(kept, True, True), (kept, True, False), (kept, False, False), ({}, True, True), ({}, True, False),
+             ({}, False, False)]
+    mods, root, first, of_setting = kept, ({} if justfile is None else None), None, None
+    for mods, with_stubs, setting in forms if justfile is not None else []:
+        write_generated(target, index, probe_text(mods, stubs if with_stubs else (), setting), generated)
+        root = just_dump(target, justfile)
+        if root is not None:
+            break
+        # A Justfile that sets allow-duplicate-recipes itself fails each form with the setting, so the error of a form
+        # without it names the real problem.
+        if setting:
+            of_setting = of_setting or just_error(target, justfile)
+        else:
+            first = first or just_error(target, justfile)
+    first = first or of_setting
+    if root is None:
+        restore()
+        if not mine:
+            return keep()
+        if text is None or not has_block(text):
+            say(f'The Justfile does not parse, also with an index with no module, so the installer put the old index '
+                f'back. just said: {first}')
+        return first
+    if kept and not mods:
+        say(f'The Justfile does not parse with the modules of the profiles, so the index has no module. Rename the '
+            f'recipe, alias or module of the project with that name. just said: {first}')
+    own = {name: recipe for name, recipe in (root.get('recipes') or {}).items() if not is_stub(recipe)}
+    project = (set(own) | set(root.get('aliases') or {}) | set(root.get('modules') or {})) - set(mods)
+    for role, dump in role_recipes.items():
+        for name in sorted(names_of(dump) & project):
+            # A Justfile that imports the role file itself has the recipe of the role, and that is no clash.
+            if (dump.get('recipes') or {}).get(name) != own.get(name):
+                restore()
+                if not mine:
+                    return keep()
+                raise StackError(f'The recipe {name} is in {justfile.name} and in the recipe file of a role, '
+                                 f'.agents/just/{role}, so just would stop with "Recipe redefined". Rename the recipe '
+                                 f'of {justfile.name}, or take the role out with just uninstall. The index stays as '
+                                 f'it was.')
+    shell = shell_of(root)
+    if shell and imported and Path(shell[0] or '').name != 'jlog':
+        say(SHELL_NOTE.format(name=justfile.name, line=json.dumps(['jlog'] + shell)))
+    # Step 4: the whole index, without the names of the project and of the roles. check can depend only on a recipe
+    # that needs no argument.
+    taken = project | role_names
+    runnable = {name for name, recipe in own.items() if not needs_arguments(recipe)} | {
+        name for dump in role_recipes.values() for name, recipe in ((dump or {}).get('recipes') or {}).items()
+        if not needs_arguments(recipe)}
+    for step in STEPS:
+        if step in taken and step not in runnable:
+            say(f'{step} in the project is an alias, a module, or a recipe that needs an argument, so check cannot run '
+                f'the step {step}, and jlog pass fails. Rename it, or give each argument a default.')
+    out['provided_steps'] = provided_of(mods, recipes, role_recipes)
+    whole = index_text(mods, recipes, roles, True, taken, shell=shell is None, runnable=runnable)
+    if not mine and whole.encode() != old:
+        restore()
+        return keep()
+    write_generated(target, index, whole, generated)
+    error = just_error(target, justfile) if justfile is not None else None
+    if error:
+        restore()
+        say(f'The Justfile does not parse with the index, so the installer put the old index back. just said: {error}')
+        return error
+    if imported and justfile is not None:
+        for finding in lint_project(just_dump(target, justfile), mods):
+            say(f'The lint of steps: {finding}. Run just install --check after the fix.')
+    return None
 
 
 def main(argv=None):
@@ -1605,8 +1862,16 @@ def main(argv=None):
         raw = raw_record(target)
         note = justfile_note(target, raw)
         notes, gone = generated_notes(target, raw)
-        code = shared_files.check(target, read_parts(target), ([note] if note else []) + notes)
-        return 1 if gone else code
+        notes = [text for text in (note, jlog_note(target)) if text] + notes
+        code = shared_files.check(target, read_parts(target), notes)
+        findings = step_findings(target, raw)
+        for finding in findings:
+            print(f'The lint of steps: {finding}')
+        return 1 if gone or findings else code
+    # jlog is the shell of each recipe in .agents/just, so a recipe fails without it.
+    if not shutil.which('jlog'):
+        raise StackError(f'jlog is not on PATH. Each recipe that just install writes runs through jlog, so install it '
+                         f'first: {JLOG_INSTALL}. Nothing was written.')
     overrides = {}
     for item in args.clone:
         name, sep, path = item.partition('=')
@@ -1815,7 +2080,7 @@ def main(argv=None):
     # The keys that save writes. It keeps each other key of the record, so that it never drops one.
     managed = {'version', 'profiles', 'choices', 'tools', 'variants', 'owned_packages', 'added_packages',
                'pending_tools', 'removing_tools', 'removing_profiles', 'generated', 'started', 'parts',
-               'parts_version', 'code', 'justfile_clash'}
+               'parts_version', 'code', 'justfile_clash', 'steps', 'provided_steps'}
 
     def save(tool_list, waiting, going=()):
         record_file.parent.mkdir(exist_ok=True)
@@ -1845,9 +2110,14 @@ def main(argv=None):
                 if name not in leaving and name in profiles and profiles[name].get('code')}
         if code:
             record['code'] = code
+        step_record = {}
         write_recipes(target, profiles, [name for name in kept_profiles if name not in leaving], tool_list, False,
                       generated, state['started'], registry_profiles,
-                      [f'roles/{package["name"]}.just' for package, _ in steps], state['adding'])
+                      [f'roles/{package["name"]}.just' for package, _ in steps], state['adding'], step_record)
+        # The steps of just check, and the steps that a profile or a role provides, for jlog pass.
+        for key in ('steps', 'provided_steps'):
+            if key in step_record or key in old:
+                record[key] = step_record.get(key, old.get(key))
         if generated:
             record['generated'] = dict(sorted(generated.items()))
         if state['started']:
