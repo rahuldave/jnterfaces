@@ -346,7 +346,7 @@ Each package works alone, and each skill works without the optional skills:
 | `just install-into <target> [names]` | Runs the installer on another project. |
 | `just check` | Runs `just lint` and `just test`. Every commit must pass it. |
 | `just package-lint` | Checks `skill-package.json` with skill-package-maker. |
-| `just prose <check.py>` | Checks the Markdown with the nossaifd writing checker. |
+| `just prose-check <check.py>` | Checks the Markdown with the nossaifd writing checker. |
 
 The test of the jagt demo runs only with jagt 0.3.0 or later. If the `jagt`
 on your PATH is older, set `JAGT_BIN` to a newer binary.

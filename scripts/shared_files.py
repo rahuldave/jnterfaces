@@ -1259,11 +1259,13 @@ def ignored(target, paths):
 
 
 def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_run=False, migrating=False,
-         after=None):
+         after=None, dropped=None):
     """Bring the shared files of the target to the active owners. parts is the record of the parts in
     .agents/stack.json. Return the notes, the new parts and the files that changed. Unless dry_run, write the files,
     with .agents/stack-pending.json while they change. The caller saves the parts, then calls finish. after, when
-    given, gets {path: whether the file is there after the run} for each file that the run writes or removes."""
+    given, gets {path: whether the file is there after the run} for each file that the run writes or removes.
+    dropped is {path: (reason, source files)}: starter files that no owner may write in this run. A starter or seed
+    that the installer wrote there goes while it is as the installer wrote it, or as a source file holds it."""
     pending = {}
     # A pending file of an older installer may name the file that a part went to, such as biome.jsonc.
     for path, change in read_pending(target).items():
@@ -1299,12 +1301,42 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
             if FORMATS.get(path, {}).get('include') == 'pointer':
                 owner.lines[path] = [include_value(path, own_path(owner, path, source))]
     texts, writes = {}, {}
+    dropped = dropped or {}
+    replaced, messages, changes = set(), [], {}
+    # A starter file that a rule drops, such as the prose workflow while the tasker role is on, goes when the
+    # installer wrote it and nobody changed it. A changed file stays, and is yours. The record forgets the starter, so
+    # that the starter is written again once the rule no longer drops it.
+    for path, (reason, origins) in dropped.items():
+        units = parts.get(path, {})
+        entry = units.get(STARTER) or units.get(SEED)
+        if entry is None or linked(target, path):
+            continue
+        file = target / path
+        if not file.is_file():
+            # You deleted the file. The record keeps the starter, so that the file stays deleted.
+            continue
+        wrote = {entry.get('hash')} | {digest(origin.read_bytes()) for origin in origins if origin.is_file()}
+        if digest(file.read_bytes()) in wrote:
+            texts[path] = writes[path] = None
+            changes[path] = 'dropped'
+            messages.append(f'{"Would remove" if dry_run else "Removed"} {path}, which the installer wrote: '
+                            f'{reason}.')
+        else:
+            units[FILE] = {'state': 'kept', 'needs': entry.get('needs', [])}
+            # A starter of an older installer has no hash, so the installer cannot tell your change from a new
+            # version of the package.
+            why = 'you changed it' if entry.get('hash') else 'the installer cannot tell whether you changed it'
+            messages.append(f'Kept {path}: {why}, so it stays yours. {reason[0].upper()}{reason[1:]}, so you may '
+                            f'delete it.')
+        units.pop(STARTER, None)
+        units.pop(SEED, None)
+        if not units:
+            parts.pop(path, None)
     # Each file that this run decides from the file alone: a whole file of the old installer that a part replaces,
     # and a starter of a new file.
-    replaced, messages = set(), []
     for path in list(parts):
         units = parts[path]
-        takers = [owner for owner in active if path in owner.parts or path in owner.starter]
+        takers = [owner for owner in active if path in owner.parts or (path in owner.starter and path not in dropped)]
         if not takers:
             continue
         old_whole = units.get(WHOLE) or units.get(SEED)
@@ -1338,7 +1370,7 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
             raise SharedError(f'{path} is not a path inside the project')
         if reserved(path):
             raise SharedError(f'{path} belongs to the installer, so no owner may name it')
-    new_parts, changes = {}, {}
+    new_parts = {}
 
     def kept(path, units):
         """The entries of a file that this run leaves alone, as they were. A file that is yours alone, (file), has
@@ -1377,7 +1409,8 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
         for path, source in owner.starter.items():
             if not plain(path) or reserved(path):
                 raise SharedError(f'{path} is not a path that a starter may name')
-            starters.setdefault(path, []).append((owner, source))
+            if path not in dropped:
+                starters.setdefault(path, []).append((owner, source))
     for path, takers in starters.items():
         # A starter is written once. While any owner with a starter for the file stays on, a file that you delete
         # stays deleted. Each such owner joins the record, so the file waits until all of them went.
@@ -1393,8 +1426,11 @@ def sync(target, active, known, command, sources, parts, unsure_paths=(), dry_ru
             continue
         if text_of(path) is None:
             owner, source = takers[0]
-            put(path, source.read_bytes().decode('utf-8', errors='surrogateescape'))
-            parts.setdefault(path, {})[STARTER] = {'state': 'seeded', 'holder': owner.key, 'needs': keys}
+            data = source.read_bytes()
+            put(path, data.decode('utf-8', errors='surrogateescape'))
+            # The hash says whether the file is still as the installer wrote it, for a rule that drops it later.
+            parts.setdefault(path, {})[STARTER] = {'state': 'seeded', 'holder': owner.key, 'needs': keys,
+                                                   'hash': digest(data)}
             seeded.add(path)
             messages.append(f'{"Would write" if dry_run else "Wrote"} {path} from the starter of {owner.key}; it '
                             f'is yours now.')

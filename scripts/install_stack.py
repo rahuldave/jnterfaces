@@ -161,6 +161,15 @@ def check_registry(registry):
                 and variants[package['default_variant']].get('ready', True)):
             raise StackError(f'The variants of {package["name"]} in stack.json need an about each, and a default '
                              f'variant that is ready')
+    for package in packages:
+        drop = package.get('drop_with', {})
+        if not (isinstance(drop, dict) and (not drop or 'choice' in package) and all(
+                role in choices and role != package.get('choice') and isinstance(rule, dict)
+                and set(rule) == {'files', 'why'} and isinstance(rule['why'], str) and rule['why']
+                and string_list(rule['files']) and rule['files'] and all(plain_path(path) for path in rule['files'])
+                for role, rule in drop.items())):
+            raise StackError(f'drop_with of {package["name"]} in stack.json must map other roles to their files, '
+                             f'plain paths, and a why')
     aliases = registry.get('aliases', {})
     profiles = registry.get('profiles', {})
     if not isinstance(aliases, dict) or any(value not in choices for value in aliases.values()):
@@ -423,23 +432,49 @@ def role_owners(packages, clones):
     return found
 
 
+# The starter files of the installer in a project that it starts: the lists of generated files and of the files
+# that coverage leaves out. test-review of the tasker role judges each path that you or an agent add.
+INSTALLER_STARTERS = {'.agents/generated.txt': ROOT / 'templates/generated.txt',
+                      '.agents/coverage-exclude.txt': ROOT / 'templates/coverage-exclude.txt'}
+
+
+def dropped_files(packages, chosen, clones):
+    """The starter files that a role leaves out while another role is on, from drop_with in stack.json: {path:
+    (reason, source files)}. The source files are the starter files of the package now, so that a starter that the
+    record holds without a hash still counts as the installer's while it is unchanged."""
+    found = {}
+    for package in packages:
+        for role, rule in package.get('drop_with', {}).items():
+            if not chosen.get(role):
+                continue
+            clone = clones.get(package['name'])
+            starter = role_extras(clone)[1] if clone is not None else {}
+            for path in rule['files']:
+                found.setdefault(path, (f'the {role} role is on, and {rule["why"]}',
+                                        [clone / starter[path]] if path in starter else []))
+    return found
+
+
 def sync_files(target, profiles, kept, kept_tools, every, dry_run, parts, roles=(), gone_roles=(), unsure=(),
-               migrating=False, quiet=False, after=None, justfile=None):
+               migrating=False, quiet=False, after=None, justfile=None, dropped=None, started=False):
     """Bring the shared files to the owners that stay: kept profiles, kept_tools and roles. every holds each profile
     of the run, also the ones that go, and gone_roles each role that goes. Return the new parts. quiet prints no
     notes, for the dry pass that checks the files before the package commands run. after gets the files that the
     run writes or removes, as shared_files.sync says. justfile holds the lines of the installer in the Justfile, as
-    justfile_lines gives them."""
+    justfile_lines gives them. dropped names the starter files that no owner writes, as dropped_files says. started
+    says that the installer started the project, so it writes its own starter files."""
     commits = {name: commit_of(profiles[name]['root']) for name in every}
     parts = move_justfile_parts(target, parts)
     known = owners_of(profiles, every, {f'{n}:{t}' for n in every for t in profiles[n]['tools']}, commits, target,
                       parts)
     active = owners_of(profiles, kept, set(kept_tools), commits, target, parts) + list(roles)
     known += list(roles) + list(gone_roles)
-    # The installer always has its lines: each project has the index, whose recipes write the run log of jlog.
+    # The installer always has its lines: each project has the index, whose recipes write the run log of jlog. In a
+    # project that the installer started, it also has its starter files.
     installer = shared_files.Owner('jnterfaces', 'the installer', 'jnterfaces', commit_of(ROOT),
                                    'They stay while the project keeps .agents/stack.json.',
-                                   dict(copy.deepcopy(shared_files.JNTERFACES_LINES), **(justfile or {})))
+                                   dict(copy.deepcopy(shared_files.JNTERFACES_LINES), **(justfile or {})),
+                                   starter=dict(INSTALLER_STARTERS) if started else None)
     active, known = [installer] + active, [installer] + known
     command = os.environ.get('JNTERFACES_COMMAND') or shlex.join(['install_stack.py', *sys.argv[1:]])
     sources = {profiles[name]['package']['name']: commits[name] for name in every}
@@ -447,7 +482,7 @@ def sync_files(target, profiles, kept, kept_tools, every, dry_run, parts, roles=
     sources['jnterfaces'] = commit_of(ROOT)
     try:
         notes, new_parts, _ = shared_files.sync(target, active, known, command, sources, parts, unsure, dry_run,
-                                                migrating, after)
+                                                migrating, after, dropped)
     except (OSError, shared_files.SharedError) as exc:
         raise StackError(f'Cannot update the shared files: {exc}')
     for note in [] if quiet else notes:
@@ -1992,6 +2027,9 @@ def main(argv=None):
     parts, unsure, migrating = move_from_log(target, record, packages, clones, True)
     roles = role_owners([p for p, _ in steps], clones)
     gone_roles = role_owners(removals, clones)
+    dropped = dropped_files(packages, chosen, clones)
+    # The installer starts a project when it writes the starter Justfile: before, or in this run.
+    starting = bool((record or {}).get('started')) or justfile_of(target) is None
     owned = {key: list(names) for key, names in (record or {}).get('owned', {}).items()}
     # The added_packages of a record from earlier, keyed profile:tool, move to their owner keys.
     for key, names in (record or {}).get('added_old', {}).items():
@@ -2047,7 +2085,7 @@ def main(argv=None):
                 print(f'{justfile.name} does not parse with the line {IMPORT_LINE}, so the real run would add it only '
                       f'if {justfile.name} still parses with it. just said: {error}')
         sync_files(target, profiles, [n for n in active if n not in leaving], tools, active, True, parts, roles,
-                   gone_roles, unsure, migrating, after=after, justfile=dry_lines)
+                   gone_roles, unsure, migrating, after=after, justfile=dry_lines, dropped=dropped, started=starting)
         write_justfile(target, True, bool((record or {}).get('started')))
         write_claude_md(target, True, after)
         write_recipes(target, profiles, [n for n in active if n not in leaving], tools, True, {}, False)
@@ -2060,7 +2098,7 @@ def main(argv=None):
     # A dry pass over the shared files first: a conflict of two owners or an own file that git ignores stops the run
     # here, before a package command changes the project.
     sync_files(target, profiles, [n for n in active if n not in leaving], tools, active, True, parts, roles,
-               gone_roles, unsure, migrating, quiet=True, justfile=lines_now())
+               gone_roles, unsure, migrating, quiet=True, justfile=lines_now(), dropped=dropped, started=starting)
     parts, unsure, migrating = move_from_log(target, record, packages, clones, False)
     for package, options in steps:
         if run_installer(clones[package['name']], options, target, heads.get(package['name']), False):
@@ -2227,7 +2265,8 @@ def main(argv=None):
             say(f'{justfile.name} does not parse, so the installer adds no import to it. Fix it, then run just '
                 f'install again. just said: {error}')
     state['parts'] = sync_files(target, profiles, [name for name in active if name not in leaving], tools, active,
-                                False, parts, roles, gone_roles, unsure, migrating, after=after, justfile=adding)
+                                False, parts, roles, gone_roles, unsure, migrating, after=after, justfile=adding,
+                                dropped=dropped, started=state['started'])
     state['adding'] = False
     justfile = justfile_of(target)
     text = justfile_text(justfile)
@@ -2256,7 +2295,7 @@ def main(argv=None):
         untouched = added is not None and justfile.read_bytes() == added
         state['parts'] = sync_files(target, profiles, [name for name in active if name not in leaving], tools,
                                     active, False, state['parts'], roles, gone_roles, (), False, after=after,
-                                    quiet=True, justfile={})
+                                    quiet=True, justfile={}, dropped=dropped, started=state['started'])
         # The block was new in this run, and nothing else changed the Justfile since, so it gets back its bytes as
         # they were. Else the writer took out the block only.
         if untouched:

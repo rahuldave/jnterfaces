@@ -82,10 +82,13 @@ The installer then does these steps:
 2. It adds the default tools of the profile, with `uv add --group` or `npm
    install --save-dev`.
 3. It writes the starter `Justfile`, the starter `AGENTS.md`, and a
-   `CLAUDE.md` that imports `AGENTS.md`. With the `prose` role, it also writes
-   the workflow `.github/workflows/nossaifd-prose.yml`. Each of these files is
-   yours from then on.
-4. It saves the choices in `.agents/stack.json`.
+   `CLAUDE.md` that imports `AGENTS.md`. With the `prose` role and without the
+   `tasker` role, it also writes the workflow
+   `.github/workflows/nossaifd-prose.yml`. Each of these files is yours from
+   then on.
+4. It writes two empty lists, `.agents/generated.txt` and
+   `.agents/coverage-exclude.txt`. You or an agent add paths to them later.
+5. It saves the choices in `.agents/stack.json`.
 
 Run `just` alone to list the recipes. Then run `just verify`, which passes in a
 project with no code yet.
@@ -289,7 +292,9 @@ Commit these files:
 - `.agents/`, `.claude/` and `.codex/`, which hold the skills, the records and
   the hooks
 - `AGENTS.md`, `CLAUDE.md` and the `Justfile`
-- `.github/workflows/nossaifd-prose.yml`, if the `prose` role is on
+- `.github/workflows/nossaifd-prose.yml`, if the `prose` role is on and the
+  `tasker` role is off
+- `.agents/generated.txt` and `.agents/coverage-exclude.txt`
 - `pyproject.toml` and `uv.lock`, or `package.json` and `package-lock.json`
 - the config files `ruff.toml`, `.pre-commit-config.yaml`, `ty.toml`,
   `biome.json` and `tsconfig.json`

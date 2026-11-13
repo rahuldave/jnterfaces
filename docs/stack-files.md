@@ -63,6 +63,7 @@ declarations, then writes the project and its records.
 | `.agents/log/` | the project | jlog | The run log of the recipes. Git ignores it, and no owner of a part may name it. |
 | `.agents/skills/` and `.claude/skills/` | the project | the installer | The skills, and a link to each one for Claude Code. |
 | `.claude/hooks/` and `.codex/hooks/` | the project | the tasker role, through `install_extras.files` | The hook scripts. The hook entries go in `.claude/settings.json` and `.codex/hooks.json` as parts. |
+| `.agents/generated.txt` and `.agents/coverage-exclude.txt` | the project | the installer once, then you | Two empty lists, in a project that the installer starts. You or an agent add paths, and `test-review` of the tasker role judges each one. A list that you delete stays deleted. |
 | `Justfile` | the project | the installer once, then you | The starter Justfile, when the project has none. It is yours from then on. In a Justfile of your own, the installer adds one block with the line `import? '.agents/install.just'`. |
 | `CLAUDE.md` | the project | the installer once, then you | The line `@AGENTS.md`, when the project has `AGENTS.md` and no `CLAUDE.md`. Claude Code reads `CLAUDE.md` and not `AGENTS.md`, and the line imports `AGENTS.md`. It is yours from then on. |
 | `.gitignore`, `.worktreedisposable`, `AGENTS.md` | the project | the installer and you | Line files. Each owner adds a block of lines. |
@@ -128,6 +129,7 @@ An entry of `packages` has these keys:
 | `default` | `true` when a new project turns the role on, unless the profile says otherwise. |
 | `needs` | The packages that the role needs. |
 | `record` | The path of the package record, when it is not `.agents/<package>-install.json`. |
+| `drop_with` | The starter files that the role leaves out while another role is on, keyed by that role: `files`, and `why`, which the installer prints. The installer removes such a file when it wrote the file and you did not change it, and does not write it again while the other role is on. `prose` leaves out `.github/workflows/nossaifd-prose.yml` while `tasker` is on. |
 | `variants` and `default_variant` | The forms of a role, for example `git` or `gitwt` for `tasker`. A variant with `"ready": false` cannot be chosen yet. |
 | `required_skills` and `optional_skills` | For jnterfaces only: the `just` skill is always installed. `cx` and `jagt-protocol` are roles of their own. |
 
@@ -265,7 +267,7 @@ An entry has these fields:
 | `value` | The value that the installer wrote, for a unit file. |
 | `made` | What the installer made for the unit, for example the tables `tool` and `tool.uv`. They go with the last unit inside them. |
 | `file` | For a file with two names: the file that holds the unit. A part of `biome.json` has `biome.json` or `biome.jsonc`. |
-| `hash` | For an own file or a whole file: the hash of what the installer wrote. |
+| `hash` | For an own file, a whole file, a starter or a seed: the hash of what the installer wrote. A starter from an older installer has no hash. Then the file counts as the installer's while it is as the package ships it now. |
 | `earlier` | Only after a run that stopped: other values that the file can hold for the unit. |
 | `unsure` | Only after a run that stopped and a later run that could not read the file. `just install --check` fails until a run reads the file. |
 
@@ -286,7 +288,7 @@ Some keys of `parts` are not units. Each one starts with a bracket:
 | `(own file)` | The file is an own file of an owner. |
 | `(whole file)` | The file is a whole file of a package from before the parts. |
 | `(file)` | The whole file is yours. The installer adds no part to it. |
-| `(starter)` | A role wrote the file from its starter. |
+| `(starter)` | A role, or the installer, wrote the file from its starter. |
 | `(seed)` | An older installer wrote the file from its seed. |
 
 ### Which file holds a part
