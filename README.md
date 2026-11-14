@@ -98,7 +98,7 @@ file stays.
 
 1. Install `git`, `just`, `uv` and `jlog`. jlog logs each line of the
    recipes that `just install` writes. To install it, clone
-   https://github.com/rahuldave/jlog, run `git checkout v0.1.0` in the
+   https://github.com/rahuldave/jlog, run `git checkout v0.1.1` in the
    clone, then run `just install`.
 2. Choose the folder of the package clones. The default is
    `~/.local/share/skill-packages`. To use another folder, export
