@@ -79,5 +79,9 @@ Run `jagt --version`. The skill needs jagt 0.3.0 or later. If
 than the nonce. Then build `jagt` from its repository,
 https://github.com/rahuldave/jagt, or set `JAGT_BIN` to a newer binary.
 
+The link checks of `jagt result lint --check-files` need jagt 0.6.0 or later. Older
+versions pass a symbolic link that leads out of the base folder, and a file
+with a second hard link.
+
 The older `validate_agent_*.sh` shell validators are legacy. This skill does
 not ship them. Use the `jagt` wrappers.
