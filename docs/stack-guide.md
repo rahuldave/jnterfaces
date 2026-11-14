@@ -70,7 +70,7 @@ A machine needs `git`, `just`, `uv` and `jlog`. The installer, Python, the
 Python tools and Node all come through `uv`. jlog is the shell of each recipe
 in `.agents/just`, and it logs each line in the run log. When jlog is missing,
 the installer stops and writes nothing. To install jlog, clone
-https://github.com/rahuldave/jlog, run `git checkout v0.1.0` in the clone,
+https://github.com/rahuldave/jlog, run `git checkout v0.1.1` in the clone,
 then run `just install`. The roles need more programs:
 
 | Role or tool | Program | How the stack handles a missing program |

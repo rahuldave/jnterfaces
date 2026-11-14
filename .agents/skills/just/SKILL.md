@@ -85,7 +85,7 @@ Besides Git, a project assumes three programs only, `just`, `uv` and `jlog`.
 Every other tool comes through a recipe. `just install` is that recipe. It is
 in `.agents/install.just`, and the Justfile imports it with the line
 `import? '.agents/install.just'`. To install jlog, clone
-https://github.com/rahuldave/jlog, run `git checkout v0.1.0` in the clone,
+https://github.com/rahuldave/jlog, run `git checkout v0.1.1` in the clone,
 then run `just install`.
 
 - **`just install lint`** adds a tool. A tool is a set of packages for the

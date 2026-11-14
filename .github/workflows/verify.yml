@@ -20,8 +20,8 @@ jobs:
       - name: Check syntax
         run: just lint
       - name: Build jlog, the shell of the recipes that the installer writes
-        # The commit 6fccbf9 is the tag v0.1.0 of jlog.
-        run: cargo install --locked --git https://github.com/rahuldave/jlog --rev 6fccbf92d47a7b66f0e5b4dce7046c25c29a364a jlog
+        # The commit 17b5b58 is the tag v0.1.1 of jlog.
+        run: cargo install --locked --git https://github.com/rahuldave/jlog --rev 17b5b58338f45e46412d2e021edb02e6e35da281 jlog
       - name: Build jagt for the protocol demo test
         run: cargo install --locked --git https://github.com/rahuldave/jagt jagt
       - name: Get the nossaifd writing checker
