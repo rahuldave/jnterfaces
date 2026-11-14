@@ -254,7 +254,20 @@ def check_programs(name, profile):
     it. expect is a text that the output of the check must hold."""
     def fail(reason):
         raise StackError(f'The profile.json of the {name} profile is malformed: {reason}')
-    programs = profile.get('programs', [])
+    declared = check_program_list(profile.get('programs', []), fail)
+    places = [('base', profile.get('base', {}))] + [(f'the tool {tool}', entry)
+                                                    for tool, entry in profile['tools'].items()]
+    for place, entry in places:
+        used = entry.get('programs', [])
+        if not string_list(used) or len(set(used)) != len(used):
+            fail(f'programs of {place} must be a list of names, each once')
+        unknown = [program for program in used if program not in declared]
+        if unknown:
+            fail(f'programs of {place} names {", ".join(unknown)}, which programs does not declare')
+
+
+def check_program_list(programs, fail):
+    """Check a list of programs, of a profile.json or of a role, and return their names. fail gets the reason."""
     if not isinstance(programs, list):
         fail('programs must be a list')
     declared = []
@@ -284,15 +297,7 @@ def check_programs(name, profile):
         if entry.get('install_in', 'project') not in ('project', 'home') or ('install_in' in entry
                                                                              and 'install' not in entry):
             fail(f'install_in of the program {program} must be project or home, and only with an install')
-    places = [('base', profile.get('base', {}))] + [(f'the tool {tool}', entry)
-                                                    for tool, entry in profile['tools'].items()]
-    for place, entry in places:
-        used = entry.get('programs', [])
-        if not string_list(used) or len(set(used)) != len(used):
-            fail(f'programs of {place} must be a list of names, each once')
-        unknown = [program for program in used if program not in declared]
-        if unknown:
-            fail(f'programs of {place} names {", ".join(unknown)}, which programs does not declare')
+    return declared
 
 
 def needed_programs(profiles, names, pairs):
@@ -309,6 +314,11 @@ def needed_programs(profiles, names, pairs):
             if entry['name'] in used and entry['name'] not in found:
                 found[entry['name']] = dict(entry, profile=name)
     return list(found.values())
+
+
+def owner_of(entry):
+    """Who needs a program, for the messages: the profile, or the role that the entry names."""
+    return entry.get('owner') or f'the {entry["profile"]} profile'
 
 
 # The seconds that a check of a program may take. A check of cargo can make rustup download a toolchain first.
@@ -356,24 +366,36 @@ def program_works(target, entry):
     return run.returncode == 0 and entry.get('expect', '') in out
 
 
-def missing_expected(target, programs, works=None):
+def missing_expected(target, programs, works=None, earlier=()):
     """The problems with the programs before the run writes anything: each program without an install whose check
     fails, and each missing program whose install command is not on PATH. One line each. works, when given, gets the
-    result of each check that ran, by the name of the program."""
+    result of each check that ran, by the name of the program. earlier are the programs that install before these."""
     problems = []
     works = {} if works is None else works
 
     def check(entry):
         works[entry['name']] = program_works(target, entry)
         return works[entry['name']]
+    # A program that an earlier program installs in this run counts as on PATH when a later install starts with its
+    # name. Only a program whose check fails is installed, so only such a program counts.
+    firsts = {command_of(entry['install'])[0] for entry in programs if 'install' in entry}
+    coming = set()
+
+    def installs(entry):
+        if 'install' in entry and entry['name'] in firsts and not shutil.which(entry['name']):
+            if not (works[entry['name']] if entry['name'] in works else check(entry)):
+                coming.add(entry['name'])
+    for entry in earlier:
+        installs(entry)
     for entry in programs:
         if 'install' in entry:
             first = command_of(entry['install'])[0]
-            if not shutil.which(first) and not check(entry):
-                problems.append(f'{entry["name"]} (for the {entry["profile"]} profile): its install, {entry["install"]}, '
+            if first not in coming and not shutil.which(first) and not check(entry):
+                problems.append(f'{entry["name"]} (for {owner_of(entry)}): its install, {entry["install"]}, '
                                 f'needs {first}, which is not on PATH.')
+            installs(entry)
         elif not check(entry):
-            problems.append(f'{entry["name"]} (for the {entry["profile"]} profile): {entry["check"]} failed'
+            problems.append(f'{entry["name"]} (for {owner_of(entry)}): {entry["check"]} failed'
                             + (f' or did not print {entry["expect"]}' if entry.get('expect') else '')
                             + f'. {entry["description"]}')
     return problems
@@ -386,7 +408,7 @@ def install_programs(target, programs):
         if 'install' not in entry or program_works(target, entry):
             continue
         home = entry.get('install_in') == 'home'
-        print(f'{entry["check"]} failed, so the installer runs for the {entry["profile"]} profile, in the '
+        print(f'{entry["check"]} failed, so the installer runs for {owner_of(entry)}, in the '
               f'{"home folder" if home else "project folder"}: {entry["install"]}', file=sys.stderr)
         # In the home folder, a toolchain file of the project does not count: cargo install builds with the default
         # toolchain, not with an old one that the project pins. Without HOME, an empty folder outside the project.
@@ -600,6 +622,68 @@ def role_extras(clone):
     return parts, starter
 
 
+def role_programs(packages, clones, known=()):
+    """The programs of each role package, from install_extras.programs, in the order of stack.json. A role needs all
+    of its programs while it is on. A program that a profile, or an earlier role, declares is not taken again."""
+    found = {name: None for name in known}
+    for package in packages:
+        clone = clones.get(package['name'])
+        if 'choice' not in package or clone is None:
+            continue
+        try:
+            extras = json.loads((clone / 'skill-package.json').read_text()).get('install_extras', {})
+        except (OSError, ValueError, AttributeError) as exc:
+            raise StackError(f'Cannot read skill-package.json in {clone}: {exc}')
+        programs = extras.get('programs', []) if isinstance(extras, dict) else []
+
+        def fail(reason):
+            raise StackError(f'install_extras.programs in {clone}/skill-package.json is malformed: {reason}')
+        check_program_list(programs, fail)
+        for entry in programs:
+            if entry['name'] not in found:
+                found[entry['name']] = dict(entry, profile=package['choice'], owner=f'the {package["choice"]} role')
+    return [entry for entry in found.values() if entry is not None]
+
+
+def role_before_remove(package, clone):
+    """The step of a role package that runs before its removal, from install_extras.before_remove, or None. It is
+    {git_hook, command}: the command runs in the project when the Git hook is there. A hook that the role installed
+    would fail at each commit once the files of the role are gone."""
+    try:
+        extras = json.loads((clone / 'skill-package.json').read_text()).get('install_extras', {})
+    except (OSError, ValueError, AttributeError) as exc:
+        raise StackError(f'Cannot read skill-package.json in {clone}: {exc}')
+    step = extras.get('before_remove') if isinstance(extras, dict) else None
+    if step is None:
+        return None
+    command = command_of(step.get('command')) if isinstance(step, dict) else None
+    if not (isinstance(step, dict) and set(step) == {'git_hook', 'command'} and plain_path(step['git_hook'])
+            and command and '/' not in command[0]):
+        raise StackError(f'install_extras.before_remove in {clone}/skill-package.json must be {{git_hook, command}}: '
+                         f'the name of a Git hook, and a command as a string that starts with a program on PATH')
+    return step
+
+
+def run_before_remove(target, package, step, dry_run):
+    """Run the step of a role before its removal, when its Git hook is there. A failed step does not stop the
+    removal: the person can take the hook out."""
+    hook = git_hook(target, step['git_hook'])
+    if hook is None or not hook.is_file():
+        return
+    if dry_run:
+        print(f'Would run before the removal of {package["choice"]}: {step["command"]}')
+        return
+    print(f'Before the removal of {package["choice"]}, the installer runs: {step["command"]}', file=sys.stderr)
+    try:
+        code = subprocess.run(command_of(step['command']), cwd=target, env=project_env(),
+                              stdin=subprocess.DEVNULL).returncode
+    except OSError as exc:
+        code = str(exc)
+    if code:
+        print(f'{step["command"]} failed ({code}), so {hook} may stay. Take it out yourself if each commit fails.',
+              file=sys.stderr)
+
+
 def role_owners(packages, clones):
     """The owner of each role package that has parts or a starter, in the order of stack.json."""
     found = []
@@ -705,8 +789,9 @@ def load_profiles(names, registry_profiles, choices, overrides, fetch=True):
 
 
 def check_record_programs(target, record, registry, overrides):
-    """For just install --check: print each program that the profiles and tools of the record need and that is
-    missing. True when one is missing. A profile without a clone is not checked, and --check clones nothing."""
+    """For just install --check: print each program that the profiles, tools and roles of the record need and that
+    is missing. True when one is missing. A profile or role without a clone is not checked, and --check clones
+    nothing."""
     record = record if isinstance(record, dict) else {}
 
     def listed(key):
@@ -714,13 +799,16 @@ def check_record_programs(target, record, registry, overrides):
         return value if string_list(value) else []
     # The profiles and tools that a run without names keeps: the saved and pending ones, less those being removed.
     names = [name for name in listed('profiles') if name not in listed('removing_profiles')]
-    if not names:
+    saved = record.get('choices')
+    if not names and not (isinstance(saved, dict) and True in saved.values()):
         return False
     try:
-        _, choices, _, registry_profiles = load_registry(registry)
+        packages, choices, aliases, registry_profiles = load_registry(registry)
     except StackError as exc:
         print(f'The programs are not checked: {exc}')
         return False
+    # A record from before the renames saves a role under its old name.
+    roles = [aliases.get(name, name) for name, on in saved.items() if on is True] if isinstance(saved, dict) else []
     tools = [pair for pair in listed('tools') + listed('pending_tools') if pair not in listed('removing_tools')]
     profiles, kept, unchecked = {}, [], False
     for name in names:
@@ -742,15 +830,27 @@ def check_record_programs(target, record, registry, overrides):
     # A record from before the pairs lists bare tool names: the tool of each saved profile that has it.
     pairs = {pair if ':' in pair else f'{name}:{pair}' for pair in tools for name in kept}
     missing = unchecked
-    for entry in needed_programs(profiles, kept, pairs):
+    programs = needed_programs(profiles, kept, pairs)
+    role_packages, clones = [p for p in packages if p.get('choice') in roles], {}
+    for package in role_packages:
+        try:
+            clones[package['name']] = clone_dir(package, overrides, fetch=False)
+        except StackError as exc:
+            print(f'The programs of the {package["choice"]} role are not checked: {exc}')
+    try:
+        programs += role_programs(role_packages, clones, [entry['name'] for entry in programs])
+    except StackError as exc:
+        print(f'The programs of the roles are not checked: {exc}')
+        missing = True
+    for entry in programs:
         if program_works(target, entry):
             continue
         missing = True
         if 'install' in entry:
-            print(f'Missing program: {entry["name"]} (for the {entry["profile"]} profile): {entry["check"]} failed. '
+            print(f'Missing program: {entry["name"]} (for {owner_of(entry)}): {entry["check"]} failed. '
                   f'just install runs: {entry["install"]}')
         else:
-            print(f'Missing program: {entry["name"]} (for the {entry["profile"]} profile): {entry["check"]} failed. '
+            print(f'Missing program: {entry["name"]} (for {owner_of(entry)}): {entry["check"]} failed. '
                   f'{entry["description"]}')
     return missing
 
@@ -2259,6 +2359,16 @@ def main(argv=None):
             if name != 'jnterfaces':
                 update(clone)
     heads = {name: head_of(clone) for name, clone in clones.items()} if args.clean else {}
+    # The programs of the roles that are on. Their clones are here only now, and still nothing is written.
+    extra = role_programs([p for p, _ in steps], clones, [entry['name'] for entry in programs])
+    extra_missing = missing_expected(target, extra, works, earlier=programs)
+    if extra_missing and not args.dry_run:
+        raise StackError('A program that the roles need is missing. Nothing was written. Install it, then run just '
+                         'install again:\n  ' + '\n  '.join(extra_missing))
+    programs, missing = programs + extra, missing + extra_missing
+    # The step of each role is checked when the role installs too, so that a bad step cannot block its removal later.
+    befores = {p['name']: role_before_remove(p, clones[p['name']]) for p in [s[0] for s in steps] + removals
+               if 'choice' in p}
     for package, _ in steps:
         lacking = missing_tools(clones[package['name']])
         if lacking:
@@ -2312,7 +2422,10 @@ def main(argv=None):
             print(f'Missing program: {problem}')
         for entry in programs:
             if 'install' in entry and not (works[entry['name']] if entry['name'] in works else program_works(target, entry)):
-                print(f'Would install {entry["name"]} for the {entry["profile"]} profile: {entry["install"]}')
+                print(f'Would install {entry["name"]} for {owner_of(entry)}: {entry["install"]}')
+        for package in removals:
+            if befores.get(package['name']):
+                run_before_remove(target, package, befores[package['name']], True)
         for name in active:
             init = profiles[name].get('init')
             if init and any(step[1] == name for step in commands) and not (target / init['file']).exists():
@@ -2361,6 +2474,8 @@ def main(argv=None):
         if run_installer(clones[package['name']], options, target, heads.get(package['name']), False):
             raise StackError(f'The install of {package["name"]} failed. The packages before it are installed.')
     for package in removals:
+        if befores.get(package['name']):
+            run_before_remove(target, package, befores[package['name']], False)
         options = ['--record', str(record_path(package)), '--remove']
         if run_installer(clones[package['name']], options, target, None, False):
             raise StackError(f'The removal of {package["name"]} failed.')

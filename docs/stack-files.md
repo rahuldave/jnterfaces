@@ -148,6 +148,8 @@ Each package has one `skill-package.json`. The installer reads these keys:
 | `install_extras.files` | Files and folders outside `.agents/skills` that the installer copies and records like a skill, for example `.agents/just/roles/nossaifd.just`. |
 | `install_extras.parts` | The parts of a role: `{shared file: source file}`. For example, tasker adds a line to `AGENTS.md` and hooks to `.claude/settings.json`. |
 | `install_extras.starter` | A file that the role writes once, when the project has none, for example the first `AGENTS.md`. It is yours from then on. |
+| `install_extras.programs` | The programs of a role, with the keys of the `programs` of a profile. A role that is on needs all of them. For example, tasker installs `pre-commit`, then its git hooks. |
+| `install_extras.before_remove` | `{git_hook, command}`. When the role goes and the Git hook is there, the command runs in the project before the files of the role go. For example, tasker runs `pre-commit uninstall`, because a hook without its config stops each commit. A failed command does not stop the removal. |
 | `install_extras.merge_hooks` and `install_extras.seed` | The same hooks and starter for an installer from before the parts. A newer installer leaves these files to the parts. |
 | `executables` | The programs that the package needs, with a command that checks each one. |
 
@@ -211,12 +213,20 @@ a run needs are those of the base and of each installed tool, in the order of
 the top key `programs`. When two profiles have a program with the same
 name, the program of the first profile counts.
 
+A role names its programs in `install_extras.programs` of its
+`skill-package.json`. They have the same keys and rules. A run needs each
+program of a role that is on, after the programs of the profiles. When a profile
+has a program with the same name, the program of the profile counts.
+
 A run uses the programs in this order:
 
 1. Before it writes anything, the installer runs the `check` of each needed
    program without `install`. If a check fails, the installer prints the
    `description` and stops. It also stops for a missing program whose
-   `install` starts with a command that is not on `PATH`.
+   `install` starts with a command that is not on `PATH`. A command counts as
+   on `PATH` when an earlier program with that name installs in the same run,
+   because its check fails. The programs of the profiles come before the
+   programs of the roles.
 2. It runs the commands of the tools, such as `cargo add --dev`. Then it
    writes the files, also a whole file such as `rust-toolchain.toml`.
 3. In the folder of the project, it runs the `check` of each needed program
@@ -245,9 +255,10 @@ These rules follow from the order:
 - **A dry run installs nothing.** `just install --dry-run` prints each
   missing program and each install that it would run.
 - **`just install --check` lists the missing programs.** It fails when one is
-  missing. It skips a profile that has no clone.
+  missing. It skips a profile or a role that has no clone.
 - **A program stays.** The installer never uninstalls a program, also when a
-  tool or a profile goes.
+  tool, a profile or a role goes. The `before_remove` step of a role can take
+  out what its programs put in the project, such as a Git hook.
 
 The programs of jnterfaces itself, `git`, `just`, `uv` and `jlog`, are not in
 a profile.

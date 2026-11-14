@@ -3724,6 +3724,189 @@ class ProgramTests(StackTests):
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertEqual(self.tools_run(), [])
 
+    def role_programs(self, programs):
+        """Give the tasker role the programs, in install_extras.programs of its skill-package.json."""
+        root = self.packages / 'agent_gest_git_skills'
+        manifest = json.loads((root / 'skill-package.json').read_text())
+        manifest['install_extras']['programs'] = programs
+        (root / 'skill-package.json').write_text(json.dumps(manifest))
+        commit(root)
+
+    HOOKS = [{'name': 'gate', 'check': 'fakeprog check gate', 'install': 'fakeprog install gate'},
+             {'name': 'hooks', 'check': 'fakeprog check hooks', 'install': 'fakeprog install hooks'}]
+
+    def test_a_role_program_is_installed_after_the_files_in_its_order(self):
+        self.have('cargo', 'cargo-llvm-cov')
+        self.role_programs(self.HOOKS)
+        run = self.run_rust()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.tools_run()[-2:], ['fakeprog install gate toolchain=False',
+                                                 'fakeprog install hooks toolchain=False'])
+        self.assertIn('fakeprog check gate failed, so the installer runs for the tasker role, in the project folder',
+                      run.stderr)
+        # The files of the role are in place before its programs install.
+        self.assertTrue((self.target / '.claude/hooks/start.sh').is_file())
+
+    def test_a_missing_role_program_without_install_stops_before_anything_is_written(self):
+        self.have('cargo', 'cargo-llvm-cov')
+        self.role_programs([{'name': 'gate', 'check': 'fakeprog check gate', 'description': 'Install the gate.'}])
+        run = self.run_rust()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('Nothing was written', run.stderr)
+        self.assertIn('gate (for the tasker role): fakeprog check gate failed. Install the gate.', run.stderr)
+        self.assertEqual(sorted(p.name for p in self.target.iterdir()), ['.git'])
+        run = self.run_rust('--dry-run')
+        self.assertIn('Missing program: gate (for the tasker role)', run.stdout)
+
+    def test_a_role_that_is_off_needs_no_program(self):
+        self.have('cargo', 'cargo-llvm-cov')
+        self.role_programs([{'name': 'gate', 'check': 'fakeprog check gate', 'description': 'Install the gate.'}])
+        run = self.run_rust('--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+
+    def test_a_program_that_a_profile_declares_comes_from_the_profile(self):
+        self.have('cargo')
+        self.role_programs([{'name': 'cargo-llvm-cov', 'check': 'fakeprog check cargo-llvm-cov',
+                             'description': 'From the role.'}])
+        run = self.run_rust()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('installer runs for the rust profile', run.stderr)
+        self.assertNotIn('tasker role', run.stderr)
+
+    def test_malformed_role_programs_are_refused(self):
+        self.have('cargo', 'cargo-llvm-cov')
+        for programs, reason in [({}, 'programs must be a list'),
+                                 ([{'name': 'gate', 'check': 'fakeprog check gate'}], 'needs an install or a description'),
+                                 ([self.HOOKS[0], self.HOOKS[0]], 'gate is in programs twice')]:
+            self.role_programs(programs)
+            run = self.run_rust()
+            self.assertNotEqual(run.returncode, 0, reason)
+            self.assertIn('install_extras.programs in', run.stderr)
+            self.assertIn(reason, run.stderr)
+            self.assertEqual(sorted(p.name for p in self.target.iterdir()), ['.git'])
+
+    def test_check_reports_a_missing_role_program(self):
+        self.have('cargo', 'cargo-llvm-cov')
+        self.role_programs(self.HOOKS)
+        self.assertEqual(self.run_rust().returncode, 0)
+        run = self.stack('--check', env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        (self.programs / 'hooks').unlink()
+        run = self.stack('--check', env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertEqual(run.returncode, 1)
+        self.assertIn('Missing program: hooks (for the tasker role): fakeprog check hooks failed. just install runs: '
+                      'fakeprog install hooks', run.stdout)
+        self.assertFalse((self.programs / 'hooks').exists())
+
+    def test_check_reports_a_missing_role_program_without_a_profile(self):
+        self.role_programs(self.HOOKS)
+        run = self.stack('--defaults', env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        (self.programs / 'gate').unlink()
+        run = self.stack('--check', env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertIn('Missing program: gate (for the tasker role)', run.stdout)
+
+    def test_an_install_may_start_with_a_program_that_an_earlier_program_installs(self):
+        self.have('cargo', 'cargo-llvm-cov')
+        self.role_programs([{'name': 'pc', 'check': 'fakeprog check pc', 'install': 'fakeprog install pc'},
+                            {'name': 'hooks', 'check': 'fakeprog check hooks', 'install': 'pc install hooks'}])
+        run = self.run_rust('--dry-run')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertNotIn('not on PATH', run.stdout + run.stderr)
+        self.assertIn('Would install hooks for the tasker role: pc install hooks', run.stdout)
+        # A program that comes later in the list does not count.
+        self.role_programs([{'name': 'hooks', 'check': 'fakeprog check hooks', 'install': 'pc install hooks'},
+                            {'name': 'pc', 'check': 'fakeprog check pc', 'install': 'fakeprog install pc'}])
+        run = self.run_rust()
+        self.assertIn('needs pc, which is not on PATH', run.stderr)
+
+    def test_a_program_that_installs_nothing_does_not_put_its_name_on_path(self):
+        # The check of pc passes, so nothing installs pc, and the install of hooks cannot start.
+        self.have('cargo', 'cargo-llvm-cov', 'pc')
+        self.role_programs([{'name': 'pc', 'check': 'fakeprog check pc', 'install': 'fakeprog install pc'},
+                            {'name': 'hooks', 'check': 'fakeprog check hooks', 'install': 'pc install hooks'}])
+        run = self.run_rust()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('hooks (for the tasker role): its install, pc install hooks, needs pc, which is not on PATH',
+                      run.stderr)
+        self.assertEqual(sorted(p.name for p in self.target.iterdir()), ['.git'])
+
+    def test_a_role_install_may_start_with_a_program_of_a_profile(self):
+        self.have('cargo')
+        self.role_programs([{'name': 'hooks', 'check': 'fakeprog check hooks',
+                             'install': 'cargo-llvm-cov install hooks'}])
+        run = self.run_rust('--dry-run')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertNotIn('not on PATH', run.stdout + run.stderr)
+        self.assertIn('Would install hooks for the tasker role: cargo-llvm-cov install hooks', run.stdout)
+
+    def test_check_maps_a_role_saved_under_its_old_name(self):
+        self.have('cargo', 'cargo-llvm-cov')
+        self.role_programs(self.HOOKS)
+        self.assertEqual(self.run_rust().returncode, 0)
+        record = self.saved()
+        record['choices'] = {'gest': True, 'prose': False}
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        (self.programs / 'gate').unlink()
+        run = self.stack('--check', env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertIn('Missing program: gate (for the tasker role)', run.stdout)
+
+    def role_before_remove(self, step):
+        root = self.packages / 'agent_gest_git_skills'
+        manifest = json.loads((root / 'skill-package.json').read_text())
+        manifest['install_extras']['before_remove'] = step
+        (root / 'skill-package.json').write_text(json.dumps(manifest))
+        commit(root)
+
+    def test_the_removal_of_a_role_runs_its_step_while_the_hook_is_there(self):
+        self.have('cargo', 'cargo-llvm-cov')
+        self.role_before_remove({'git_hook': 'pre-commit', 'command': 'fakeprog install unhooked'})
+        self.assertEqual(self.run_rust().returncode, 0)
+        hook = self.target / '.git/hooks/pre-commit'
+        hook.write_text('#!/bin/sh\n')
+        run = self.stack('--without', 'tasker', '--dry-run', env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertIn('Would run before the removal of tasker: fakeprog install unhooked', run.stdout)
+        self.assertNotIn('fakeprog install unhooked toolchain=False', self.tools_run())
+        run = self.stack('--without', 'tasker', env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('fakeprog install unhooked toolchain=False', self.tools_run())
+        self.assertIn('Before the removal of tasker, the installer runs: fakeprog install unhooked', run.stderr)
+
+    def test_the_step_does_not_run_without_its_hook_and_a_failure_does_not_stop_the_removal(self):
+        self.have('cargo', 'cargo-llvm-cov')
+        self.role_before_remove({'git_hook': 'pre-commit', 'command': 'fakeprog install unhooked'})
+        self.assertEqual(self.run_rust().returncode, 0)
+        run = self.stack('--without', 'tasker', env={'FAKE_PROGRAMS': str(self.programs)})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('fakeprog install unhooked toolchain=False', self.tools_run())
+        self.assertEqual(self.run_rust('--with', 'tasker').returncode, 0)
+        (self.target / '.git/hooks/pre-commit').write_text('#!/bin/sh\n')
+        run = self.stack('--without', 'tasker', env={'FAKE_PROGRAMS': str(self.programs), 'FAIL_INSTALL': 'unhooked'})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('fakeprog install unhooked failed (3)', run.stderr)
+        self.assertFalse((self.target / '.claude/hooks/start.sh').exists())
+
+    def test_a_malformed_step_before_removal_stops_the_install_of_the_role(self):
+        self.have('cargo', 'cargo-llvm-cov')
+        self.role_before_remove({'git_hook': 'pre-commit'})
+        run = self.run_rust()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('install_extras.before_remove in', run.stderr)
+        self.assertEqual(sorted(p.name for p in self.target.iterdir()), ['.git'])
+
+    def test_a_malformed_step_before_removal_is_refused_before_anything_changes(self):
+        self.have('cargo', 'cargo-llvm-cov')
+        self.assertEqual(self.run_rust().returncode, 0)
+        for step in [{'git_hook': 'pre-commit'}, {'git_hook': '../x', 'command': 'fakeprog x'},
+                     {'git_hook': 'pre-commit', 'command': '/bin/sh -c x'}, 'fakeprog x']:
+            self.role_before_remove(step)
+            run = self.stack('--without', 'tasker', env={'FAKE_PROGRAMS': str(self.programs)})
+            self.assertNotEqual(run.returncode, 0, step)
+            self.assertIn('install_extras.before_remove in', run.stderr)
+            self.assertTrue((self.target / '.claude/hooks/start.sh').is_file())
+
     def test_check_reports_missing_programs(self):
         self.have('cargo')
         self.assertEqual(self.run_rust().returncode, 0)
