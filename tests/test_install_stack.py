@@ -2324,6 +2324,13 @@ class RecipeTests(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertFalse((self.target / '.agents/skills/cx').exists())
 
+    def test_uninstall_works_in_a_folder_whose_name_has_a_quote_a_dollar_and_a_backtick(self):
+        # A path in double quotes lets the shell expand $HOME and run `true`, so the path goes in single quotes.
+        moved = self.base / 'it\'s $HOME `true` "q"'
+        self.target.rename(moved)
+        self.target = moved
+        self.test_just_install_and_uninstall_run_the_installer()
+
     def test_a_project_variable_named_copier_still_works_and_jn_copier_runs_copier(self):
         (self.target / 'Justfile').write_text("import? '.agents/install.just'\ncopier := 'mine'\n\nhello:\n    @echo {{copier}}\n")
         run = self.just('hello')
@@ -2958,11 +2965,21 @@ class StepTests(StackTests):
         self.assertIn('.agents/log/', (clone / '.gitignore').read_text().splitlines())
         self.assertIn('.agents/log/', (clone / '.worktreedisposable').read_text().splitlines())
 
+    def test_check_works_in_a_folder_whose_name_has_a_quote_a_dollar_and_a_backtick(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults', '--without', 'tasker').returncode, 0)
+        commit(self.target)
+        # A path in double quotes lets the shell expand $HOME and run `true`, so the path goes in single quotes.
+        clone = self.base / 'it\'s $HOME `true` "q"'
+        git(self.base, 'clone', '-q', str(self.target), str(clone))
+        run = self.just_in(clone, 'check')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertTrue(self.records(clone, 'pass'))
+
     def test_the_steps_of_a_profile_end_with_jlog_step_and_share_the_run_of_the_root(self):
         self.assertEqual(self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose').returncode, 0)
         self.assertEqual(self.saved()['provided_steps'], ['lint', 'test', 'diff-check'])
         index = self.index()
-        self.assertIn('\nlint *args:\n    just --justfile "{{justfile()}}" python lint "$@"\n    jlog step lint\n', index)
+        self.assertIn('\nlint *args:\n    just --justfile {{quote(justfile())}} python lint "$@"\n    jlog step lint\n', index)
         # fmt is no step, so its combined recipe has no jlog step, and fmt-check is a no-op step.
         self.assertNotIn('jlog step fmt\n', index)
         self.assertIn('\nfmt-check:\n    jlog skip fmt-check "', index)

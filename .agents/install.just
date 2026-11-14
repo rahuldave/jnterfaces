@@ -25,7 +25,7 @@ install *args:
     # The command as the user typed it, for .agents/stack-log.jsonl and the comments of the blocks in the line files.
     JNTERFACES_COMMAND="${JNTERFACES_COMMAND:-just install${*:+ $*}}"
     export JNTERFACES_COMMAND
-    exec uv run --quiet --script "$dir/scripts/install_stack.py" --target "{{justfile_directory()}}" "$@"
+    exec uv run --quiet --script "$dir/scripts/install_stack.py" --target {{quote(justfile_directory())}} "$@"
 
 # Take roles or tools out, and save that: just uninstall reporter lint
 [positional-arguments]
@@ -36,4 +36,4 @@ uninstall +names:
     for name in "$@"; do list="$list${list:+,}$name"; done
     JNTERFACES_COMMAND="just uninstall $*"
     export JNTERFACES_COMMAND
-    exec just --justfile "{{justfile()}}" install --without "$list"
+    exec just --justfile {{quote(justfile())}} install --without "$list"
