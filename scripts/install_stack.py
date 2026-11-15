@@ -343,18 +343,19 @@ def stop_check(run):
             print(f'Could not stop process {run.pid} of a check; it may still run.', file=sys.stderr)
 
 
-def program_works(target, entry):
+def program_works(target, entry, show=False):
     """Run the check of a program in the target, without a shell. True when it exits with 0 and its output holds the
-    text of expect. The output is not shown. A check that takes more than CHECK_SECONDS fails."""
+    text of expect. The output is not shown, unless SHOW is set and the check fails: then its error output is, since
+    it says what to fix. A check that takes more than CHECK_SECONDS fails."""
     try:
         # A session of its own, so that a timeout stops each process that the check started, not only the first.
         run = subprocess.Popen(command_of(entry['check']), cwd=target, env=project_env(), stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors='replace',
-                               start_new_session=True)
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE if show else subprocess.DEVNULL,
+                               text=True, errors='replace', start_new_session=True)
     except OSError:
         return False
     try:
-        out, _ = run.communicate(timeout=CHECK_SECONDS)
+        out, err = run.communicate(timeout=CHECK_SECONDS)
     except subprocess.TimeoutExpired:
         stop_check(run)
         print(f'{entry["check"]} took more than {CHECK_SECONDS} seconds, so it counts as failed', file=sys.stderr)
@@ -363,7 +364,10 @@ def program_works(target, entry):
         # Ctrl-C does not reach a session of its own, so the check stops here.
         stop_check(run)
         raise
-    return run.returncode == 0 and entry.get('expect', '') in out
+    works = run.returncode == 0 and entry.get('expect', '') in out
+    if show and not works and err and err.strip():
+        print(err.rstrip()[-4000:], file=sys.stderr)
+    return works
 
 
 def missing_expected(target, programs, works=None, earlier=()):
@@ -430,7 +434,7 @@ def install_programs(target, programs):
             raise StackError(f'The install of the program {entry["name"]} failed: {entry["install"]}: {reason}. The '
                              f'rest of the install is done. Install {entry["name"]} yourself, or fix the cause, and run '
                              f'just install again.{about}')
-        if not program_works(target, entry):
+        if not program_works(target, entry, show=True):
             raise StackError(f'{entry["install"]} ran, but {entry["check"]} still fails'
                              + (f' or does not print {entry["expect"]}' if entry.get('expect') else '')
                              + f'. The rest of the install is done. Install {entry["name"]} yourself, and run just '
@@ -1400,6 +1404,44 @@ def tool_steps(target, profiles, active, tools_add, tools_remove, keep, owned, d
             if pkgs:
                 command = [part.replace('{group}', group) for part in profile['remove']] + pkgs
                 steps.append(('remove', name, group, command, {}, {'before': befores}, (owner, pkgs), None))
+        steps += dropped_steps(target, name, profile, keep_here, owned, by_owner, dry_run)
+    return steps
+
+
+def dropped_steps(target, name, profile, keep_here, owned, by_owner, dry_run=False):
+    """The remove steps of the packages that just install added in a place of the profile, and that no kept tool in
+    that place lists now, as pre-commit after the python profile gave it to the tasker role. Each place that the
+    record owns counts, also one whose tools all go in this run. The before_remove of any tool of that place still
+    names such a package, so the Git hook of the package goes first, and no commit fails on a hook without its
+    program or its config."""
+    steps = []
+    places = {}
+    for tool in profile['tools']:
+        places.setdefault(owner_key(name, profile, tool), []).append(tool)
+    for owner, tools in places.items():
+        listed = {normal_name(spec, profile) for tool in tools if tool in keep_here
+                  for spec in profile['tools'][tool]['packages']}
+        handled = set(by_owner.get(owner, (None, [], []))[1])
+        stale = [n for n in owned.get(owner, []) if n not in listed and n not in handled]
+        if not stale:
+            continue
+        group = profile['tools'][tools[0]].get('group', tools[0])
+        placed = present_packages(target, profile, group, place_only=True)
+        going = [n for n in stale if placed is not None and n in placed]
+        if not going:
+            continue
+        befores = []
+        for tool in tools:
+            before = profile['tools'][tool].get('before_remove')
+            if before and normal_name(before['package'], profile) in going and before['command'] not in befores:
+                hook = git_hook(target, before['git_hook'])
+                if hook is not None and hook.is_file() and hook_of_project(hook, before.get('marker'), target):
+                    befores.append(before['command'])
+        them = 'it' if len(going) == 1 else 'them'
+        print(f'The {name} profile no longer lists {", ".join(going)}, so just install '
+              f'{"would remove" if dry_run else "removes"} {them}.', file=sys.stderr)
+        command = [part.replace('{group}', group) for part in profile['remove']] + going
+        steps.append(('remove', name, group, command, {}, {'before': befores}, (owner, going), None))
     return steps
 
 

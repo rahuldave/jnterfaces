@@ -175,7 +175,7 @@ A tool has these keys:
 
 | Key | What it means |
 |---|---|
-| `packages` | The packages that the tool adds, for example `ruff` and `pre-commit`. |
+| `packages` | The packages that the tool adds, for example `ruff`. |
 | `group` | For Python: the dependency group of the packages. |
 | `recipes` | The recipe file of the tool, for example `lint.just`. |
 | `verify` | The recipes that `just verify` runs for the tool. |
@@ -183,7 +183,7 @@ A tool has these keys:
 | `parts` | Parts for unit files: `{"ruff.toml": "files/ruff.toml"}`. |
 | `files` | Whole files, for an installer from before the parts. A file that is also in `parts` goes as a part. |
 | `skip_if` | A guard `[file, text]`, or a list of guards. A new part is left out when any guard applies: the file has the text, for example no `ruff.toml` part when `pyproject.toml` has `[tool.ruff`. An empty text means that the file is there. In a TOML file, `[a.b` means that the table is there, and `[a.b]` means that the table holds a setting of its own, not only tables. A part that the record already holds stays. |
-| `before_remove` | A command that runs before the packages go, for example `pre-commit uninstall`. |
+| `before_remove` | A command that runs before its `package` goes, for example `pre-commit uninstall`. The package goes when the tool goes, or when no tool in that place lists it any more. |
 | `programs` | The names of the programs that the tool needs, from the top key `programs`. |
 
 #### The programs of a profile

@@ -584,15 +584,16 @@ just install lint
 
 | | Python | TypeScript |
 |---|---|---|
-| Packages | ruff, pre-commit, in the group `lint` | `@biomejs/biome@2` |
-| Config files | `ruff.toml`, `.pre-commit-config.yaml` | `biome.json` |
-| Recipes | `just fmt`, `just lint`, `just hook` | `just fmt`, `just lint` |
+| Packages | ruff, in the group `lint` | `@biomejs/biome@2` |
+| Config files | `ruff.toml` | `biome.json` |
+| Recipes | `just fmt`, `just lint` | `just fmt`, `just lint` |
 | In `just verify` | `fmt --check`, `lint` | `lint` |
 
 `ruff.toml` and `biome.json` leave out `.agents`, `.claude` and `.codex`,
 because these folders hold copies from other packages.
 
-**What does not work.** The TypeScript profile has no `just hook`.
+No profile installs a Git hook. The `tasker` role installs the hooks for
+each language.
 
 ### Layer 5: tests
 
@@ -813,11 +814,16 @@ If an older installer on another branch adds an entry to the log after the
 move, the run stops. Run the new installer on that branch first. Each person
 on a project moves to the new installer at the same time.
 
-**`just uninstall lint` takes out the Git hook.** Before `just uninstall lint`
-removes pre-commit, it runs `uv run --group lint pre-commit uninstall`. It
-runs only when the `pre-commit` Git hook runs the Python of the project. If
-the command fails, the removal stops, and the next `just install` tries it
-again.
+**A package that a profile drops goes, with its Git hook.** A package that
+`just install` added for a tool, and that no tool in that place lists now,
+goes at the next `just install`. An example is pre-commit, which the Python
+profile once installed for `lint`. The `before_remove` of the tool still
+names it, so the installer first runs `uv run --group lint pre-commit
+uninstall`. It runs only when the `pre-commit` Git hook runs the Python of
+the project. If the command fails, the removal stops, and the next
+`just install` tries it again.
+
+`just uninstall lint` runs the same command before pre-commit goes.
 
 ## What works now
 
@@ -827,7 +833,7 @@ again.
 | Task tracker | `just install tasker` | The skills, the hooks, `AGENTS.md`, the variant, the worktree recipes | Needs `gest`, which `uv` does not give |
 | Python profile | `just install --profile python` | The package, the manifest, `.gitignore`, the defaults | none |
 | TypeScript profile | `just install --profile typescript` | The package, the manifest, `.gitignore`, the defaults | none |
-| Lint | `just install lint` | ruff and pre-commit, or biome | No `just hook` for TypeScript |
+| Lint | `just install lint` | ruff, or biome | none |
 | Tests | `just install test` | pytest, or `node --test` | none |
 | Types | `just install typecheck` | ty with `ty.toml`, or tsc | none |
 | Remove a tool or a profile | `just uninstall NAME` | The packages, the recipes, the Git hook and empty groups go | none |
