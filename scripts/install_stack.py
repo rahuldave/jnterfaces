@@ -66,8 +66,8 @@ def string_list(value):
 
 
 def code_ok(value):
-    """True for the globs of the key code of a profile.json: the source files of the language, such as **/*.rs.
-    The gate reads them for @code."""
+    """True for the globs of the key code or tests of a profile.json: the source files of the language, such as
+    **/*.rs, or its test files, such as tests/**. The gate reads code for @code, and test-parent reads tests."""
     return string_list(value) and all(item and not item.startswith('/') and '..' not in item.split('/')
                                       for item in value)
 
@@ -202,7 +202,7 @@ def check_profile(name, profile, choices):
           and string_list(profile.get('default_tools', [])) and set(profile.get('default_tools', [])) <= set(tools)
           and isinstance(profile.get('choices', {}), dict) and set(profile.get('choices', {})) <= set(choices)
           and profile.get('manifest') in ('pyproject.toml', 'package.json', 'Cargo.toml')
-          and code_ok(profile.get('code', []))
+          and code_ok(profile.get('code', [])) and code_ok(profile.get('tests', []))
           and isinstance(init, dict)
           and (not init or (plain_path(init.get('file')) and string_list(init.get('command')) and init['command']))
           and (profile.get('uv_default_groups') is None or isinstance(profile['uv_default_groups'], str)
@@ -2518,7 +2518,7 @@ def main(argv=None):
     # The keys that save writes. It keeps each other key of the record, so that it never drops one.
     managed = {'version', 'profiles', 'choices', 'tools', 'variants', 'owned_packages', 'added_packages',
                'pending_tools', 'removing_tools', 'removing_profiles', 'generated', 'started', 'parts',
-               'parts_version', 'code', 'justfile_clash', 'steps', 'provided_steps'}
+               'parts_version', 'code', 'tests', 'justfile_clash', 'steps', 'provided_steps'}
 
     def save(tool_list, waiting, going=()):
         record_file.parent.mkdir(exist_ok=True)
@@ -2548,6 +2548,11 @@ def main(argv=None):
                 if name not in leaving and name in profiles and profiles[name].get('code')}
         if code:
             record['code'] = code
+        # The globs of the test files of each profile that stays, for test-parent of the gate.
+        tests = {name: profiles[name]['tests'] for name in kept_profiles
+                 if name not in leaving and name in profiles and profiles[name].get('tests')}
+        if tests:
+            record['tests'] = tests
         step_record = {}
         write_recipes(target, profiles, [name for name in kept_profiles if name not in leaving], tool_list, False,
                       generated, state['started'], registry_profiles,
