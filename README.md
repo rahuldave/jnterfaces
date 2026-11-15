@@ -23,7 +23,7 @@ The documentation site is https://rahuldave.github.io/jnterfaces/. It is built f
 
 jnterfaces is the base of every project. Besides Git, a project needs three
 programs only, `just`, `uv` and `jlog`. A profile can need more programs,
-such as `cargo`, and it names them in the key `programs` of its
+such as `rustup` for Rust, and it names them in the key `programs` of its
 `profile.json`. One command installs everything else:
 
 ```bash
@@ -125,7 +125,11 @@ file stays.
    always has code, because `cargo init` writes `src/main.rs`. Its steps run
    with `--locked`, so first make `Cargo.lock` with `just setup`. The
    steps also check the docs, so add a `//!` doc line at the top of
-   `src/main.rs`. `cargo init` names the package after the folder, so a folder
+   `src/main.rs`. On the first commit, `coverage-check` fails on each line
+   that no test runs, and no test runs the `main` of `cargo init`. So write a
+   test in `tests/` that runs the binary, from `env!("CARGO_BIN_EXE_NAME")`.
+   For a library, run `cargo init --lib --vcs none` before the install.
+   `cargo init` names the package after the folder, so a folder
    name that is not a valid crate name fails. Examples are a name that starts with
    a digit, a name with a `.` or a space, a Rust keyword such as `fn`, and `test`.
    For such a folder, run `cargo init --vcs none --name NAME` first.
@@ -145,7 +149,7 @@ file stays.
 Later, `just install --update` gets the new commits of each package, and
 `just install --check` compares the record with the files.
 
-[Start a Python or TypeScript project](https://rahuldave.github.io/jnterfaces/new-project.html)
+[Start a Python, TypeScript or Rust project](https://rahuldave.github.io/jnterfaces/new-project.html)
 gives each tool, recipe, hook and config file of a new project, with examples.
 
 ### Tools and profiles
@@ -159,7 +163,7 @@ of its own, and `stack.json` names it:
 |---|---|---|---|---|
 | `python` | [jnprofile-python](https://github.com/rahuldave/jnprofile-python) | `lint`, `test`, `typecheck` | `lint`, `test` | `uv add --group ...` |
 | `typescript` | [jnprofile-typescript](https://github.com/rahuldave/jnprofile-typescript) | `lint`, `test`, `typecheck` | `lint`, `typecheck` | npm, which uvx runs from `nodejs-wheel` |
-| `rust` | [jnprofile-rust](https://github.com/rahuldave/jnprofile-rust) | `lint`, `typecheck`, `test`, `docstring` | all four | none: each tool uses programs, such as `cargo` and `cargo-llvm-cov`, which the key `programs` names |
+| `rust` | [jnprofile-rust](https://github.com/rahuldave/jnprofile-rust) | `lint`, `typecheck`, `test`, `docstring`, `toml` | all but `toml` | none: each tool uses programs, such as `cargo-llvm-cov` and `taplo`, which the key `programs` names |
 
 On the first install, the installer finds the profile from the files of the
 project, such as `pyproject.toml`, or you name it with `--profile`. A project
@@ -194,6 +198,27 @@ In a project that jnterfaces started, with its starter Justfile:
   `ci-gate`, which checks the trailer of the gate on each commit. Each step in
   the list must be a step of `just check`, so CI checks only a part of it. The
   list is empty at first.
+
+**The steps of just check.** `just check` runs these steps, in this order:
+
+```text
+fmt-check lint typecheck test coverage-check integration docstring-check docs-check prose-check diff-check
+```
+
+The `prose` role gives `prose-check`, and the installer gives `diff-check`.
+Each profile gives the steps of its installed tools:
+
+| Profile | Steps | `test-paths` |
+|---|---|---|
+| `python` | `lint`, `test`, `typecheck` | yes |
+| `typescript` | `lint`, `typecheck`, `test` | no |
+| `rust` | `fmt-check`, `lint`, `typecheck`, `test`, `coverage-check`, `docstring-check` | yes |
+
+`coverage-check` fails on each changed line of code that no test runs, and
+`docstring-check` fails on each item with no doc comment. `test-paths` is a
+recipe, not a step. It runs only the tests of some test files. The
+`test-parent` recipe of the `tasker` role runs it with the added and changed
+test files, on the parent commit.
 
 A recipe of the Justfile with the name of a combined recipe, such as `lint`,
 takes the place of the combined recipe. The index leaves that name out. A project with a

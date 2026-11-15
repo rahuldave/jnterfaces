@@ -162,6 +162,11 @@ adapt it to the project.
   `typescript-npm.just`, `go.just` and `rust-cargo.just`. Each is a whole
   Justfile for a project that does not use `just install`. A project that
   uses it gets the recipes of its tools from the profile packages.
+- **For Rust, use the rust profile.** `rust-cargo.just` has a `build` and a
+  `smoke` step, and no check of the coverage or of the doc comments. The
+  steps of the rust profile are `fmt-check`, `lint`, `typecheck`, `test`,
+  `coverage-check` and `docstring-check`. Install the profile instead, with
+  `uv run "${SKILL_PACKAGES_DIR:-$HOME/.local/share/skill-packages}/jnterfaces/scripts/install_stack.py" --profile rust`.
 - **`npm-local-cache.just`**: an npm cache inside the project.
 - **`browser-agent.just`**: recipes for checks in a browser.
 - **`agent-contract.just`**: recipes that print context for agents.
