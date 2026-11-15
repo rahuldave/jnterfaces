@@ -216,6 +216,21 @@ fmt-check lint typecheck test coverage-check integration docstring-check docs-ch
   a profile or a role provides under `provided_steps`. jlog counts a skip only
   for a step that is not in `provided_steps`.
 
+**What CI checks.** `just ci` runs `ci-gate`, then the steps in the list
+`ci` of `.agents/stack.json`:
+
+- **`ci-gate`** comes from a role with a commit gate, such as `tasker`. It
+  checks that each commit of the pull request passed the gate. Without such
+  a role, `ci-gate` only says that there is no gate.
+- **The list `ci`** is yours to edit. Run `just install` after a change. Each
+  name must be a step of `just check`, so CI never fails on a step that the
+  gate did not see. The installer leaves out any other name, and says so.
+- **What to put in it.** The gate saw a pass of `just check` for each commit,
+  so CI need not run it again. Add a step only when a clean machine tells you
+  more than your own, for example a test on Linux. The list is empty at
+  first.
+- **No agent runs in CI.** An agent costs money on each run and needs a key.
+
 **Where the shell is set.** just stops with "Setting `shell` is redefined"
 when two files of one Justfile set the shell. A test with just 1.50.0 showed
 this for two imported files too. So the index sets the shell, and
@@ -470,9 +485,10 @@ just install tasker
 - `CLAUDE.md`, with the line `@AGENTS.md`, if the project has none. Layer 1
   tells why.
 
-**The prose workflow goes.** With the `tasker` role, `just check` in CI runs
-`prose-check`. So the workflow `.github/workflows/nossaifd-prose.yml` of the
-`prose` role would check the prose twice:
+**The prose workflow goes.** With the `tasker` role, the gate needs a pass of
+`prose-check` for each commit, and CI checks the trailer of the gate. So the
+workflow `.github/workflows/nossaifd-prose.yml` of the `prose` role would check
+the prose twice:
 
 - The installer removes the workflow when the installer wrote it and you did
   not change it.

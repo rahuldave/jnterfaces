@@ -3093,6 +3093,53 @@ class StepTests(StackTests):
         self.assertIn('\nlint:\n    jlog skip lint', index)
         self.assertEqual(self.saved()['provided_steps'], [])
 
+    def test_ci_runs_the_gate_and_the_listed_steps_of_check(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text("import? '.agents/install.just'\n")
+        run = self.stack('--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        index = self.index()
+        self.assertIn('\nci: ci-gate\n', index)
+        self.assertIn('\nci-gate:\n    @echo "ci-gate: no commit gate in this repository"', index)
+        record = self.target / '.agents/stack.json'
+        saved = json.loads(record.read_text())
+        saved['ci'] = ['test', 'lint', 'deploy']
+        record.write_text(json.dumps(saved))
+        run = self.stack('--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.stderr.count("'deploy' in the list ci of .agents/stack.json is not a step of just check"), 1)
+        # The steps come in the order of check, and the list stays in the record for the next run.
+        self.assertIn('\nci: ci-gate lint test\n', self.index())
+        self.assertEqual(self.saved()['ci'], ['test', 'lint', 'deploy'])
+        self.assertEqual(self.just_in(self.target, 'ci').returncode, 0)
+
+    def test_a_justfile_recipe_that_needs_ci_gate_installs(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text("import? '.agents/install.just'\n\nall: ci-gate check\n")
+        run = self.stack('--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('\nci-gate:\n', self.index())
+        self.assertEqual(self.just_in(self.target, '--summary').returncode, 0)
+        # A second run does not freeze the index.
+        run = self.stack('--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('stays as it was', run.stderr)
+
+    def test_a_ci_key_that_is_not_a_list_says_so(self):
+        (self.target / 'Justfile').write_text("import? '.agents/install.just'\n")
+        self.assertEqual(self.stack('--defaults', '--without', 'tasker').returncode, 0)
+        record = self.target / '.agents/stack.json'
+        saved = json.loads(record.read_text())
+        saved['ci'] = 'test'
+        record.write_text(json.dumps(saved))
+        run = self.stack('--defaults', '--without', 'tasker')
+        self.assertIn('The key ci of .agents/stack.json is not a list of steps', run.stderr)
+        self.assertIn('\nci: ci-gate\n', self.index())
+        saved['ci'] = ['deploy']
+        record.write_text(json.dumps(saved))
+        run = self.stack('--defaults', '--without', 'tasker', '--dry-run')
+        self.assertIn("'deploy' in the list ci", run.stderr)
+
     def test_an_alias_with_the_name_of_a_step_keeps_the_justfile_parsing(self):
         justfile = self.target / 'Justfile'
         justfile.write_text("import? '.agents/install.just'\n\nhello:\n    @echo hi\n\nalias lint := hello\n")
