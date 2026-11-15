@@ -54,7 +54,7 @@ SHELL_LINE = 'set shell := ["jlog", "sh", "-cu"]'
 SHELL_NOTE = ('{name} sets its own shell without jlog, so the index sets none, and just check fails: jlog step, jlog '
               'skip and jlog pass work only in a recipe that runs through jlog. Put jlog in front of the shell: '
               'set shell := {line}')
-JLOG_INSTALL = 'clone https://github.com/rahuldave/jlog, run git checkout v0.1.0 in the clone, then run just install'
+JLOG_INSTALL = 'clone https://github.com/rahuldave/jlog, run git checkout v0.1.1 in the clone, then run just install'
 
 
 class StackError(Exception):
