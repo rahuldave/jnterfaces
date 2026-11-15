@@ -236,6 +236,7 @@ PROFILES['rust'] = {
     'init': {'file': 'Cargo.toml', 'command': ['cargo', 'init', '--vcs', 'none']},
     'choices': {'tasker': True, 'prose': True},
     'add': ['cargo', 'add', '--dev'], 'remove': ['cargo', 'remove', '--dev'], 'code': ['**/*.rs'],
+    'tests': ['tests/**'],
     'tools': {'lint': {'packages': [], 'recipes': 'lint.just', 'verify': ['fmt-check', 'lint']},
               'test': {'packages': [], 'recipes': 'test.just', 'verify': ['test', 'coverage-check']}},
     'default_tools': ['lint', 'test'],
@@ -1516,6 +1517,7 @@ sys.exit(run.returncode)
         self.assertIn('lint for rust needs no packages', run.stderr)
         self.assertIn('test for rust needs no packages', run.stderr)
         self.assertEqual(self.saved()['code'], {'rust': ['**/*.rs']})
+        self.assertEqual(self.saved()['tests'], {'rust': ['tests/**']})
         self.assertEqual(self.tool_names('tools'), ['lint', 'test'])
         module = (self.target / '.agents/just/rust.just').read_text()
         self.assertIn("import? 'rust/lint.just'", module)
@@ -1570,13 +1572,16 @@ sys.exit(run.returncode)
         run = self.stack('--profile', 'python')
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertNotIn('code', self.saved())
+        self.assertNotIn('tests', self.saved())
 
     def test_malformed_code_globs_are_refused(self):
-        for bad in ('**/*.rs', ['/src/*.rs'], [''], [3], ['../other/*.rs'], ['src/../../*.rs']):
-            self.edit_profile('rust', lambda p: p.update({'code': bad}))
-            run = self.stack('--profile', 'rust', '--defaults')
-            self.assertNotEqual(run.returncode, 0, bad)
-            self.assertIn('profile.json of the rust profile is malformed', run.stderr)
+        for key in ('code', 'tests'):
+            for bad in ('**/*.rs', ['/src/*.rs'], [''], [3], ['../other/*.rs'], ['src/../../*.rs']):
+                with self.subTest(key=key, bad=bad):
+                    self.edit_profile('rust', lambda p: p.update({key: bad}))
+                    run = self.stack('--profile', 'rust', '--defaults')
+                    self.assertNotEqual(run.returncode, 0, bad)
+                    self.assertIn('profile.json of the rust profile is malformed', run.stderr)
 
     def test_ruff_toml_is_left_out_when_pyproject_has_ruff_settings(self):
         (self.target / 'pyproject.toml').write_text('[tool.ruff]\nline-length = 99\n')
