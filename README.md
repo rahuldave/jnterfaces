@@ -189,6 +189,11 @@ In a project that jnterfaces started, with its starter Justfile:
   `diff-check`, and ends with `jlog pass`. A step that no profile, role or
   recipe of the Justfile has is a no-op step that logs the skip. So in a new
   project with no language, `just check` passes.
+- **`just ci`** is what CI checks. It runs `ci-gate`, then the steps in the
+  list `ci` of `.agents/stack.json`. A role with a commit gate gives
+  `ci-gate`, which checks the trailer of the gate on each commit. Each step in
+  the list must be a step of `just check`, so CI checks only a part of it. The
+  list is empty at first.
 
 A recipe of the Justfile with the name of a combined recipe, such as `lint`,
 takes the place of the combined recipe. The index leaves that name out. A project with a

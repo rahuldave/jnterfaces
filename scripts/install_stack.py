@@ -1881,14 +1881,33 @@ def recipe_line(name, recipe, takes):
     return f'    just --justfile {{{{quote(justfile())}}}} {name} {recipe}' + (' "$@"' if takes else '')
 
 
-def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runnable=None):
+def ci_steps(target):
+    """The steps of just ci: the list `ci` of .agents/stack.json, kept to the steps of just check, in their order.
+    CI checks only part of what the commit gate saw, so a step that check does not run cannot be in ci."""
+    try:
+        listed = json.loads((target / RECORD).read_text()).get('ci', [])
+    except (OSError, ValueError, AttributeError):
+        return []
+    if not isinstance(listed, list):
+        say(f'The key ci of {RECORD} is not a list of steps, so just ci runs only ci-gate. Write it as a list, for '
+            f'example ["test"]')
+        return []
+    for name in listed:
+        if name not in STEPS:
+            say(f'{name!r} in the list ci of {RECORD} is not a step of just check, so just ci leaves it out. The steps '
+                f'are: {", ".join(STEPS)}')
+    return [step for step in STEPS if step in listed]
+
+
+def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runnable=None, ci=()):
     """The index. Its form with full False has the modules only: the installer reads the names of the project with
     it. The whole index also has the setting of the shell, the recipe file of each role, and for each recipe name of
     the profiles a combined recipe that runs it in each profile that has it. A combined recipe of a step ends with
     jlog step. Each step that nothing defines is a no-op step that logs a skip, and check runs the steps and ends
     with jlog pass. The index leaves out each name in taken: the names of the project and of the roles. runnable
     holds the names in taken that are recipes. check depends only on a recipe, because just cannot depend on an
-    alias or a module."""
+    alias or a module. ci runs ci-gate, then the steps in ci. A role with a commit gate defines ci-gate; without one,
+    ci-gate is a stub that says so."""
     lines = [HEADER, '# The recipes of the profiles and roles of this project. .agents/install.just imports this file.',
              '']
     if full and shell:
@@ -1929,6 +1948,13 @@ def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runn
         steps = [step for step in STEPS if step in real or step in runnable]
         lines += ['', '# Everything a commit must pass: each step, then the pass of jlog for the worktree',
                   f'check: {" ".join(steps)}', '    jlog pass']
+    if 'ci-gate' not in taken:
+        lines += ['', '# No role of this repository has a commit gate, so CI has no trailers to check', 'ci-gate:',
+                  '    @echo "ci-gate: no commit gate in this repository"']
+    if 'ci' not in taken:
+        listed = [step for step in ci if step in real or step in runnable]
+        lines += ['', '# What CI checks: the trailers of the commit gate, then the steps of the list ci of '
+                  '.agents/stack.json', f'ci: {" ".join(["ci-gate", *listed])}']
     return '\n'.join(lines) + '\n'
 
 
@@ -2033,6 +2059,7 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
         modules[name] = module_text(name, profiles[name], installed)
     if dry_run:
         print('Would write the recipes of ' + (', '.join(modules) if modules else 'no profile') + ' in .agents/just')
+        ci_steps(target)
         return
     kept = {}
     for name, text in modules.items():
@@ -2132,7 +2159,8 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
     # Justfile can name a recipe of the index, for example ci: check, so the first forms also hold a stub of each
     # name that the index can write. A recipe of the Justfile takes the place of a stub, so the stubs that stay show
     # which names are not the Justfile's own.
-    stubs = sorted(set(STEPS) | {'check', 'verify'} | {recipe for module in kept for recipe in recipes.get(module, {})})
+    stubs = sorted(set(STEPS) | {'check', 'verify', 'ci', 'ci-gate'} | role_names
+                   | {recipe for module in kept for recipe in recipes.get(module, {})})
     forms = [(kept, True, True), (kept, True, False), (kept, False, False), ({}, True, True), ({}, True, False),
              ({}, False, False)]
     mods, root, first, of_setting = kept, ({} if justfile is None else None), None, None
@@ -2186,7 +2214,7 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
             say(f'{step} in the project is an alias, a module, or a recipe that needs an argument, so check cannot run '
                 f'the step {step}, and jlog pass fails. Rename it, or give each argument a default.')
     out['provided_steps'] = provided_of(mods, recipes, role_recipes)
-    whole = index_text(mods, recipes, roles, True, taken, shell=shell is None, runnable=runnable)
+    whole = index_text(mods, recipes, roles, True, taken, shell=shell is None, runnable=runnable, ci=ci_steps(target))
     if not mine and whole.encode() != old:
         restore()
         return keep()

@@ -313,6 +313,7 @@ The record has these keys:
 | `generated` | The hash of `index.just` and of each `<profile>.just` that the installer wrote. | |
 | `started` | `true` when the installer wrote the starter Justfile. | `true` |
 | `steps` | The steps of `just check`, in their order. `jlog pass` reads them. | `["fmt-check", "lint", ...]` |
+| `ci` | The steps that `just ci` runs after `ci-gate`. Each one must be a step of `just check`. You edit it, and `just install` keeps it. | `["test"]` |
 | `provided_steps` | The steps that an installed profile or role provides. `jlog pass` counts a skip only for a step that is not in this list. | `["lint", "test", "diff-check"]` |
 | `justfile_clash` | The hash of your Justfile and the error of `just`, when a run took the block out again because the Justfile did not parse with it. While the Justfile keeps this hash, the installer does not add the block. | |
 | `parts` | Each unit of each shared file. See below. | |
