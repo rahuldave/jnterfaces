@@ -105,7 +105,7 @@ project with no code yet.
 
 | Tool | Default | Packages | Files | Recipes |
 |---|---|---|---|---|
-| `lint` | yes | ruff, pre-commit, in the group `lint` | `ruff.toml`, `.pre-commit-config.yaml` | `fmt`, `lint`, `hook` |
+| `lint` | yes | ruff, in the group `lint` | `ruff.toml` | `fmt`, `lint` |
 | `test` | yes | pytest, pytest-cov, in the group `test` | `[tool.pytest.ini_options]` in `pyproject.toml` | `test`, `cov` |
 | `typecheck` | no | ty, in the group `lint` | `ty.toml` | `typecheck` |
 
@@ -126,7 +126,6 @@ init` writes that version as `requires-python`.
 | `just setup` | `uv sync` | Installs Python and each package into `.venv`. Run it in a new clone. |
 | `just fmt` | `ruff format` | Changes the files. `just fmt --check` only checks. |
 | `just lint` | `ruff check` | `just lint --fix` fixes what it can. |
-| `just hook` | `pre-commit install` | Run it once in each clone. |
 | `just test` | `pytest` | Extra words go to pytest: `just test tests/test_app.py`. With no tests yet, it passes. A selection that runs no test fails. |
 | `just cov` | `pytest --cov --cov-report=term-missing` | Shows the lines that no test ran. |
 | `just typecheck` | `ty check` | |
@@ -164,19 +163,12 @@ just verify
 just cov
 ```
 
-### The Git hook
+### The Git hooks
 
-`just hook` writes `.git/hooks/pre-commit`. Before each commit, it runs the
-checks of `.pre-commit-config.yaml` on the staged files:
-
-- spaces at the end of a line, and the newline at the end of each file
-- the syntax of YAML and JSON files
-- files larger than 1000 KB
-- merge conflict markers and private keys
-- `ruff check` and `ruff format`
-
-A check that changes a file stops the commit. Add the change and commit again.
-`uv run pre-commit run --all-files` runs the checks on every file.
+The Python profile installs no Git hook. The `tasker` role installs the
+pre-commit framework and its hooks, for each language. Before each commit,
+they run the commit gate and the checks of `.pre-commit-config.yaml` that
+change no file. `just install` installs the hooks in each clone.
 
 ### Change a setting
 
@@ -305,19 +297,20 @@ Commit these files:
   `tasker` role is off
 - `.agents/generated.txt` and `.agents/coverage-exclude.txt`
 - `pyproject.toml` and `uv.lock`, or `package.json` and `package-lock.json`
-- the config files `ruff.toml`, `.pre-commit-config.yaml`, `ty.toml`,
+- the config files `ruff.toml`, `.pre-commit-config.yaml` of the `tasker`
+  role, `ty.toml`,
   `biome.json` and `tsconfig.json`
 - `.gitignore` and `.worktreedisposable`
 
 `.gitignore` already leaves out what a command makes again, such as `.venv/`,
 `node_modules/`, `dist/`, the caches and the logs of the installer.
 
-A person who clones the project runs these commands. `just hook` is for Python
-only:
+A person who clones the project runs these commands. `just install` also
+installs the Git hooks of the `tasker` role:
 
 ```bash
 just setup
-just hook
+just install
 ```
 
 ## Keep it up to date

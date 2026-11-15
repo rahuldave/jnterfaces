@@ -626,6 +626,46 @@ class StackTests(unittest.TestCase):
         self.assertEqual(self.tools_run(), ['uv run --group lint pre-commit uninstall', 'uv remove --group lint ruff pre-commit'])
         self.assertFalse(hook.exists())
 
+    def test_a_package_that_the_profile_drops_goes_with_its_git_hook(self):
+        self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
+        hook = self.target / '.git/hooks/pre-commit'
+        hook.write_text(f'#!/bin/sh\nINSTALL_PYTHON={self.target}/.venv/bin/python\n')
+        # The profile moves pre-commit out of lint, and keeps the before_remove that names it.
+        self.edit_profile('python', lambda p: p['tools']['lint'].update({'packages': ['ruff']}))
+        self.log.unlink()
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('The python profile no longer lists pre-commit', run.stderr)
+        self.assertEqual(self.tools_run(), ['uv run --group lint pre-commit uninstall', 'uv remove --group lint pre-commit'])
+        self.assertFalse(hook.exists())
+        self.assertIn('python:lint', self.saved()['tools'])
+        self.assertNotIn('pre-commit', self.saved()['owned_packages'].get('python:lint', []))
+        # The next run has nothing to remove.
+        self.log.unlink()
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertEqual(self.tools_run(), [])
+
+    def test_a_dropped_package_goes_with_its_hook_when_its_tool_goes_too(self):
+        # 1: typecheck stays in the group lint. 2: lint is the only tool of the group.
+        for named in (('lint', 'typecheck'), ('lint',)):
+            with self.subTest(named=named):
+                self.setUp()
+                self.assertEqual(self.stack('--profile', 'python', *named).returncode, 0)
+                hook = self.target / '.git/hooks/pre-commit'
+                hook.write_text(f'#!/bin/sh\nINSTALL_PYTHON={self.target}/.venv/bin/python\n')
+                self.edit_profile('python', lambda p: p['tools']['lint'].update({'packages': ['ruff']}))
+                self.log.unlink()
+                dry = self.stack('--without', 'lint', '--dry-run')
+                self.assertIn('so just install would remove it', dry.stderr)
+                run = self.stack('--without', 'lint')
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertIn('uv run --group lint pre-commit uninstall', self.tools_run())
+                self.assertEqual(self.tools_run()[-1], 'uv remove --group lint pre-commit')
+                self.assertLess(self.tools_run().index('uv run --group lint pre-commit uninstall'),
+                                self.tools_run().index('uv remove --group lint pre-commit'))
+                self.assertFalse(hook.exists())
+                self.assertNotIn('pre-commit', self.saved()['owned_packages'].get('python:lint', []))
+
     def test_no_git_hook_runs_no_uninstall_and_a_failed_uninstall_keeps_the_tool(self):
         self.assertEqual(self.stack('--profile', 'python', '--defaults').returncode, 0)
         self.log.unlink()
@@ -3389,7 +3429,7 @@ class StepTests(StackTests):
 # A program of a profile, for the tests of programs: fakeprog check NAME exits 0 and prints NAME 1.0 when the marker
 # file NAME is in FAKE_PROGRAMS. fakeprog install NAME logs the call, and whether rust-toolchain.toml is in the
 # folder that it runs in, then makes the marker, with the text INSTALL_PRINTS after NAME 1.0. BROKEN_INSTALL=NAME
-# makes no marker, and FAIL_INSTALL=NAME exits with 3.
+# makes no marker, and FAIL_INSTALL=NAME exits with 3. A failed check says why on stderr.
 FAKE_PROGRAM = r'''
 import os, sys
 from pathlib import Path
@@ -3403,6 +3443,7 @@ if kind == 'check':
     if marker.is_file():
         print(marker.read_text().strip() or name + ' 1.0')
         sys.exit(0)
+    print(f'{name} is not there: why the check failed', file=sys.stderr)
     sys.exit(1)
 with open(os.environ['TOOL_LOG'], 'a') as log:
     log.write(f'fakeprog install {name} toolchain={Path("rust-toolchain.toml").is_file()}\n')
@@ -3528,6 +3569,8 @@ class ProgramTests(StackTests):
         run = self.run_rust(env={'BROKEN_INSTALL': 'cargo-llvm-cov'})
         self.assertNotEqual(run.returncode, 0)
         self.assertIn('fakeprog install cargo-llvm-cov ran, but fakeprog check cargo-llvm-cov still fails', run.stderr)
+        # The check says why it failed, after the install only: the first check, before the install, stays quiet.
+        self.assertEqual(run.stderr.count('cargo-llvm-cov is not there: why the check failed'), 1)
 
     def test_an_install_that_exits_with_an_error_fails_clearly(self):
         self.have('cargo')
