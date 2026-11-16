@@ -510,6 +510,67 @@ class StackTests(unittest.TestCase):
         for record in ('jnterfaces', 'agent_gest_git_skills', 'nossaifd'):
             self.assertRegex(json.loads((self.target / RECORDS[record]).read_text())['source_revision'], '^[0-9a-f]{40}$')
 
+    def need_executables(self, name, required):
+        """Give the package NAME the required executables of its tools table, in skill-package.json."""
+        root = self.packages / name
+        manifest = json.loads((root / 'skill-package.json').read_text())
+        manifest['executables'] = {'required': required, 'optional': [{'name': 'jn-no-such-optional'}]}
+        (root / 'skill-package.json').write_text(json.dumps(manifest))
+        commit(root)
+
+    def test_a_missing_program_of_the_tools_table_stops_the_install_with_its_install_line(self):
+        self.need_executables('nossaifd', [
+            {'name': 'jn-no-such-tool', 'check': 'jn-no-such-tool --version', 'install': 'uv tool install jn-no-such-tool',
+             'description': 'Checks the prose.'},
+            {'name': 'jn-no-such-other', 'check': 'jn-no-such-other -V', 'description': 'Get it from the release page.'},
+            {'name': 'jn-no-such-bare', 'check': 'jn-no-such-bare -V'},
+            {'name': 'uv', 'check': 'uv --version', 'install': 'never printed'}])
+        run = self.stack('--defaults')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('Nothing was written', run.stderr)
+        self.assertIn('jn-no-such-tool (for nossaifd): uv tool install jn-no-such-tool', run.stderr)
+        self.assertIn('jn-no-such-other (for nossaifd): Get it from the release page.', run.stderr)
+        self.assertIn('jn-no-such-bare (for nossaifd): Install it so that jn-no-such-bare -V works.', run.stderr)
+        # A program on PATH, and an optional one, are not named.
+        self.assertNotIn('never printed', run.stderr)
+        self.assertNotIn('jn-no-such-optional', run.stderr)
+        self.assertFalse((self.target / '.agents').exists())
+        self.assertFalse((self.target / 'Justfile').exists())
+        # A dry run names the program too, and writes nothing.
+        dry = self.stack('--defaults', '--dry-run')
+        self.assertEqual(dry.returncode, 0, dry.stderr)
+        self.assertIn('Missing program: jn-no-such-tool (for nossaifd): uv tool install jn-no-such-tool', dry.stdout)
+        self.assertFalse((self.target / '.agents').exists())
+        # With the program on PATH, the install goes on.
+        for tool in ('jn-no-such-tool', 'jn-no-such-other', 'jn-no-such-bare'):
+            (self.bin / tool).write_text('#!/bin/sh\n')
+            (self.bin / tool).chmod(0o755)
+        done = self.stack('--defaults')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue(self.has('nossaifd'))
+
+    def test_a_program_of_two_packages_is_named_once_and_a_bad_entry_hides_no_other(self):
+        self.need_executables('nossaifd', [{'name': 'jn-no-such-tool', 'check': 'jn-no-such-tool -V'}])
+        self.need_executables('agent_gest_git_skills', [
+            'not an entry', {'check': 'no name'}, {'name': 'jn-no-such-tool', 'install': 'brew install jn-no-such-tool'},
+            {'name': 'jn-no-such-second', 'install': 'brew install jn-no-such-second'}])
+        run = self.stack('--defaults')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertEqual(run.stderr.count('jn-no-such-tool ('), 1, run.stderr)
+        self.assertIn('jn-no-such-tool (for agent_gest_git_skills): brew install jn-no-such-tool', run.stderr)
+        self.assertIn('jn-no-such-second (for agent_gest_git_skills): brew install jn-no-such-second', run.stderr)
+
+    def test_a_required_program_that_a_role_of_the_run_installs_does_not_stop_it(self):
+        root = self.packages / 'agent_gest_git_skills'
+        manifest = json.loads((root / 'skill-package.json').read_text())
+        manifest['install_extras']['programs'] = [{'name': 'jn-made-here', 'check': 'jn-made-here --version',
+                                                   'install': 'uv tool install jn-made-here'}]
+        manifest['executables'] = {'required': [{'name': 'jn-made-here', 'check': 'jn-made-here --version'}]}
+        (root / 'skill-package.json').write_text(json.dumps(manifest))
+        commit(root)
+        run = self.stack('--defaults', '--dry-run')
+        self.assertNotIn('Missing program: jn-made-here (for agent_gest_git_skills): Install it', run.stdout)
+
     def test_a_named_role_turns_on_and_a_later_run_reuses_the_record(self):
         self.assertEqual(self.stack('--defaults', 'reporter', 'cx').returncode, 0)
         self.assertTrue(self.has('lanes') and self.has('cx'))

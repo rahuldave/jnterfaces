@@ -7,23 +7,61 @@
     "url": "https://github.com/rahuldave/jnterfaces"
   },
   "skills": [
-    {"name": "just", "path": ".agents/skills/just"},
-    {"name": "jagt-protocol", "path": ".agents/skills/jagt-protocol"},
-    {"name": "cx", "path": ".agents/skills/cx"}
+    {
+      "name": "just",
+      "path": ".agents/skills/just"
+    },
+    {
+      "name": "jagt-protocol",
+      "path": ".agents/skills/jagt-protocol"
+    },
+    {
+      "name": "cx",
+      "path": ".agents/skills/cx"
+    }
   ],
   "install_extras": {
-    "files": [".agents/install.just"]
+    "files": [
+      ".agents/install.just"
+    ]
   },
   "executables": {
     "required": [
-      {"name": "just", "check": "just --version"},
-      {"name": "uv", "check": "uv --version", "description": "Runs the installer, and the tools of the profiles."},
-      {"name": "git", "check": "git --version", "description": "Clones the packages and records their revisions."},
-      {"name": "jlog", "check": "jlog --version", "description": "The shell of each recipe that just install writes. It logs each line in .agents/log. Install it with git clone https://github.com/rahuldave/jlog, then just install in the clone."}
+      {
+        "name": "just",
+        "check": "just --version",
+        "install": "uv tool install rust-just"
+      },
+      {
+        "name": "uv",
+        "check": "uv --version",
+        "description": "Runs the installer, and the tools of the profiles.",
+        "install": "curl -LsSf https://astral.sh/uv/install.sh | sh"
+      },
+      {
+        "name": "git",
+        "check": "git --version",
+        "description": "Clones the packages and records their revisions.",
+        "install": "Install git from https://git-scm.com/downloads."
+      },
+      {
+        "name": "jlog",
+        "check": "jlog --version",
+        "description": "The shell of each recipe that just install writes. It logs each line in .agents/log. Install it with git clone https://github.com/rahuldave/jlog, then just install in the clone.",
+        "install": "git clone https://github.com/rahuldave/jlog, then run just install in the clone."
+      }
     ],
     "optional": [
-      {"name": "jagt", "check": "jagt --version", "description": "Renders and checks agentic Just packets for the jagt-protocol skill. The skill needs jagt 0.3.0 or later, which gives each packet a nonce."},
-      {"name": "cx", "check": "cx --help", "description": "Runs incremental file stages for the cx skill."}
+      {
+        "name": "jagt",
+        "check": "jagt --version",
+        "description": "Renders and checks agentic Just packets for the jagt-protocol skill. The skill needs jagt 0.3.0 or later, which gives each packet a nonce."
+      },
+      {
+        "name": "cx",
+        "check": "cx --help",
+        "description": "Runs incremental file stages for the cx skill."
+      }
     ]
   },
   "npx": {

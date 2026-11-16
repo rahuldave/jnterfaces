@@ -151,7 +151,7 @@ Each package has one `skill-package.json`. The installer reads these keys:
 | `install_extras.programs` | The programs of a role, with the keys of the `programs` of a profile. A role that is on needs all of them. For example, tasker installs `pre-commit`, then its git hooks. |
 | `install_extras.before_remove` | `{git_hook, command}`. When the role goes and the Git hook is there, the command runs in the project before the files of the role go. For example, tasker runs `pre-commit uninstall`, because a hook without its config stops each commit. A failed command does not stop the removal. |
 | `install_extras.merge_hooks` and `install_extras.seed` | The same hooks and starter for an installer from before the parts. A newer installer leaves these files to the parts. |
-| `executables` | The programs that the package needs, with a command that checks each one. |
+| `executables` | The tools table: the programs that the package needs, with a command that checks each one. Each entry of `required` can have the key `install`, the line that installs it. When a required program is not on `PATH`, the installer stops before it writes anything, and prints the `install` line of the program, or else its `description`. |
 
 ### A profile: `profile.json`
 
