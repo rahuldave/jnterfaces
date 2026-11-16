@@ -332,6 +332,28 @@ and what does not.
 gives each file that the installer reads or writes, each of its keys, and how
 the files work together.
 
+### The environment lab
+
+A recipe runs with `sh`, not with your shell. A git hook, a GUI program and
+CI do not read `.zshrc`. So a recipe must not need a setting from it.
+
+- **`just env-lab`** runs `just check` with a clean environment, which keeps
+  only `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`, `LANG`, `LC_ALL`
+  and `TERM`. `just env-lab test lint` runs those recipes. A recipe with
+  arguments goes in quotes, as in `just env-lab "test -k name"`.
+- **PATH stays.** The lab keeps the `PATH` of your shell, so a `PATH` that
+  `.zshrc` sets is not tested. A GUI program may have a shorter `PATH`.
+- **A recipe that fails there** runs again in your shell. When it passes in
+  your shell, the lab names it. It also lists the variables of your shell
+  that the recipe may need. They are the variables that the recipe, the
+  recipes that it depends on, and the assignments of its module read. That list is a hint. It can
+  miss a variable behind a dependency in another module (`m::x`), an alias,
+  or an assignment without `export`. It never prints a value. It says to put the setting in the
+  Justfile with `set export`, or in an ignored `.env` file with
+  `set dotenv-load`.
+- **The lab runs a failed recipe twice,** so use it on recipes that can run
+  again.
+
 ### copier
 
 `.agents/install.just` defines the variable `jn_copier`, which runs copier 9
