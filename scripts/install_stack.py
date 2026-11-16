@@ -2121,7 +2121,8 @@ def ci_steps(target, steps=STEPS):
     return [step for step in steps if step in listed]
 
 
-def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runnable=None, ci=(), check=STEPS):
+def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runnable=None, ci=(), check=STEPS,
+               verifies=None):
     """The index. Its form with full False has the modules only: the installer reads the names of the project with
     it. The whole index also has the setting of the shell, the recipe file of each role, and for each recipe name of
     the profiles a combined recipe that runs it in each profile that has it. A combined recipe of a step ends with
@@ -2130,7 +2131,7 @@ def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runn
     holds the names in taken that are recipes. check depends only on a recipe, because just cannot depend on an
     alias or a module. check runs only the steps in check, the steps of just check for the answers of the setup
     questions. ci runs ci-gate, then the steps in ci. A role with a commit gate defines ci-gate; without one, ci-gate
-    is a stub that says so."""
+    is a stub that says so. verifies holds the verify steps of each module, from the installed tools."""
     lines = [HEADER, '# The recipes of the profiles and roles of this project. .agents/install.just imports this file.',
              '']
     if full and shell:
@@ -2157,7 +2158,13 @@ def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runn
     if (modules or late) and 'verify' not in taken:
         lines += ['', '# Every installed check of each language, then the check of git for whitespace errors',
                   'verify:'] + [f'    just --justfile {{{{quote(justfile())}}}} {name} verify' for name in modules]
-        lines += ['    just --justfile {{quote(justfile())}} integration'] if late else []
+        # The verify of a module whose tools list integration runs it already, so the line would run it twice. The
+        # line stays when the project or a role has its own integration, which no module verify runs, and when a
+        # module has an integration recipe that its verify does not list.
+        having = [name for name in modules if 'integration' in recipes.get(name, {})]
+        provided = (bool(having) and 'integration' not in taken
+                    and all('integration' in (verifies or {}).get(name, ()) for name in having))
+        lines += ['    just --justfile {{quote(justfile())}} integration'] if late and not provided else []
         lines += ['    git diff --check']
     real = set(names)
     if modules and 'diff-check' not in real | taken:
@@ -2283,10 +2290,11 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
     if folder.is_symlink() or (folder.exists() and not folder.is_dir()):
         print(f'{folder} is not a plain folder, so the recipes of the profiles are not written.', file=sys.stderr)
         return
-    modules = {}
+    modules, verifies = {}, {}
     for name in active:
         installed = [tool for tool in profiles[name]['tools'] if f'{name}:{tool}' in tools]
         modules[name] = module_text(name, profiles[name], installed)
+        verifies[name] = {step for tool in installed for step in profiles[name]['tools'][tool].get('verify', [])}
     if dry_run:
         print('Would write the recipes of ' + (', '.join(modules) if modules else 'no profile') + ' in .agents/just')
         ci_steps(target, check)
@@ -2445,7 +2453,7 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
                 f'the step {step}, and jlog pass fails. Rename it, or give each argument a default.')
     out['provided_steps'] = provided_of(mods, recipes, role_recipes)
     whole = index_text(mods, recipes, roles, True, taken, shell=shell is None, runnable=runnable,
-                       ci=ci_steps(target, check), check=check)
+                       ci=ci_steps(target, check), check=check, verifies=verifies)
     if not mine and whole.encode() != old:
         restore()
         return keep()

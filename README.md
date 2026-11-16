@@ -181,8 +181,8 @@ of its own, and `stack.json` names it:
 
 | Profile | Package | Tools | Default tools | The command that adds a tool |
 |---|---|---|---|---|
-| `python` | [jnprofile-python](https://github.com/rahuldave/jnprofile-python) | `lint`, `test`, `typecheck` | `lint`, `test` | `uv add --group ...` |
-| `typescript` | [jnprofile-typescript](https://github.com/rahuldave/jnprofile-typescript) | `lint`, `test`, `typecheck` | `lint`, `typecheck` | npm, which uvx runs from `nodejs-wheel` |
+| `python` | [jnprofile-python](https://github.com/rahuldave/jnprofile-python) | `lint`, `integration`, `test`, `docstring`, `api`, `typecheck` | `lint`, `test`, `docstring`, `api` | `uv add --group ...` |
+| `typescript` | [jnprofile-typescript](https://github.com/rahuldave/jnprofile-typescript) | `lint`, `typecheck`, `test`, `docstring` | all | npm, which uvx runs from `nodejs-wheel` |
 | `rust` | [jnprofile-rust](https://github.com/rahuldave/jnprofile-rust) | `lint`, `typecheck`, `test`, `docstring`, `toml` | all but `toml` | none: each tool uses programs, such as `cargo-llvm-cov` and `taplo`, which the key `programs` names |
 
 On the first install, the installer finds the profile from the files of the
@@ -342,7 +342,9 @@ each question that has no saved answer:
   question with an answer is not asked again. A later version of the stack
   can add questions, and then only the new ones are asked.
 - **The answer `integration=verify`** takes `integration` out of the steps of
-  `just check`. The recipe stays, and `just verify` runs it.
+  `just check`. The recipe stays, and `just verify` runs it once. The
+  `verify` of the profile runs it when its tools list `integration`. Else
+  the root `verify` has a line of its own for it.
 - **The answer of `tasker`** is the variant of the role, as in
   `just install tasker=gitwt`.
 
