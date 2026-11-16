@@ -675,6 +675,26 @@ class StackTests(unittest.TestCase):
         index = (self.target / '.agents/just/index.just').read_text()
         self.assertNotIn('}} integration', index[index.index('\nverify:'):].split('\n\n')[0])
 
+    def test_verify_runs_integration_once_when_a_module_provides_it(self):
+        late = install_stack.check_steps({'integration': 'verify'})
+
+        def verify(recipes, taken=(), verifies=None):
+            index = install_stack.index_text({'python': 'python', 'rust': 'rust'}, recipes, taken=taken, check=late,
+                                             verifies=verifies)
+            return index[index.index('\nverify:'):].split('\n\n')[0]
+
+        listed = {'python': {'integration', 'test'}, 'rust': {'test'}}
+        recipes = {'python': {'integration': None, 'test': None}, 'rust': {'test': None}}
+        self.assertIn('{{quote(justfile())}} python verify', verify(recipes, verifies=listed))
+        self.assertNotIn('}} integration', verify(recipes, verifies=listed))
+        # No module has the tool: the line of the combined recipe stays.
+        self.assertIn('}} integration', verify({'python': {'test': None}}, verifies=listed))
+        # The project has its own integration, which no module verify runs.
+        self.assertIn('}} integration', verify(recipes, taken={'integration'}, verifies=listed))
+        # A module has an integration recipe that its verify does not list.
+        unlisted = dict(recipes, rust={'integration': None, 'test': None})
+        self.assertIn('}} integration', verify(unlisted, verifies=listed))
+
     def test_a_run_that_only_removes_asks_no_question_and_saves_no_answer(self):
         self.assertEqual(self.stack('--defaults', 'reporter').returncode, 0)
         record = self.saved()
