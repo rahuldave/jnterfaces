@@ -150,7 +150,7 @@ Later, `just install --update` gets the new commits of each package, and
 `just install --check` compares the record with the files.
 
 [Start a Python, TypeScript or Rust project](https://rahuldave.github.io/jnterfaces/new-project.html)
-gives each tool, recipe, hook and config file of a new project, with examples.
+is the guide to a new project. It gives each tool, recipe, hook and config file, with examples.
 
 ### Tools and profiles
 

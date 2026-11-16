@@ -85,15 +85,16 @@ the key `programs` of its `profile.json`. For example, the rust profile needs
 `rustup`, the toolchain, which brings `cargo`, and `cargo-llvm-cov`. Each
 program has a check command.
 
-A program
-that a person must install has a description, such as the address
-https://rustup.rs/. A program that the installer can install has an install
-command, such as `cargo +stable install --locked cargo-llvm-cov@0.9.1`. In
-the rust profile, `rustup` is the only program without an install command.
-The installer installs the toolchain, the stable toolchain and then
-`cargo-llvm-cov`, in that order. The base of
-the profile and each tool name the programs that they need. So a tool that is
-off does not need its programs.
+A program that a person must install has a description. For `rustup`, it
+gives the address https://rustup.rs/, where a person gets it. A program that
+the installer can install has an install command, such as
+`cargo +stable install --locked cargo-llvm-cov@0.9.1`. In the rust profile,
+`rustup` is the only program without an install command. The installer
+installs the toolchain, the stable toolchain and then `cargo-llvm-cov`, in
+that order.
+
+The base of the profile and each tool name the programs that they need. So a
+tool that is off does not need its programs.
 
 - **A program without an install command.** When its check fails, the
   installer prints the description and stops. It writes nothing. This also
