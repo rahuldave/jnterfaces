@@ -79,6 +79,7 @@ Use `--profile typescript` for TypeScript, `--profile rust` for Rust, or
 | `prose` | yes | The nossaifd writing guide, its checker, `just prose-check`, the declaude skill, from the declauding skill by Oskar Austegard, and the [writing flow](https://rahuldave.github.io/nossaifd/): an instruction, two hooks and a GitHub workflow |
 | `cx` | no | The `cx` skill: run the file stages of a recipe only when they are out of date. It needs the `cx` program. |
 | `jagt-protocol` | no | The `jagt-protocol` skill: the packets of agentic recipes. It needs the `jagt` program. |
+| `docs` | no | A docs site in `docs/` with smalldocs: `docs-check` in `just check`, and `docs-publish` with a CI workflow that publishes a public repository |
 | `reporter` | no | The sklanes skill: report requests for human attention to a Lanes inbox |
 
 The `just` skill of jnterfaces is always installed. Name a role to add it

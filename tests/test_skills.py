@@ -10,7 +10,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 SKILLS = REPO / '.agents/skills'
-NAMES = ('just', 'jagt-protocol', 'cx')
+NAMES = ('just', 'jagt-protocol', 'cx', 'docs')
 WRAPPERS = {
     'jagt_lint_agent_task.sh': ['lint'],
     'jagt_lint_agent_result.sh': ['result', 'lint'],
@@ -332,7 +332,7 @@ class SkillTest(unittest.TestCase):
         if not checker.is_file():
             self.skipTest('no nossaifd check.py; set NOSSAIFD_CHECK')
         pages = [REPO / 'README.md', REPO / 'AGENTS.md', *sorted(SKILLS.glob('*/SKILL.md')),
-                 *sorted(SKILLS.glob('*/references/*.md'))]
+                 *sorted(SKILLS.glob('*/references/*.md')), *sorted(SKILLS.glob('*/assets/*.md'))]
         self.assertEqual(sorted(pages[2:]), sorted(SKILLS.rglob('*.md')), 'just prose-check must check every shipped page')
         with tempfile.TemporaryDirectory() as temp:
             for page in pages:

@@ -39,7 +39,7 @@ prose-check checker:
     #!/usr/bin/env bash
     set -uo pipefail
     work="$(mktemp -d)"; trap 'rm -rf -- "$work"' EXIT; status=0
-    for page in README.md AGENTS.md docs/*.md .agents/skills/*/SKILL.md .agents/skills/*/references/*.md; do
+    for page in README.md AGENTS.md docs/*.md .agents/skills/*/SKILL.md .agents/skills/*/references/*.md .agents/skills/*/assets/*.md; do
         copy="$work/$(echo "$page" | tr / _)"
         awk 'NR==1 && /^---$/ {f=1; next} f && /^---$/ {f=0; next} !f' "$page" > "$copy" || status=1
         uv run --no-project --quiet python "$1" "$copy" || status=1

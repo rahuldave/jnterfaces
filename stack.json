@@ -4,7 +4,7 @@
     {
       "name": "jnterfaces",
       "repository": "https://github.com/rahuldave/jnterfaces",
-      "about": "the Justfile skill and its optional cx and jagt-protocol skills",
+      "about": "the Justfile skill and its optional cx, jagt-protocol and docs skills",
       "required_skills": [
         "just"
       ],
@@ -18,6 +18,11 @@
           "choice": "jagt-protocol",
           "default": false,
           "about": "the packets of agentic Just recipes"
+        },
+        {
+          "choice": "docs",
+          "default": false,
+          "about": "a docs site in docs/ with smalldocs: docs-check in just check, and docs-publish with its CI workflow"
         }
       ]
     },

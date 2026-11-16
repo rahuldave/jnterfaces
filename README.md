@@ -62,6 +62,7 @@ Enter to keep the default:
 |---|---|---|---|
 | `cx` | the cx skill | jnterfaces | no |
 | `jagt-protocol` | the jagt-protocol skill | jnterfaces | no |
+| `docs` | the docs skill, a smalldocs site in `docs/`, `docs-check` in `just check`, and `docs-publish` with its CI workflow. [The docs role](#the-docs-role) tells more. | jnterfaces | no |
 | `tasker` | the Gest `g*` skills, which track work | agent_gest_git_skills | yes |
 | `prose` | the writing guide, its checker, the declaude skill, from the declauding skill by Oskar Austegard, and the [writing flow](https://rahuldave.github.io/nossaifd/): an instruction, two hooks and a GitHub workflow | nossaifd | yes |
 | `reporter` | the `lanes` skill, which reports requests for human attention | sklanes | no |
@@ -88,6 +89,25 @@ the worktree recipes `just worktree-new NAME`, `just worktree-sync`,
 index imports it. For example, `prose` gives `just prose-check`, which checks
 the Markdown of the project. For another project, the installer names the line to
 add to its Justfile.
+
+**The docs role.** `just install docs` gives the project a docs site, for
+any language:
+
+- **It writes once** `docs/_smalldocs.yml`, `docs/index.md` and the workflow
+  `.github/workflows/docs-publish.yml`. It adds `docs/_site/` to
+  `.gitignore`.
+- **`just docs-check`** is a step of `just check`. It runs
+  `smalldocs check docs`, then the `api-check` of each language that has one.
+  `just docs` previews the site, and `just docs-build` builds it.
+- **`just docs-publish`** publishes the site to the `gh-pages` branch, only
+  when `gh repo view` says that the repository is public. It skips a private
+  repository, and the answer `docs-publish=no`. When `gh` fails, it skips on
+  your machine, and it fails in CI, so a missing token shows.
+- **The workflow** runs `just docs-publish` after each push to `main`, with
+  `GH_TOKEN` set. Once, you choose the branch `gh-pages` under Pages in the
+  settings of the repository.
+- **`just uninstall docs`** takes out the line and the recipes. Your pages
+  stay. The workflow goes too, unless you changed it.
 
 **Starter files.** A role can write a starter file, such as the `AGENTS.md` of
 `tasker`, once, when the project has none. The starter is yours from then on.
@@ -302,7 +322,7 @@ each question that has no saved answer:
 | Key | Question | Answers | Default |
 |---|---|---|---|
 | `issues` | Which Gest tasks become GitHub issues? | `top`, `development`, `none` | `top` |
-| `docs-publish` | Publish the docs site of a public repository after a merge to `main`? | `yes`, `no` | `yes` |
+| `docs-publish` | Publish the docs site of a public repository after a merge to `main`? Only while the `docs` role is on. | `yes`, `no` | `yes` |
 | `integration` | Run the integration tests in `just check`, or only in `just verify` before a PR? | `check`, `verify` | `check` |
 | `tasker` | One branch in the main checkout, or a worktree for each task? Only while the `tasker` role is on. | `git`, `gitwt` | `git` |
 | `review-model` | Which model does the adversarial review? | `strongest`, or a model name | `strongest` |

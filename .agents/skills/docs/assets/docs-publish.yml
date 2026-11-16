@@ -1,0 +1,39 @@
+# Written once by the docs role of jnterfaces. It is yours from then on.
+# After a push to main, publish the docs site to the gh-pages branch. just docs-publish skips a private repository.
+# GitHub Pages needs one setting by a person, once: Settings, Pages, the branch gh-pages.
+name: Publish the docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Two quick merges publish one after the other, so the later push to gh-pages does not race the first.
+concurrency:
+  group: docs-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # A private repository skips the job, and does not build jlog only to skip. just docs-publish checks again.
+    if: github.event.repository.visibility == 'public'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: extractions/setup-just@v3
+      - name: Build jlog, the shell of the recipes
+        # The commit 17b5b58 is the tag v0.1.1 of jlog.
+        run: cargo install --locked --git https://github.com/rahuldave/jlog --rev 17b5b58338f45e46412d2e021edb02e6e35da281 jlog
+      - name: Set the git user for the push to gh-pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Publish
+        run: just docs-publish

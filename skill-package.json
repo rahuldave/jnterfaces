@@ -18,6 +18,10 @@
     {
       "name": "cx",
       "path": ".agents/skills/cx"
+    },
+    {
+      "name": "docs",
+      "path": ".agents/skills/docs"
     }
   ],
   "install_extras": {
