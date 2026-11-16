@@ -145,6 +145,11 @@ for steps are these:
 - **A step never hides its lines.** A step has no shebang line and no line
   with the prefix `-`. It has none of the attributes `[script]`, `[no-cd]`
   and `[working-directory]`. `just install --check` lists each such step.
+- **A recipe never depends on `.zshrc`.** A git hook, a GUI program and CI
+  do not read it. Put a setting in the Justfile with `set export`, or in an
+  ignored `.env` file with `set dotenv-load`. `just env-lab RECIPE` runs a
+  recipe with a clean environment, and names each recipe that passes only in
+  your shell.
 
 When a recipe needs a tool that the project does not have, run
 `just install <tool>`. Do not install the tool on the machine, and do not run
