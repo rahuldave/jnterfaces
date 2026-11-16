@@ -3009,6 +3009,20 @@ class StepTests(StackTests):
         # The log folder is ignored, and a worktree with only the log folder can be pruned.
         self.assertIn('.agents/log/', (clone / '.gitignore').read_text().splitlines())
         self.assertIn('.agents/log/', (clone / '.worktreedisposable').read_text().splitlines())
+        # git add -A, git stash -u and git clean -fd leave the ignored log folder alone.
+        logs = sorted(p.name for p in (clone / '.agents/log').iterdir())
+        self.assertTrue(logs)
+        (clone / 'new.txt').write_text('new\n')
+        git(clone, 'add', '-A')
+        self.assertEqual(git(clone, 'diff', '--cached', '--name-only').split(), ['new.txt'])
+        git(clone, 'reset', '-q')
+        git(clone, 'stash', 'push', '-q', '-u')
+        self.assertFalse((clone / 'new.txt').exists())
+        self.assertEqual(sorted(p.name for p in (clone / '.agents/log').iterdir()), logs)
+        (clone / 'other.txt').write_text('other\n')
+        git(clone, 'clean', '-fdq')
+        self.assertFalse((clone / 'other.txt').exists())
+        self.assertEqual(sorted(p.name for p in (clone / '.agents/log').iterdir()), logs)
 
     def test_check_works_in_a_folder_whose_name_has_a_quote_a_dollar_and_a_backtick(self):
         self.assertEqual(self.stack('--profile', 'python', '--defaults', '--without', 'tasker').returncode, 0)
