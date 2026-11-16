@@ -624,8 +624,9 @@ class StackTests(unittest.TestCase):
         run = self.stack('tasker', env={'CI': 'true'}, asks=True)
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertNotIn('SETUP_QUESTIONS', run.stdout)
-        self.assertEqual(self.saved()['answers'], {key: entry['default']
-                                                   for key, entry in install_stack.QUESTIONS.items()})
+        # The docs role is off, so its question has no answer.
+        self.assertEqual(self.saved()['answers'], {key: entry['default'] for key, entry in install_stack.QUESTIONS.items()
+                                                   if entry.get('role') != 'docs'})
         # CI=false is not CI.
         other = self.base / 'other'
         other.mkdir()
