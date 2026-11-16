@@ -20,7 +20,7 @@ close" says which gaps a later change closed.
 | role | The name of a job, for example `prose`. A package does the job, so the package can change and the role name stays. |
 | profile | A language setup, for example `python`. A profile package, such as jnprofile-python, ships it. |
 | tool | One unit of the setup of a profile, for example `lint`. It brings packages, config files and recipes. |
-| manifest | The file that lists the dependencies of the project: `pyproject.toml` or `package.json`. |
+| manifest | The file that lists the dependencies of the project: `pyproject.toml`, `package.json` or `Cargo.toml`. |
 | record | A JSON file in `.agents/` that lists what the installer wrote, with a hash of each file. |
 | mixin | One layer that you add to a project, for example a role or a tool. |
 
@@ -82,14 +82,19 @@ then run `just install`. The roles need more programs:
 
 **The programs of a profile.** A profile names the programs that it needs in
 the key `programs` of its `profile.json`. For example, the rust profile needs
-`cargo` and `cargo-llvm-cov`. Each program has a check command.
+`rustup`, the toolchain, which brings `cargo`, and `cargo-llvm-cov`. Each
+program has a check command.
 
-A program
-that a person must install has a description, such as the address
-https://rustup.rs/. A program that the installer can install has an install
-command, such as `cargo install --locked cargo-llvm-cov@0.9.1`. The base of
-the profile and each tool name the programs that they need. So a tool that is
-off does not need its programs.
+A program that a person must install has a description. For `rustup`, it
+gives the address https://rustup.rs/, where a person gets it. A program that
+the installer can install has an install command, such as
+`cargo +stable install --locked cargo-llvm-cov@0.9.1`. In the rust profile,
+`rustup` is the only program without an install command. The installer
+installs the toolchain, the stable toolchain and then `cargo-llvm-cov`, in
+that order.
+
+The base of the profile and each tool name the programs that they need. So a
+tool that is off does not need its programs.
 
 - **A program without an install command.** When its check fails, the
   installer prints the description and stops. It writes nothing. This also
@@ -97,9 +102,11 @@ off does not need its programs.
 - **A program with an install command.** When its check fails, the installer
   runs the install command, and then the check again. It does this at the
   end of the run, after the files of the profile, in the folder of the
-  project. So rustup
-  reads a `rust-toolchain.toml` of the profile. If the check fails again, the
-  run stops with an error.
+  project. So rustup reads the `rust-toolchain.toml` of the project, if it
+  has one. The rust profile writes no toolchain file, and it keeps the pin of
+  the project. An install with `"install_in": "home"` runs in the home folder,
+  such as `cargo +stable install`. If the check fails again, the run stops
+  with an error.
 
 The installer runs each command without a shell, and it never downloads a
 script. It never uninstalls a program, also when a tool or a profile goes.
@@ -122,9 +129,10 @@ The installer runs these steps:
 4. It saves the choices in `.agents/stack.json`.
 5. If the project has no Justfile, it writes the starter Justfile.
 6. If the run adds a tool of a profile and the project has no manifest, it
-   makes one, with `uv init --bare` or `npm init --yes`.
+   makes one, with `uv init --bare`, `npm init --yes` or `cargo init --vcs
+   none`.
 7. It adds the packages of each tool, with `uv add --group` or `npm install
-   --save-dev`.
+   --save-dev`. The Rust tools add no crate.
 8. After the package commands succeed, it writes the shared files, such as
    `.gitignore`, and the config files of the tools.
    [Shared files and the record](#shared-files-and-the-record) tells how.
@@ -209,6 +217,15 @@ fmt-check lint typecheck test coverage-check integration docstring-check docs-ch
 - **A no-op step** is a step that no profile, role or recipe of the Justfile
   has. Its one line is `jlog skip NAME "REASON"`. In a new project with no
   language, each step is a no-op step, and `just check` passes.
+- **A step of a profile** comes from the installed tools. The python and
+  typescript profiles give `lint`, `typecheck` and `test`. The rust profile
+  gives `fmt-check`, `lint`, `typecheck`, `test`, `coverage-check` and
+  `docstring-check`. `coverage-check` fails on each changed line of code that
+  no test runs. `docstring-check` fails on each item with no doc comment.
+- **`test-paths`** is a recipe of the python and rust profiles, not a step. It
+  runs only the tests of some test files. The `test-parent` recipe of the
+  `tasker` role runs it with the added and changed test files, on the parent
+  commit.
 - **`diff-check`** runs `git diff --check` against the last commit, when the
   project has a profile.
 - **`check`** depends on each step, and its last line is `jlog pass`.
@@ -370,7 +387,7 @@ Each layer adds one mixin. Start at layer 0, and add the layers that the
 project needs. Each command after layer 1 is a recipe of the project.
 
 For the shortest path to a full project, with each tool and recipe, read
-[Start a Python or TypeScript project](new-project.md).
+[Start a Python, TypeScript or Rust project](new-project.md).
 
 ### Layer 0: an empty Git repository
 
@@ -530,8 +547,8 @@ caches. `just worktrees-prune` keeps a worktree with ignored files, so that
 it never deletes an output. A third file, `.worktreedisposable`, has gitignore
 patterns for the ignored files that a command can make again. Those files do
 not keep a worktree. Each profile adds its lines to this file, in a block of
-its own. The Python profile names `.venv/` and the caches, and the
-TypeScript profile names `node_modules/`.
+its own. The Python profile names `.venv/` and the caches, the TypeScript
+profile names `node_modules/`, and the Rust profile names `/target/`.
 
 **What works.** The install, the variant and the worktree recipes work. The
 session-start hook reports worktrees that are ready to prune, and removes
@@ -551,8 +568,8 @@ nothing. In `gitwt`, a `git commit` in the main checkout gets a warning.
 just install --profile python
 ```
 
-Use `--profile typescript` for TypeScript. Name a profile once, because the
-installer saves it.
+Use `--profile typescript` for TypeScript, or `--profile rust` for Rust. Name
+a profile once, because the installer saves it.
 
 **What you get with `python`:**
 
@@ -573,6 +590,22 @@ installer saves it.
   `.worktreedisposable`.
 - The default tools `lint` and `typecheck`.
 
+**What you get with `rust`:**
+
+- The package jnprofile-rust, with its recipe files and its skill
+  `rust-profile`. The skill tells an agent which tool gives which recipe, and
+  what each step checks.
+- The Rust rules of the agentic targets `review`, `test-review`, `docs` and
+  `prose`, in `.agents/targets/rust/`. `jagt render` adds them to the packet
+  of each target.
+- `Cargo.toml` and `src/main.rs` from `cargo init --vcs none`.
+- Its lines in `.gitignore` and `.worktreedisposable`, such as `/target/`.
+- The recipes `just setup` and `just build`.
+- The default tools `lint`, `typecheck`, `test` and `docstring`. The tool
+  `toml` is not a default tool.
+- The programs of each tool. The machine needs `rustup` first, from
+  https://rustup.rs/.
+
 A profile also turns on its default roles, `tasker` and `prose`, but only in a
 project with no saved roles.
 
@@ -582,12 +615,12 @@ project with no saved roles.
 just install lint
 ```
 
-| | Python | TypeScript |
-|---|---|---|
-| Packages | ruff, in the group `lint` | `@biomejs/biome@2` |
-| Config files | `ruff.toml` | `biome.json` |
-| Recipes | `just fmt`, `just lint` | `just fmt`, `just lint` |
-| In `just verify` | `fmt --check`, `lint` | `lint` |
+| | Python | TypeScript | Rust |
+|---|---|---|---|
+| Packages | ruff, in the group `lint` | `@biomejs/biome@2` | none: the rustup components rustfmt and clippy |
+| Config files | `ruff.toml` | `biome.json` | none |
+| Recipes | `just fmt`, `just lint` | `just fmt`, `just lint` | `just fmt`, `just fmt-check`, `just lint` |
+| In `just verify` | `fmt --check`, `lint` | `lint` | `fmt-check`, `lint` |
 
 `ruff.toml` and `biome.json` leave out `.agents`, `.claude` and `.codex`,
 because these folders hold copies from other packages.
@@ -609,6 +642,15 @@ yet passes. A selection that runs no test fails.
 compiles `src` into `dist`, and it runs the tests with `node --test`. With no
 `.ts` file in `src` yet, it passes.
 
+**Rust.** The tool installs `llvm-tools-preview` and `cargo-llvm-cov`. `just
+test` runs the tests with `cargo llvm-cov test`, and writes the coverage.
+`just coverage-check` fails on each changed line of code that no test runs.
+On the first commit, each line of code must run. `just test-paths` runs the
+tests of some files in `tests/`.
+
+The default tool `docstring` of Rust gives `just docstring-check`, which
+fails on each item with no doc comment.
+
 ### Layer 6: types
 
 ```bash
@@ -621,11 +663,17 @@ out `.agents`, `.claude` and `.codex`. `just typecheck` runs `ty check`.
 **TypeScript.** The tool adds TypeScript and `tsconfig.json`. `just
 typecheck` runs `tsc --noEmit`. With no `.ts` file in `src` yet, it passes.
 
+**Rust.** The tool adds no program. `just typecheck` runs `cargo check` on
+the code and the tests.
+
 ### Layer 7: one check before a commit
 
 `just verify` runs the checks of each installed tool of each language, then
 `git diff --check`, which finds whitespace errors. On a new project with the
-default tools, `just verify` passes, for Python and for TypeScript.
+default tools, `just verify` passes, for Python and for TypeScript. A Rust
+project always has code, and `just verify` passes once each item has a doc
+comment and the tests run each line.
+[A Rust project](new-project.md#a-rust-project) gives an example.
 
 ### Layers that the stack does not have yet
 
@@ -641,7 +689,7 @@ adds them. The rows describe the Python profile:
 | Async tests | The group `test` does not have pytest-asyncio or an HTTP client. |
 | Coverage of one package | `just cov` does not name a package. The TypeScript profile has no `just cov`. |
 | Test paths | The `test` tool sets `pythonpath` for pytest, but not `testpaths`. |
-| CI | No profile writes a GitHub Actions workflow for the code. The `prose` role writes only a workflow that checks prose. |
+| CI | No profile writes a GitHub Actions workflow for the code. The `tasker` role writes `.github/workflows/check.yml` once, when the project has none. It runs `just ci` on each pull request: the trailers of the commit gate, then the list `ci` of `.agents/stack.json`. |
 
 ## How the mixins behave
 
@@ -833,9 +881,10 @@ the project. If the command fails, the removal stops, and the next
 | Task tracker | `just install tasker` | The skills, the hooks, `AGENTS.md`, the variant, the worktree recipes | Needs `gest`, which `uv` does not give |
 | Python profile | `just install --profile python` | The package, the manifest, `.gitignore`, the defaults | none |
 | TypeScript profile | `just install --profile typescript` | The package, the manifest, `.gitignore`, the defaults | none |
-| Lint | `just install lint` | ruff, or biome | none |
-| Tests | `just install test` | pytest, or `node --test` | none |
-| Types | `just install typecheck` | ty with `ty.toml`, or tsc | none |
+| Rust profile | `just install --profile rust` | The package, the manifest, `.gitignore`, the defaults, the programs | Needs `rustup` on the machine |
+| Lint | `just install lint` | ruff, biome, or rustfmt and clippy | none |
+| Tests | `just install test` | pytest, `node --test`, or `cargo llvm-cov` with `coverage-check` | none |
+| Types | `just install typecheck` | ty with `ty.toml`, tsc, or `cargo check` | none |
 | Remove a tool or a profile | `just uninstall NAME` | The packages, the recipes, the Git hook and empty groups go | none |
 | Shared files | any install | The blocks, includes and units of each owner, the record, `just install --check` | none |
 | Edit a skill | by hand | The edit stays, and the other files install | none |

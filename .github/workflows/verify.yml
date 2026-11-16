@@ -27,7 +27,7 @@ jobs:
       - name: Get the nossaifd writing checker
         run: |
           git clone --quiet https://github.com/rahuldave/nossaifd "$RUNNER_TEMP/nossaifd"
-          git -C "$RUNNER_TEMP/nossaifd" checkout --quiet ca13f76d5c930e2cf4fddddbd6686a207f5d9f4e
+          git -C "$RUNNER_TEMP/nossaifd" checkout --quiet 92da86a1a7aad5df76f4895c73c8eee4a326c2a3
           echo "NOSSAIFD_CHECK=$RUNNER_TEMP/nossaifd/check.py" >> "$GITHUB_ENV"
       - name: Run the tests
         run: just test

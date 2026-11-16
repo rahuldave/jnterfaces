@@ -161,13 +161,13 @@ A profile package also has `profile.json`. Its top keys are these:
 |---|---|
 | `version` | The version of the format. It is `1` now. |
 | `name`, `about`, `detect` | As in the catalog. |
-| `manifest` | The file that lists the dependencies: `pyproject.toml` or `package.json`. |
+| `manifest` | The file that lists the dependencies: `pyproject.toml`, `package.json` or `Cargo.toml`. |
 | `init` | The manifest file and the command that makes it when it is missing: `{"file": "pyproject.toml", "command": ["uv", "init", "--bare", "--no-workspace"]}`. |
 | `add` and `remove` | The commands that add or remove the packages of a tool. `{group}` takes the group of the tool. |
 | `choices` | The default roles of the profile, for example `tasker` and `prose`. |
 | `uv_default_groups` | For Python: the value of `tool.uv.default-groups` in `pyproject.toml`. |
 | `base` | What the profile adds with no tool: its recipe file, its `programs`, and its `lines`, `parts` and `files`, as for a tool. |
-| `programs` | The programs that the profile can need, such as `cargo`. The next section tells the keys. |
+| `programs` | The programs that the profile can need, such as `rustup`. The next section tells the keys. |
 | `tools` | Each tool, keyed by its name. |
 | `default_tools` | The tools that a new project gets, for example `lint` and `test`. |
 
@@ -188,7 +188,7 @@ A tool has these keys:
 
 #### The programs of a profile
 
-A program is a command on the machine, such as `cargo` or `cargo-llvm-cov`.
+A program is a command on the machine, such as `rustup` or `cargo-llvm-cov`.
 The top key `programs` is a list of programs. Each program has these keys:
 
 | Key | What it means |
@@ -196,7 +196,7 @@ The top key `programs` is a list of programs. Each program has these keys:
 | `name` | The name of the program. `base.programs` and `programs` of a tool use this name. |
 | `check` | A command that exits with 0 when the program is there, for example `cargo llvm-cov --version`. |
 | `expect` | Optional. A text that the output of `check` must have, for example `llvm-tools`. |
-| `install` | The command that installs the program, for example `cargo install --locked cargo-llvm-cov@0.9.1`. |
+| `install` | The command that installs the program, for example `cargo +stable install --locked cargo-llvm-cov@0.9.1`. |
 | `install_in` | Optional, with `install`. `project`, the default, runs `install` in the folder of the project. `home` runs it in your home folder, or in an empty folder outside the project when `HOME` is not set. |
 | `description` | For a program without `install`: what a person does to get it. For a program with `install`: optional, what the program does. |
 
@@ -228,7 +228,7 @@ A run uses the programs in this order:
    because its check fails. The programs of the profiles come before the
    programs of the roles.
 2. It runs the commands of the tools, such as `cargo add --dev`. Then it
-   writes the files, also a whole file such as `rust-toolchain.toml`.
+   writes the files, also the whole files of the base and the tools.
 3. In the folder of the project, it runs the `check` of each needed program
    with `install`. If a check fails, it runs `install` in the folder that
    `install_in` names, and then `check` again. If the check fails again, the
@@ -236,13 +236,16 @@ A run uses the programs in this order:
 
 These rules follow from the order:
 
-- **The toolchain file counts.** The checks of step 3 run after the files, so
-  rustup reads the toolchain file of the project.
+- **The toolchain file counts.** The checks of step 3 run in the project, so
+  rustup reads the toolchain file of the project, if it has one.
 - **`install_in` picks the toolchain of an install.** `rustup component add
   clippy` runs in the project, so the component goes on the toolchain of the
-  project. `cargo install cargo-llvm-cov` needs `"install_in": "home"`. In
-  the project, it would build with the toolchain of the project, and an old
-  toolchain can fail to build it.
+  project. The rust profile runs `cargo +stable install --locked
+  cargo-llvm-cov@0.9.1` with `"install_in": "home"`. In the home folder, the
+  toolchain file of the project does not count, and an old toolchain that the
+  project pins cannot fail the build. `+stable` picks the stable toolchain,
+  also when rustup has no default toolchain. The program `stable` of the
+  profile installs that toolchain first.
 - **A command of a tool comes first.** It runs before step 3, so it can use
   only programs without `install`.
 - **A missing program stops a removal too.** A missing program without
@@ -265,22 +268,22 @@ a profile.
 
 #### A toolchain file
 
-A profile writes a toolchain file with the `files` of its base. A whole file
-is written only when the project has none, so a toolchain file of the project
-stays. For example, the rust profile can have
-`"files": {"rust-toolchain.toml": "files/rust-toolchain.toml"}` in its base,
-with this source file:
+A profile could write a toolchain file with the `files` of its base. A whole
+file is written only when the project has none. The rust profile writes no
+toolchain file. It keeps the `rust-toolchain.toml` or `rust-toolchain` of
+the project, and it names the toolchain as a program:
 
-```toml
-[toolchain]
-channel = "stable"
-components = ["clippy", "rustfmt", "llvm-tools-preview"]
-```
+- **`toolchain`** has the check `rustup show active-toolchain` and the
+  install `rustup toolchain install`. Both run in the project, so the install
+  gets the toolchain that the project pins. rustup 1.28.0 does not install a
+  missing toolchain by itself, and later versions do.
+- **Each component**, such as `clippy`, is a program with the install
+  `rustup component add clippy`. It also runs in the project, so the
+  component goes on that toolchain.
 
-rustup reads the file when `cargo` runs in the project. rustup 1.28.0 does not
-install a missing toolchain by itself, and later versions do. So a profile
-can also name each component as a program with `install`, for example
-`rustup component add llvm-tools-preview`.
+With no pin and no default toolchain, rustup cannot choose a toolchain, and
+the install fails. Then run `rustup default stable`, or pin a toolchain in
+`rust-toolchain.toml`.
 
 ### The formats: `scripts/formats.json`
 
