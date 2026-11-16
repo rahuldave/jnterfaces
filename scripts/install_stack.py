@@ -62,7 +62,7 @@ QUESTIONS = {
                'answers': {'top': 'every top-level task', 'development': 'only development tasks', 'none': 'none'},
                'default': 'top'},
     'docs-publish': {'question': 'Publish the docs site of a public repository after a merge to main?',
-                     'answers': {'yes': 'publish it', 'no': 'do not publish it'}, 'default': 'yes'},
+                     'answers': {'yes': 'publish it', 'no': 'do not publish it'}, 'default': 'yes', 'role': 'docs'},
     'integration': {'question': 'Run the integration tests in just check, or only in just verify before a PR?',
                     'answers': {'check': 'in just check', 'verify': 'only in just verify'}, 'default': 'check'},
     'tasker': {'question': 'One branch in the main checkout, or a worktree for each task? The answer is the variant of '
@@ -724,6 +724,42 @@ def role_owners(packages, clones):
             parts={path: clone / origin for path, origin in parts.items()},
             starter={path: clone / origin for path, origin in starter.items()}))
     return found
+
+
+# The docs role: a choice of jnterfaces, whose skill holds its recipe file, its starter files and its line.
+DOCS_SKILL = ROOT / '.agents/skills/docs'
+DOCS_RECIPES = '../skills/docs/docs.just'
+
+
+def written_hash(target, path):
+    """The hash of the starter file at path, as the installer wrote it, from the parts of .agents/stack.json. None when
+    the record has none."""
+    try:
+        parts = json.loads((target / '.agents/stack.json').read_text()).get('parts', {})
+        return parts[path][shared_files.STARTER]['hash']
+    except (OSError, ValueError, AttributeError, KeyError, TypeError):
+        return None
+
+
+def docs_workflow_is_ours(target, written):
+    """True while the CI workflow of the docs role has the bytes that this release or an older one wrote. written is the
+    hash in the record."""
+    workflow = target / '.github/workflows/docs-publish.yml'
+    if not workflow.is_file() or workflow.is_symlink():
+        return False
+    data = workflow.read_bytes()
+    return data == (DOCS_SKILL / 'assets/docs-publish.yml').read_bytes() or shared_files.digest(data) == written
+
+
+def docs_owner():
+    """The owner of the shared files of the docs role: the line of the built site in .gitignore, and the starter
+    files of the site and of its CI workflow."""
+    return shared_files.Owner(
+        'docs', 'the docs role', 'jnterfaces', commit_of(ROOT), '`just uninstall docs` removes them.',
+        lines={'.gitignore': ['docs/_site/']},
+        starter={'docs/_smalldocs.yml': DOCS_SKILL / 'assets/_smalldocs.yml',
+                 'docs/index.md': DOCS_SKILL / 'assets/index.md',
+                 '.github/workflows/docs-publish.yml': DOCS_SKILL / 'assets/docs-publish.yml'})
 
 
 # The starter files of the installer in a project that it starts: the lists of generated files and of the files
@@ -2483,6 +2519,7 @@ def main(argv=None):
     check_overrides(packages + [{'name': entry['package']} for entry in registry_profiles.values()], overrides)
     split = sort_names(args, choices, aliases, registry_profiles)
     record = read_record(target, choices, aliases)
+    workflow_hash = written_hash(target, '.github/workflows/docs-publish.yml')
     active = pick_profiles(args, split, record, registry_profiles, target)
     saved_on = [name for name in (record or {}).get('profiles', []) if name in registry_profiles]
     # --profile sets the profiles, so a saved profile that it leaves out is turned off.
@@ -2635,8 +2672,9 @@ def main(argv=None):
             raise StackError(f'The dry run of the removal of {package["name"]} failed; nothing was written')
     # The move from the old log is worked out here, and saved only after the dry pass below found no problem.
     parts, unsure, migrating = move_from_log(target, record, packages, clones, True)
-    roles = role_owners([p for p, _ in steps], clones)
-    gone_roles = role_owners(removals, clones)
+    roles = role_owners([p for p, _ in steps], clones) + ([docs_owner()] if chosen.get('docs') else [])
+    gone_roles = role_owners(removals, clones) + (
+        [docs_owner()] if not chosen.get('docs') and (record or {}).get('choices', {}).get('docs') else [])
     dropped = dropped_files(packages, chosen, clones)
     # The installer starts a project when it writes the starter Justfile: before, or in this run.
     starting = bool((record or {}).get('started')) or justfile_of(target) is None
@@ -2677,6 +2715,8 @@ def main(argv=None):
         for package in removals:
             if befores.get(package['name']):
                 run_before_remove(target, package, befores[package['name']], True)
+        if any(owner.key == 'docs' for owner in gone_roles) and docs_workflow_is_ours(target, workflow_hash):
+            print('Would remove .github/workflows/docs-publish.yml, the workflow of the docs role')
         for name in active:
             init = profiles[name].get('init')
             if init and any(step[1] == name for step in commands) and not (target / init['file']).exists():
@@ -2781,7 +2821,8 @@ def main(argv=None):
         step_record = {}
         write_recipes(target, profiles, [name for name in kept_profiles if name not in leaving], tool_list, False,
                       generated, state['started'], registry_profiles,
-                      [f'roles/{package["name"]}.just' for package, _ in steps], state['adding'], step_record,
+                      [f'roles/{package["name"]}.just' for package, _ in steps]
+                      + ([DOCS_RECIPES] if chosen.get('docs') else []), state['adding'], step_record,
                       check_steps(answers))
         # The steps of just check, and the steps that a profile or a role provides, for jlog pass.
         for key in ('steps', 'provided_steps'):
@@ -2938,6 +2979,16 @@ def main(argv=None):
             f'at the start of {justfile.name}.)')
         save(tools, [])
     shared_files.finish(target)
+    if any(owner.key == 'docs' for owner in gone_roles):
+        # The workflow of the docs role runs just docs-publish, which goes with the role, so it would fail in CI. It
+        # goes too while it is the file that the role wrote. An edited workflow is yours, and stays.
+        workflow = target / '.github/workflows/docs-publish.yml'
+        if docs_workflow_is_ours(target, workflow_hash):
+            workflow.unlink()
+            print('Removed .github/workflows/docs-publish.yml, the workflow of the docs role', file=sys.stderr)
+        elif workflow.exists():
+            say('Kept .github/workflows/docs-publish.yml: you changed it. It runs just docs-publish, which went with '
+                'the docs role, so take it out or change it.')
     write_claude_md(target, False, after)
     # The files are in place now, so a toolchain file such as rust-toolchain.toml counts for the checks and installs.
     install_programs(target, programs)

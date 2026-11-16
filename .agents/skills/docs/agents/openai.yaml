@@ -1,0 +1,3 @@
+interface:
+  display_name: "docs"
+  short_description: "Write, check and publish the smalldocs site of a project"

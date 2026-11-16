@@ -59,7 +59,7 @@ class InstallTest(unittest.TestCase):
         record = self.record()
         self.assertEqual(record['package'], 'jnterfaces')
         self.assertEqual(record['source_revision'], git(self.source, 'rev-parse', 'HEAD'))
-        self.assertEqual(record['skills'], ['cx', 'jagt-protocol', 'just'])
+        self.assertEqual(record['skills'], ['cx', 'docs', 'jagt-protocol', 'just'])
         script = self.target / '.agents/skills/jagt-protocol/scripts/jagt_lint_agent_task.sh'
         self.assertTrue(os.access(script, os.X_OK))
         self.assertEqual(record['managed_files'][script.relative_to(self.target).as_posix()], sha(script))
@@ -143,7 +143,7 @@ class InstallTest(unittest.TestCase):
         (other / '.agents/skills').mkdir(parents=True)
         (other / '.claude/skills').symlink_to('../.agents/skills')
         run(sys.executable, self.source / 'scripts/install_package.py', '--source', self.source, other)
-        self.assertEqual(sorted(p.name for p in (other / '.agents/skills').iterdir()), ['cx', 'jagt-protocol', 'just'])
+        self.assertEqual(sorted(p.name for p in (other / '.agents/skills').iterdir()), ['cx', 'docs', 'jagt-protocol', 'just'])
         self.assertFalse(any(p.is_symlink() for p in (other / '.agents/skills').iterdir()))
 
     def test_a_claude_skills_file_is_left_alone_and_the_install_succeeds(self):
@@ -156,11 +156,11 @@ class InstallTest(unittest.TestCase):
 
     def test_a_dry_run_names_the_links_it_would_make_and_remove(self):
         result = self.install('--dry-run')
-        self.assertIn('Would link .claude/skills to cx, jagt-protocol, just', result.stdout)
+        self.assertIn('Would link .claude/skills to cx, docs, jagt-protocol, just', result.stdout)
         self.assertFalse((self.target / '.claude').exists())
         self.install()
         result = self.install('--remove', '--dry-run')
-        self.assertIn('Would remove the .claude/skills link of cx, jagt-protocol, just', result.stdout)
+        self.assertIn('Would remove the .claude/skills link of cx, docs, jagt-protocol, just', result.stdout)
         self.assertTrue((self.target / '.claude/skills/just').is_symlink())
 
     def test_a_link_that_the_user_removed_stays_removed(self):
@@ -259,9 +259,9 @@ class InstallTest(unittest.TestCase):
         shutil.rmtree(self.target / '.claude')
         shutil.rmtree(self.target / '.agents/skills/cx')
         self.install('--skill', 'just')
-        self.assertEqual(sorted(os.listdir(self.target / '.claude/skills')), ['jagt-protocol', 'just'])
+        self.assertEqual(sorted(os.listdir(self.target / '.claude/skills')), ['docs', 'jagt-protocol', 'just'])
         # The old record listed no skills: the partial install keeps the skills that it left.
-        self.assertEqual(self.record()['skills'], ['cx', 'jagt-protocol', 'just'])
+        self.assertEqual(self.record()['skills'], ['cx', 'docs', 'jagt-protocol', 'just'])
 
     def test_a_skill_folder_that_the_package_never_shipped_gets_no_link(self):
         mine = self.target / '.agents/skills/mine/SKILL.md'
@@ -425,7 +425,7 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(self.record()['claude_links'], ['just'])
         (self.target / '.claude').unlink()
         self.install()
-        self.assertEqual(sorted(os.listdir(self.target / '.claude/skills')), ['cx', 'jagt-protocol', 'just'])
+        self.assertEqual(sorted(os.listdir(self.target / '.claude/skills')), ['cx', 'docs', 'jagt-protocol', 'just'])
 
     def test_an_empty_claude_folder_goes_with_the_last_link(self):
         self.install()
@@ -512,7 +512,7 @@ class InstallTest(unittest.TestCase):
         self.install('--skill', 'cx')
         record = self.record()
         self.assertEqual(record['managed_files'], before)
-        self.assertEqual(record['skills'], ['cx', 'jagt-protocol', 'just'])
+        self.assertEqual(record['skills'], ['cx', 'docs', 'jagt-protocol', 'just'])
         result = self.install('--skill', 'nope', check=False)
         self.assertIn('Unknown skill', result.stderr)
 
@@ -611,7 +611,7 @@ class InstallTest(unittest.TestCase):
         (self.target / '.agents/other-install.json').write_text(json.dumps({'managed_files': {'x': [1]}}))
         (self.target / RECORD).write_text(json.dumps({'skills': 'abc', 'managed_files': {'y': {'z': 1}}}))
         self.install()
-        self.assertEqual(self.record()['skills'], ['cx', 'jagt-protocol', 'just'])
+        self.assertEqual(self.record()['skills'], ['cx', 'docs', 'jagt-protocol', 'just'])
 
     def test_a_committed_symlink_fails_pinned_and_unpinned(self):
         os.symlink('SKILL.md', self.source / '.agents/skills/cx/LINK.md')

@@ -507,10 +507,12 @@ class StackTests(unittest.TestCase):
                                                       '.gitignore', '.worktreedisposable'])
         self.assertEqual((saved.pop('steps'), saved.pop('provided_steps')), (list(STEPS), []))
         # --defaults takes the default of each setup question.
-        self.assertEqual(saved.pop('answers'), {key: entry['default'] for key, entry in install_stack.QUESTIONS.items()})
+        # The docs role is off, so its question has no answer.
+        self.assertEqual(saved.pop('answers'), {key: entry['default'] for key, entry in install_stack.QUESTIONS.items()
+                                                if entry.get('role') != 'docs'})
         self.assertEqual(saved, {'version': 2, 'profiles': [], 'tools': [], 'started': True, 'parts_version': 1,
                                         'variants': {'tasker': 'git'}, 'choices': {
-            'cx': False, 'jagt-protocol': False, 'prose': True, 'reporter': False, 'tasker': True}})
+            'cx': False, 'docs': False, 'jagt-protocol': False, 'prose': True, 'reporter': False, 'tasker': True}})
         # With no profile, the project still gets the starter Justfile, which imports the recipe file.
         self.assertIn('Wrote Justfile', run.stdout)
         self.assertIn("import? '.agents/install.just'", (self.target / 'Justfile').read_text())
@@ -586,8 +588,12 @@ class StackTests(unittest.TestCase):
         self.assertIn('Nothing was written', run.stderr)
         self.assertTrue(run.stdout.startswith('SETUP_QUESTIONS v1\n'), run.stdout)
         self.assertIn('END_SETUP_QUESTIONS', run.stdout)
-        for key in ('issues', 'docs-publish', 'integration', 'tasker', 'review-model'):
+        for key in ('issues', 'integration', 'tasker', 'review-model'):
             self.assertIn(f'  - key: {key}\n', run.stdout)
+        # The docs role is off, so its question is not asked.
+        self.assertNotIn('  - key: docs-publish\n', run.stdout)
+        with_docs = self.stack('tasker', 'docs', asks=True)
+        self.assertIn('  - key: docs-publish\n', with_docs.stdout)
         self.assertIn('Do not give this packet to a fresh agent', run.stdout)
         self.assertIn('then: just install tasker --answer issues=VALUE', run.stdout)
         self.assertFalse((self.target / '.agents').exists())
@@ -683,7 +689,7 @@ class StackTests(unittest.TestCase):
     def test_a_dry_run_takes_the_defaults_and_names_the_open_questions(self):
         run = self.stack('tasker', '--dry-run', asks=True)
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn('The setup questions issues, docs-publish, integration, tasker, review-model have no answer',
+        self.assertIn('The setup questions issues, integration, tasker, review-model have no answer',
                       run.stdout)
         self.assertNotIn('SETUP_QUESTIONS', run.stdout)
         self.assertFalse((self.target / '.agents').exists())
@@ -729,6 +735,60 @@ class StackTests(unittest.TestCase):
         self.assertNotIn('SETUP_QUESTIONS', run.stdout)
         self.assertEqual(self.saved()['answers'], {'issues': 'none', 'tasker': 'git'})
 
+    def test_the_docs_role_writes_the_site_its_workflow_and_docs_check_and_goes_again(self):
+        run = self.stack('--defaults', 'docs')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertTrue(self.has('docs'))
+        for path in ('docs/_smalldocs.yml', 'docs/index.md', '.github/workflows/docs-publish.yml'):
+            self.assertTrue((self.target / path).is_file(), path)
+        self.assertIn('docs/_site/', (self.target / '.gitignore').read_text().splitlines())
+        index = (self.target / '.agents/just/index.just').read_text()
+        self.assertIn("import? '../skills/docs/docs.just'", index)
+        self.assertIn('docs-check', next(line for line in index.splitlines() if line.startswith('check:')).split())
+        # The no-op docs-check is gone, because the role has the step.
+        self.assertNotIn('jlog skip docs-check', index)
+        summary = subprocess.run(['just', '--summary'], cwd=self.target, capture_output=True, text=True).stdout.split()
+        self.assertTrue({'docs-check', 'docs', 'docs-build', 'docs-publish'} <= set(summary), summary)
+        # An edited page stays when the role goes. The line, the import and the unchanged workflow go. The config
+        # and the page are yours, so they stay.
+        (self.target / 'docs/index.md').write_text('# My site\n')
+        gone = self.stack('--without', 'docs')
+        self.assertEqual(gone.returncode, 0, gone.stderr)
+        self.assertFalse(self.has('docs'))
+        self.assertNotIn('docs/_site/', (self.target / '.gitignore').read_text().splitlines())
+        index = (self.target / '.agents/just/index.just').read_text()
+        self.assertNotIn('docs.just', index)
+        self.assertIn('jlog skip docs-check', index)
+        self.assertEqual((self.target / 'docs/index.md').read_text(), '# My site\n')
+        self.assertFalse((self.target / '.github/workflows/docs-publish.yml').exists())
+
+    def test_a_workflow_that_an_older_release_wrote_goes_with_the_docs_role(self):
+        self.assertEqual(self.stack('--defaults', 'docs').returncode, 0)
+        # An older release wrote other bytes, and the record holds their hash.
+        workflow = self.target / '.github/workflows/docs-publish.yml'
+        workflow.write_text('# an older workflow\n')
+        record = self.saved()
+        record['parts'][str(workflow.relative_to(self.target))]['(starter)']['hash'] = hashlib.sha256(
+            workflow.read_bytes()).hexdigest()
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        dry = self.stack('--without', 'docs', '--dry-run')
+        self.assertIn('Would remove .github/workflows/docs-publish.yml', dry.stdout)
+        self.assertTrue(workflow.exists())
+        gone = self.stack('--without', 'docs')
+        self.assertEqual(gone.returncode, 0, gone.stderr)
+        self.assertFalse(workflow.exists(), gone.stderr)
+        # A workflow that you changed stays, and the installer says so.
+        self.assertEqual(self.stack('--defaults', 'docs').returncode, 0)
+        workflow.write_text(workflow.read_text() + '# mine\n')
+        kept = self.stack('--without', 'docs')
+        self.assertTrue(workflow.exists())
+        self.assertIn('Kept .github/workflows/docs-publish.yml: you changed it', kept.stderr)
+
+    def test_docs_check_fails_when_the_list_of_recipes_fails(self):
+        recipe = (REPO / '.agents/skills/docs/docs.just').read_text()
+        self.assertIn('recipes="$(just', recipe)
+        self.assertIn('--summary)" && if', recipe)
+
     def test_a_named_role_turns_on_and_a_later_run_reuses_the_record(self):
         self.assertEqual(self.stack('--defaults', 'reporter', 'cx').returncode, 0)
         self.assertTrue(self.has('lanes') and self.has('cx'))
@@ -748,7 +808,7 @@ class StackTests(unittest.TestCase):
         self.assertFalse((self.target / RECORDS['sklanes']).exists())
         # The hooks of tasker are gone, and .claude keeps only the links of the skills that stay.
         self.assertEqual(os.listdir(self.target / '.claude'), ['skills'])
-        self.assertEqual(sorted(os.listdir(self.target / '.claude/skills')), ['jagt-protocol', 'just', 'nossaifd'])
+        self.assertEqual(sorted(os.listdir(self.target / '.claude/skills')), ['docs', 'jagt-protocol', 'just', 'nossaifd'])
         self.assertFalse(self.saved()['choices']['reporter'])
         # A later run has nothing left to remove.
         run = self.stack()
@@ -772,7 +832,7 @@ class StackTests(unittest.TestCase):
         (self.target / '.agents/stack.json').write_text(json.dumps({'version': 1, 'choices': old}))
         run = self.stack()
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual(self.saved()['choices'], {'cx': False, 'jagt-protocol': False, 'prose': False,
+        self.assertEqual(self.saved()['choices'], {'cx': False, 'docs': False, 'jagt-protocol': False, 'prose': False,
                                                    'reporter': True, 'tasker': True})
         self.assertEqual(self.stack('--without', 'sklanes').returncode, 0)
         self.assertFalse(self.saved()['choices']['reporter'])
@@ -791,7 +851,7 @@ class StackTests(unittest.TestCase):
         (self.target / '.agents/stack.json').write_text(json.dumps({'version': 2, 'choices': old}))
         run = self.stack('--dry-run')
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn("New role(s) that the saved record does not have: prose=yes", run.stderr)
+        self.assertIn("New role(s) that the saved record does not have: docs=no, prose=yes", run.stderr)
 
     def test_the_commands_of_the_project_do_not_get_the_virtual_env_of_the_installer(self):
         # uv run of the installer sets VIRTUAL_ENV, and uv in the project warns about it.
@@ -2385,7 +2445,7 @@ sys.exit(run.returncode)
     def test_bad_names_and_options(self):
         run = self.stack('nope')
         self.assertIn('Unknown name, or no active profile has the tool: nope', run.stderr)
-        self.assertIn('The roles are: cx, jagt-protocol, tasker, prose, reporter', run.stderr)
+        self.assertIn('The roles are: cx, jagt-protocol, docs, tasker, prose, reporter', run.stderr)
         self.assertIn('cannot be both turned on and turned off', self.stack('cx', '--without', 'cx').stderr)
         self.assertIn('--all or --defaults', self.stack('--all', '--defaults').stderr)
         self.assertIn('--clone needs NAME=DIR', self.stack('--defaults', '--clone', 'nossaifd').stderr)
@@ -2425,17 +2485,18 @@ sys.exit(run.returncode)
     def test_questions_use_the_saved_or_default_answer_on_enter(self):
         _, choices, _, _ = install_stack.load_registry(REPO / 'stack.json')
         args = mock.Mock(with_=[], without=[], all=False, defaults=False, ask=False)
-        answers = io.StringIO('\ny\nmaybe\nn\n\nyes\n')
+        answers = io.StringIO('\ny\n\nmaybe\nn\n\nyes\n')
         with mock.patch('sys.stdin', answers), mock.patch('sys.stderr', io.StringIO()) as err:
             chosen = install_stack.resolve(args, choices, None, True)
-        self.assertEqual(chosen, {'cx': False, 'jagt-protocol': True, 'tasker': False, 'prose': True, 'reporter': True})
+        self.assertEqual(chosen, {'cx': False, 'jagt-protocol': True, 'docs': False, 'tasker': False, 'prose': True,
+                                  'reporter': True})
         self.assertIn('Answer y or n.', err.getvalue())
         self.assertIn('Install tasker (track work with Gest: the g* workflow skills)? [Y/n]', err.getvalue())
 
     def test_on_a_terminal_only_new_roles_are_asked(self):
         _, choices, _, _ = install_stack.load_registry(REPO / 'stack.json')
         args = mock.Mock(with_=[], without=[], all=False, defaults=False, ask=False)
-        saved = {'cx': True, 'tasker': True, 'jagt-protocol': False, 'reporter': False}
+        saved = {'cx': True, 'tasker': True, 'jagt-protocol': False, 'docs': False, 'reporter': False}
         with mock.patch('sys.stdin', io.StringIO('n\n')), mock.patch('sys.stderr', io.StringIO()) as err:
             chosen = install_stack.resolve(args, choices, saved, True)
         self.assertEqual(err.getvalue().count('Install '), 1)
@@ -2451,9 +2512,9 @@ sys.exit(run.returncode)
             self.assertEqual({name for name, value in chosen.items() if value}, set(on))
         # A named tool and no role still asks about the roles.
         args = mock.Mock(with_=[], without=[], all=False, defaults=False, ask=False)
-        with mock.patch('sys.stdin', io.StringIO('\n' * 5)), mock.patch('sys.stderr', io.StringIO()) as err:
+        with mock.patch('sys.stdin', io.StringIO('\n' * 6)), mock.patch('sys.stderr', io.StringIO()) as err:
             install_stack.resolve(args, choices, None, True, implied=True)
-        self.assertEqual(err.getvalue().count('Install '), 5)
+        self.assertEqual(err.getvalue().count('Install '), 6)
 
     def test_questions_stop_when_the_terminal_closes(self):
         _, choices, _, _ = install_stack.load_registry(REPO / 'stack.json')

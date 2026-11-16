@@ -1,0 +1,14 @@
+project:
+  type: website
+  output-dir: _site
+
+website:
+  title: Docs
+  page-navigation: true
+  navbar:
+    left:
+      - href: index.md
+        text: Home
+
+toc: true
+code-copy: true
