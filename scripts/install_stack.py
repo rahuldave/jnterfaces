@@ -1246,13 +1246,20 @@ def update(clone):
 
 
 def missing_tools(clone):
-    """The required executables that a package names in skill-package.json and that are not on PATH."""
+    """The required executables that a package names in skill-package.json and that are not on PATH, each with the
+    line that installs it: the key install, else the description, else the check. A malformed entry is skipped."""
     try:
-        manifest = json.loads((clone / 'skill-package.json').read_text())
-        required = manifest.get('executables', {}).get('required', [])
-        return [entry['name'] for entry in required if not shutil.which(entry['name'])]
-    except (OSError, ValueError, AttributeError, KeyError, TypeError):
+        required = json.loads((clone / 'skill-package.json').read_text()).get('executables', {}).get('required', [])
+    except (OSError, ValueError, AttributeError):
         return []
+    found = []
+    for entry in required if isinstance(required, list) else []:
+        if not isinstance(entry, dict) or not isinstance(entry.get('name'), str) or not entry['name']:
+            continue
+        if not shutil.which(entry['name']):
+            found.append((entry['name'], entry.get('install') or entry.get('description')
+                          or f'Install it so that {entry.get("check", entry["name"])} works.', 'install' in entry))
+    return found
 
 
 def run_installer(clone, options, target, head, dry_run, quiet=False):
@@ -2439,10 +2446,22 @@ def main(argv=None):
     # The step of each role is checked when the role installs too, so that a bad step cannot block its removal later.
     befores = {p['name']: role_before_remove(p, clones[p['name']]) for p in [s[0] for s in steps] + removals
                if 'choice' in p}
+    # The tools table: each required executable of a package that installs. A missing one stops the run, with its
+    # install line, before anything is written. A program that a profile or a role of this run installs, from its
+    # programs, does not count. Each program is named once, with an install line when a package gives one. A dry run
+    # only prints the lines.
+    installing = {entry['name'] for entry in programs if 'install' in entry}
+    lacking = {}
     for package, _ in steps:
-        lacking = missing_tools(clones[package['name']])
-        if lacking:
-            print(f'{package["name"]} needs {", ".join(lacking)} on PATH; install it to use those skills.', file=sys.stderr)
+        for name, line, has_install in missing_tools(clones[package['name']]):
+            if name not in installing and (name not in lacking or (has_install and not lacking[name][1])):
+                lacking[name] = (f'{name} (for {package["name"]}): {line}', has_install)
+    lacking = [line for line, _ in lacking.values()]
+    if lacking and not args.dry_run:
+        raise StackError('A program that the packages need is not on PATH. Nothing was written. Install it, then run '
+                         'just install again:\n  ' + '\n  '.join(lacking))
+    for line in lacking:
+        print(f'Missing program: {line}')
     # Every package checks its install, or its removal, before any package writes a file.
     for package, options in steps:
         if run_installer(clones[package['name']], options, target, heads.get(package['name']), True,
