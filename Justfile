@@ -58,7 +58,7 @@ install-into target *args:
     exec uv run --quiet --script scripts/install_stack.py --target "$target" "$@"
 
 # The documentation site, from docs/, with smalldocs.
-smalldocs := "uvx --quiet smalldocs@0.5.5"
+smalldocs := "uvx --quiet smalldocs@0.5.12"
 
 # Check the site: broken links, and options that smalldocs ignores
 docs-check:

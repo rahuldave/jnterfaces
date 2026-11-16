@@ -119,5 +119,16 @@ class DocsPublishTests(unittest.TestCase):
         self.assertEqual(self.publish('PUBLIC', 'true').returncode, 7)
 
 
+class PinTests(unittest.TestCase):
+    def test_the_docs_role_pins_a_smalldocs_that_reads_typescript_and_rust(self):
+        # Before 0.5.10, smalldocs read each api section as Python, so a TypeScript section stopped docs-check.
+        import re
+        pins = {path: re.findall(r'smalldocs@([0-9.]+)', (REPO / path).read_text())
+                for path in ('Justfile', '.agents/skills/docs/docs.just', '.agents/skills/docs/docs_publish.py')}
+        versions = {version for found in pins.values() for version in found}
+        self.assertEqual(len(versions), 1, pins)
+        self.assertGreaterEqual(tuple(map(int, versions.pop().split('.'))), (0, 5, 10))
+
+
 if __name__ == '__main__':
     unittest.main()
