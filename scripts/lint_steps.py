@@ -24,8 +24,9 @@ import sys
 
 # The import line of the recipe file of jnterfaces, which brings the index and its check.
 IMPORTS = re.compile(r'''^import\??\s+['"](\./)?\.agents/install\.just['"]''', re.M)
-# The steps of just check, in their order.
-STEPS = ('fmt-check', 'lint', 'typecheck', 'test', 'coverage-check', 'integration', 'docstring-check', 'docs-check',
+# The steps of just check, in their order. integration comes before coverage-check, so that the gate of coverage reads
+# the reports of test and integration from the same run.
+STEPS = ('fmt-check', 'lint', 'typecheck', 'test', 'integration', 'coverage-check', 'docstring-check', 'docs-check',
          'prose-check', 'diff-check')
 # The reason that a no-op step logs with jlog skip.
 REASONS = {

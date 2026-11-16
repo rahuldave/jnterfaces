@@ -312,12 +312,13 @@ The record has these keys:
 | `choices` | Each role, on or off. | `{"cx": false, "jagt-protocol": false, "prose": true, "reporter": false, "tasker": true}` |
 | `tools` | The installed tools. | `["python:lint", "python:test"]` |
 | `variants` | The variant of each role that has variants. | `{"tasker": "git"}` |
+| `answers` | The answer of each setup question. A question with an answer is not asked again. The README lists the questions. | `{"integration": "check", "issues": "top"}` |
 | `owned_packages` | The packages that the installer added, keyed by their place in the manifest. A removal takes out only these. For Python the place is `profile:group`. For TypeScript it is the profile, because npm has no groups. | `{"python:lint": ["pre-commit", "ruff"]}` |
 | `generated` | The hash of `index.just` and of each `<profile>.just` that the installer wrote. | |
 | `started` | `true` when the installer wrote the starter Justfile. | `true` |
 | `code` | The globs of the source files of each profile, for `@code` of the gate. | `{"python": ["**/*.py"]}` |
 | `tests` | The globs of the test files of each profile. `test-parent` copies only these files into the parent commit. | `{"python": ["tests/**"]}` |
-| `steps` | The steps of `just check`, in their order. `jlog pass` reads them. | `["fmt-check", "lint", ...]` |
+| `steps` | The steps of `just check`, in their order. `jlog pass` reads them. With the answer `integration=verify`, `integration` is not in the list. | `["fmt-check", "lint", ...]` |
 | `ci` | The steps that `just ci` runs after `ci-gate`. Each one must be a step of `just check`. You edit it, and `just install` keeps it. | `["test"]` |
 | `provided_steps` | The steps that an installed profile or role provides. `jlog pass` counts a skip only for a step that is not in this list. | `["lint", "test", "diff-check"]` |
 | `justfile_clash` | The hash of your Justfile and the error of `just`, when a run took the block out again because the Justfile did not parse with it. While the Justfile keeps this hash, the installer does not add the block. | |

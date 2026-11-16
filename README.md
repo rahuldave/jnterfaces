@@ -202,7 +202,7 @@ In a project that jnterfaces started, with its starter Justfile:
 **The steps of just check.** `just check` runs these steps, in this order:
 
 ```text
-fmt-check lint typecheck test coverage-check integration docstring-check docs-check prose-check diff-check
+fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
 ```
 
 The `prose` role gives `prose-check`, and the installer gives `diff-check`.
@@ -283,6 +283,8 @@ of a dependency group goes, the installer takes out the empty group.
 - **`--profile python,typescript`** sets the profiles. A saved profile that
   the list leaves out is turned off.
 - **`--defaults`** takes the defaults, and **`--all`** takes every role.
+- **`--answer KEY=VALUE`** answers a setup question and saves the answer.
+  The next section lists the questions.
 - **`--ask`** asks again, even when the project has saved choices.
 - **`--update`** runs `git pull --ff-only` in each clone first.
 - **`--clone NAME=DIR`** uses one clone in another folder.
@@ -291,6 +293,38 @@ of a dependency group goes, the installer takes out the empty group.
   project.
 - **`--check`** compares the record in `.agents/stack.json` with the shared
   files, and changes nothing.
+
+### Setup questions
+
+Some choices of a project belong to you, not to the stack. The installer asks
+each question that has no saved answer:
+
+| Key | Question | Answers | Default |
+|---|---|---|---|
+| `issues` | Which Gest tasks become GitHub issues? | `top`, `development`, `none` | `top` |
+| `docs-publish` | Publish the docs site of a public repository after a merge to `main`? | `yes`, `no` | `yes` |
+| `integration` | Run the integration tests in `just check`, or only in `just verify` before a PR? | `check`, `verify` | `check` |
+| `tasker` | One branch in the main checkout, or a worktree for each task? Only while the `tasker` role is on. | `git`, `gitwt` | `git` |
+| `review-model` | Which model does the adversarial review? | `strongest`, or a model name | `strongest` |
+
+- **At a terminal,** the installer asks each open question. Type the answer,
+  its number, or nothing for the default.
+- **With no terminal,** for example under an agent, the installer prints a
+  `SETUP_QUESTIONS v1` packet with the open questions, and stops. It writes
+  nothing. The agent asks you each question, then runs `just install` again
+  with `--answer KEY=VALUE` for each answer.
+- **With `--defaults`, or in CI,** the installer takes the default of each
+  open question and asks nothing. CI counts when the variable `CI` is set and
+  is not `0` or `false`.
+- **A run that only removes,** such as `just uninstall reporter`, asks
+  nothing. A dry run takes the defaults and names the open questions.
+- **The answers** are in the key `answers` of `.agents/stack.json`. A
+  question with an answer is not asked again. A later version of the stack
+  can add questions, and then only the new ones are asked.
+- **The answer `integration=verify`** takes `integration` out of the steps of
+  `just check`. The recipe stays, and `just verify` runs it.
+- **The answer of `tasker`** is the variant of the role, as in
+  `just install tasker=gitwt`.
 
 ### Where the packages are
 
