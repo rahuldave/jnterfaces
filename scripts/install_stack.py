@@ -54,6 +54,25 @@ SHELL_LINE = 'set shell := ["jlog", "sh", "-cu"]'
 SHELL_NOTE = ('{name} sets its own shell without jlog, so the index sets none, and just check fails: jlog step, jlog '
               'skip and jlog pass work only in a recipe that runs through jlog. Put jlog in front of the shell: '
               'set shell := {line}')
+# The setup questions: the choices of a repository that belong to the person. Each has its key, the question, the
+# answers with their meaning, and the default. An answer is saved in the key answers of .agents/stack.json, and a
+# question with an answer is not asked again. review-model takes any model name, so its answers are only examples.
+QUESTIONS = {
+    'issues': {'question': 'Which Gest tasks become GitHub issues?',
+               'answers': {'top': 'every top-level task', 'development': 'only development tasks', 'none': 'none'},
+               'default': 'top'},
+    'docs-publish': {'question': 'Publish the docs site of a public repository after a merge to main?',
+                     'answers': {'yes': 'publish it', 'no': 'do not publish it'}, 'default': 'yes'},
+    'integration': {'question': 'Run the integration tests in just check, or only in just verify before a PR?',
+                    'answers': {'check': 'in just check', 'verify': 'only in just verify'}, 'default': 'check'},
+    'tasker': {'question': 'One branch in the main checkout, or a worktree for each task? The answer is the variant of '
+                           'the tasker role.',
+               'answers': {'git': 'one branch in the main checkout', 'gitwt': 'a worktree for each task'},
+               'default': 'git', 'role': 'tasker'},
+    'review-model': {'question': 'Which model does the adversarial review?',
+                     'answers': {'strongest': 'the strongest model of the harness'}, 'default': 'strongest',
+                     'free': True},
+}
 JLOG_INSTALL = 'clone https://github.com/rahuldave/jlog, run git checkout v0.1.1 in the clone, then run just install'
 
 
@@ -1055,6 +1074,119 @@ def ask(choices, start, only=None):
     return chosen
 
 
+def parse_answers(given):
+    """The answers of --answer KEY=VALUE, by key. A free question takes any plain name, the others one of their
+    answers."""
+    out = {}
+    for item in given:
+        key, sep, value = item.partition('=')
+        if not sep or key not in QUESTIONS:
+            raise StackError(f'--answer needs KEY=VALUE, with a key of the setup questions: {", ".join(QUESTIONS)}. '
+                             f'It got {item}')
+        entry = QUESTIONS[key]
+        if not (value in entry['answers'] or (entry.get('free') and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:/-]*', value))):
+            raise StackError(f'{key} takes {"a model name, such as " if entry.get("free") else ""}'
+                             f'{", ".join(entry["answers"])}. It got {item}')
+        out[key] = value
+    return out
+
+
+def in_ci():
+    """True when CI is set, as on GitHub Actions, and is not 0 or false."""
+    return os.environ.get('CI', '').strip().lower() not in ('', '0', 'false')
+
+
+def ask_question(key):
+    """Ask one setup question on the terminal. An empty answer takes the default, and a number takes that answer."""
+    entry = QUESTIONS[key]
+    options = list(entry['answers'])
+    print(f'{entry["question"]} ({key})', file=sys.stderr)
+    for number, value in enumerate(options, 1):
+        mark = ' (default)' if value == entry['default'] else ''
+        print(f'  {number}. {value}: {entry["answers"][value]}{mark}', file=sys.stderr)
+    while True:
+        print(f'Answer [{entry["default"]}]: ', end='', file=sys.stderr, flush=True)
+        line = sys.stdin.readline()
+        if not line:
+            raise StackError(f'No answer on the terminal; pass --answer {key}=VALUE')
+        answer = line.strip()
+        if answer.isdigit() and 1 <= int(answer) <= len(options):
+            return options[int(answer) - 1]
+        if answer.isdigit():
+            print(f'Type a number from 1 to {len(options)}, or an answer.', file=sys.stderr)
+            continue
+        try:
+            return parse_answers([f'{key}={answer or entry["default"]}'])[key]
+        except StackError as exc:
+            print(exc, file=sys.stderr)
+
+
+def questions_packet(keys, command):
+    """The setup-questions packet: the open questions, for the agent that ran just install. That agent asks the
+    person, so the packet is not for a fresh agent, which cannot ask."""
+    lines = ['SETUP_QUESTIONS v1', 'target: setup-questions',
+             'for: the agent that ran just install. Ask the person each question with the question tool of your '
+             'harness. Do not give this packet to a fresh agent, because it cannot ask the person.', 'questions:']
+    for key in keys:
+        entry = QUESTIONS[key]
+        lines += [f'  - key: {key}', f'    question: {json.dumps(entry["question"])}', '    answers:']
+        lines += [f'      {value}: {json.dumps(about)}' for value, about in entry['answers'].items()]
+        lines += [f'    default: {entry["default"]}']
+        if entry.get('free'):
+            lines += ['    other: any model name, such as claude-opus-5-5']
+    lines += [f'then: {command} ' + ' '.join(f'--answer {key}=VALUE' for key in keys), 'END_SETUP_QUESTIONS']
+    return '\n'.join(lines)
+
+
+def setup_answers(args, raw, chosen, named_variants, interactive, removal=False):
+    """The answers of the setup questions for this run: the saved ones, then --answer. A question of a role counts
+    only while the role is on, and a variant that the run names, or that the record saved, answers it. Each open
+    question takes its default with --defaults or in CI, else the terminal asks it. With no terminal, the installer
+    prints the setup-questions packet and stops before it writes anything. A run that only removes asks nothing, and
+    a dry run takes the defaults: neither saves an answer that the person did not give."""
+    raw = raw if isinstance(raw, dict) else {}
+    saved = raw.get('answers') if isinstance(raw.get('answers'), dict) else {}
+    answers = {key: value for key, value in saved.items() if key in QUESTIONS and isinstance(value, str)}
+    answers.update(parse_answers(args.answer))
+    saved_variants = raw.get('variants') if isinstance(raw.get('variants'), dict) else {}
+    # The question of a role is answered by its variant: named now, else given with --answer, else saved. A variant
+    # that is not an answer of the question, such as jj, also settles it, and then no answer is saved.
+    settled = set()
+    for key, entry in QUESTIONS.items():
+        role = entry.get('role')
+        if not role:
+            continue
+        given = parse_answers(args.answer).get(key)
+        if role in named_variants and given and given != named_variants[role]:
+            raise StackError(f'{role}={named_variants[role]} and --answer {key}={given} disagree. Name one of them.')
+        known = named_variants.get(role) or given or saved_variants.get(role)
+        if known:
+            settled.add(key)
+            if known in entry['answers']:
+                answers[key] = known
+            else:
+                answers.pop(key, None)
+    open_keys = [key for key, entry in QUESTIONS.items()
+                 if key not in answers and key not in settled and (not entry.get('role') or chosen.get(entry['role']))]
+    if not open_keys or removal:
+        return answers
+    if args.dry_run and not (args.defaults or in_ci() or interactive):
+        print(f'The setup questions {", ".join(open_keys)} have no answer. The run would ask them; the dry run takes '
+              f'the defaults.')
+        return dict(answers, **{key: QUESTIONS[key]['default'] for key in open_keys})
+    if args.defaults or in_ci():
+        answers.update({key: QUESTIONS[key]['default'] for key in open_keys})
+    elif interactive:
+        answers.update({key: ask_question(key) for key in open_keys})
+    else:
+        command = os.environ.get('JNTERFACES_COMMAND') or shlex.join(['install_stack.py', *sys.argv[1:]])
+        print(questions_packet(open_keys, command))
+        raise StackError(f'The setup questions {", ".join(open_keys)} have no answer, and there is no terminal to ask '
+                         f'on. Nothing was written. The packet above holds the questions: ask the person, then run '
+                         f'{command} with --answer KEY=VALUE for each one. --defaults takes the default of each.')
+    return answers
+
+
 def resolve(args, choices, recorded, interactive, found=None, defaults=None, implied=False):
     """Return the choices for this run.
 
@@ -1930,7 +2062,12 @@ def recipe_line(name, recipe, takes):
     return f'    just --justfile {{{{quote(justfile())}}}} {name} {recipe}' + (' "$@"' if takes else '')
 
 
-def ci_steps(target):
+def check_steps(answers):
+    """The steps of just check, in their order. The answer integration=verify leaves integration to just verify."""
+    return tuple(step for step in STEPS if not (step == 'integration' and answers.get('integration') == 'verify'))
+
+
+def ci_steps(target, steps=STEPS):
     """The steps of just ci: the list `ci` of .agents/stack.json, kept to the steps of just check, in their order.
     CI checks only part of what the commit gate saw, so a step that check does not run cannot be in ci."""
     try:
@@ -1942,21 +2079,22 @@ def ci_steps(target):
             f'example ["test"]')
         return []
     for name in listed:
-        if name not in STEPS:
+        if name not in steps:
             say(f'{name!r} in the list ci of {RECORD} is not a step of just check, so just ci leaves it out. The steps '
-                f'are: {", ".join(STEPS)}')
-    return [step for step in STEPS if step in listed]
+                f'are: {", ".join(steps)}')
+    return [step for step in steps if step in listed]
 
 
-def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runnable=None, ci=()):
+def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runnable=None, ci=(), check=STEPS):
     """The index. Its form with full False has the modules only: the installer reads the names of the project with
     it. The whole index also has the setting of the shell, the recipe file of each role, and for each recipe name of
     the profiles a combined recipe that runs it in each profile that has it. A combined recipe of a step ends with
     jlog step. Each step that nothing defines is a no-op step that logs a skip, and check runs the steps and ends
     with jlog pass. The index leaves out each name in taken: the names of the project and of the roles. runnable
     holds the names in taken that are recipes. check depends only on a recipe, because just cannot depend on an
-    alias or a module. ci runs ci-gate, then the steps in ci. A role with a commit gate defines ci-gate; without one,
-    ci-gate is a stub that says so."""
+    alias or a module. check runs only the steps in check, the steps of just check for the answers of the setup
+    questions. ci runs ci-gate, then the steps in ci. A role with a commit gate defines ci-gate; without one, ci-gate
+    is a stub that says so."""
     lines = [HEADER, '# The recipes of the profiles and roles of this project. .agents/install.just imports this file.',
              '']
     if full and shell:
@@ -1975,9 +2113,15 @@ def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runn
         lines += ['[positional-arguments]', f'{recipe} *args:'] if takes else [f'{recipe}:']
         lines += [recipe_line(name, recipe, name in takes) for name in having]
         lines += [f'    jlog step {recipe}'] if recipe in STEPS else []
-    if modules and 'verify' not in taken:
+    # With the answer integration=verify, just check leaves integration out, so verify runs it.
+    late = 'integration' in STEPS and 'integration' not in check
+    if late and 'verify' in taken:
+        say('The answer integration=verify leaves integration out of just check, and the Justfile has its own verify, '
+            'so nothing runs integration. Add the line just integration to your verify, or answer integration=check.')
+    if (modules or late) and 'verify' not in taken:
         lines += ['', '# Every installed check of each language, then the check of git for whitespace errors',
                   'verify:'] + [f'    just --justfile {{{{quote(justfile())}}}} {name} verify' for name in modules]
+        lines += ['    just --justfile {{quote(justfile())}} integration'] if late else []
         lines += ['    git diff --check']
     real = set(names)
     if modules and 'diff-check' not in real | taken:
@@ -1994,7 +2138,7 @@ def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runn
             real.add(step)
     runnable = taken if runnable is None else set(runnable)
     if 'check' not in taken:
-        steps = [step for step in STEPS if step in real or step in runnable]
+        steps = [step for step in STEPS if step in check and (step in real or step in runnable)]
         lines += ['', '# Everything a commit must pass: each step, then the pass of jlog for the worktree',
                   f'check: {" ".join(steps)}', '    jlog pass']
     if 'ci-gate' not in taken:
@@ -2088,16 +2232,17 @@ def shell_of(dump):
 
 
 def write_recipes(target, profiles, active, tools, dry_run, generated, started, known=(), roles=(), adding=False,
-                  out=None):
+                  out=None, check=STEPS):
     """Write .agents/just: a module for each active profile with the recipes of its installed tools, and the index.
     A file that the user changed stays as it is. The index comes in the order of the spec of the commit gates: the
     installer keeps the old index, writes the index with the modules only, reads the names of the project from a
     dump of the Justfile, then writes the whole index without those names. When it stops before the end, it puts the
     old index back. adding is True while the run is still to add the import of the recipe file to the Justfile, so
     that the run does not tell the user to add it. out gets the steps and the provided steps for .agents/stack.json.
-    Return the error of just when the Justfile does not parse."""
+    check holds the steps of just check, for the answers of the setup questions. Return the error of just when the
+    Justfile does not parse."""
     out = {} if out is None else out
-    out['steps'] = list(STEPS)
+    out['steps'] = list(check)
     folder = target / RECIPES
     if folder.is_symlink() or (folder.exists() and not folder.is_dir()):
         print(f'{folder} is not a plain folder, so the recipes of the profiles are not written.', file=sys.stderr)
@@ -2108,7 +2253,7 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
         modules[name] = module_text(name, profiles[name], installed)
     if dry_run:
         print('Would write the recipes of ' + (', '.join(modules) if modules else 'no profile') + ' in .agents/just')
-        ci_steps(target)
+        ci_steps(target, check)
         return
     kept = {}
     for name, text in modules.items():
@@ -2263,7 +2408,8 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
             say(f'{step} in the project is an alias, a module, or a recipe that needs an argument, so check cannot run '
                 f'the step {step}, and jlog pass fails. Rename it, or give each argument a default.')
     out['provided_steps'] = provided_of(mods, recipes, role_recipes)
-    whole = index_text(mods, recipes, roles, True, taken, shell=shell is None, runnable=runnable, ci=ci_steps(target))
+    whole = index_text(mods, recipes, roles, True, taken, shell=shell is None, runnable=runnable,
+                       ci=ci_steps(target, check), check=check)
     if not mine and whole.encode() != old:
         restore()
         return keep()
@@ -2299,6 +2445,8 @@ def main(argv=None):
     parser.add_argument('--dry-run', action='store_true', help='check everything and write nothing in the target')
     parser.add_argument('--check', action='store_true',
                         help='compare the record in .agents/stack.json with the shared files, and change nothing')
+    parser.add_argument('--answer', action='append', default=[], metavar='KEY=VALUE',
+                        help='answer a setup question, and save the answer: --answer issues=none')
     parser.add_argument('--registry', type=Path, default=ROOT / 'stack.json', help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.all and args.defaults:
@@ -2360,7 +2508,13 @@ def main(argv=None):
     implied = bool(split['tools_on'] or split['profiles'] or args.profile)
     chosen = resolve(args, choices, record and record['choices'], sys.stdin.isatty(), installed(target, packages),
                      defaults, implied)
-    # The variant of each role that is on: named now, else saved, else the default of the role.
+    # A run that only turns something off asks no question: the questions are about what the project gets.
+    removal = (bool(split['roles_off'] or split['tools_off'] or split['profiles_off'])
+               and not (split['roles_on'] or split['tools_on'] or split['profiles'] or args.profile or args.all
+                        or split['variants']))
+    answers = setup_answers(args, (record or {}).get('raw'), chosen, split['variants'], sys.stdin.isatty(), removal)
+    # The variant of each role that is on: named now, else the answer of its setup question, else saved, else the
+    # default of the role.
     variants = {}
     for name, entry in choices.items():
         offered = entry.get('variants')
@@ -2369,11 +2523,19 @@ def main(argv=None):
             if saved and saved not in offered and name not in split['variants']:
                 print(f'The saved variant {name}={saved} is gone from stack.json, so {name} takes '
                       f'{entry["default_variant"]}.', file=sys.stderr)
-            variant = split['variants'].get(name) or (saved if saved in offered else None) or entry['default_variant']
+            answer = answers.get(name) if QUESTIONS.get(name, {}).get('role') == name else None
+            variant = (split['variants'].get(name) or (answer if answer in offered else None)
+                       or (saved if saved in offered else None) or entry['default_variant'])
             if not offered[variant].get('ready', True):
                 raise StackError(f'{name}={variant} is not ready yet: {offered[variant]["about"]}. Name another '
                                  f'variant, for example: just install {name}={entry["default_variant"]}')
             variants[name] = variant
+            if QUESTIONS.get(name, {}).get('role') == name:
+                # The saved answer is the variant that the role has, or none for a variant that is not an answer.
+                if variant in QUESTIONS[name]['answers']:
+                    answers[name] = variant
+                else:
+                    answers.pop(name, None)
     available = {tool for name in active for tool in profiles[name]['tools']}
     wanted = set(split['tools_on']) | set(split['tools_off'])
     if wanted - available:
@@ -2579,7 +2741,7 @@ def main(argv=None):
     # The keys that save writes. It keeps each other key of the record, so that it never drops one.
     managed = {'version', 'profiles', 'choices', 'tools', 'variants', 'owned_packages', 'added_packages',
                'pending_tools', 'removing_tools', 'removing_profiles', 'generated', 'started', 'parts',
-               'parts_version', 'code', 'tests', 'justfile_clash', 'steps', 'provided_steps'}
+               'parts_version', 'code', 'tests', 'justfile_clash', 'steps', 'provided_steps', 'answers'}
 
     def save(tool_list, waiting, going=()):
         record_file.parent.mkdir(exist_ok=True)
@@ -2594,6 +2756,8 @@ def main(argv=None):
         record = {'version': 2, 'profiles': kept_profiles, 'choices': dict(sorted(chosen.items())), 'tools': tool_list}
         if variants:
             record['variants'] = dict(sorted(variants.items()))
+        if answers:
+            record['answers'] = dict(sorted(answers.items()))
         kept = {key: sorted(names) for key, names in sorted(owned.items()) if names}
         if kept:
             record['owned_packages'] = kept
@@ -2617,7 +2781,8 @@ def main(argv=None):
         step_record = {}
         write_recipes(target, profiles, [name for name in kept_profiles if name not in leaving], tool_list, False,
                       generated, state['started'], registry_profiles,
-                      [f'roles/{package["name"]}.just' for package, _ in steps], state['adding'], step_record)
+                      [f'roles/{package["name"]}.just' for package, _ in steps], state['adding'], step_record,
+                      check_steps(answers))
         # The steps of just check, and the steps that a profile or a role provides, for jlog pass.
         for key in ('steps', 'provided_steps'):
             if key in step_record or key in old:

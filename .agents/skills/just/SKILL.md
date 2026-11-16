@@ -122,7 +122,7 @@ the Justfile.
 this order, in every project:
 
 ```text
-fmt-check lint typecheck test coverage-check integration docstring-check docs-check prose-check diff-check
+fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
 ```
 
 `references/command_contract.md` gives the meaning of each step. The rules

@@ -209,7 +209,7 @@ Each tool of a profile has one recipe file, for example
 **The steps of just check.** `just check` runs these steps in every project:
 
 ```text
-fmt-check lint typecheck test coverage-check integration docstring-check docs-check prose-check diff-check
+fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
 ```
 
 - **A combined step** ends with the line `jlog step NAME`, so the run log

@@ -460,12 +460,17 @@ class StackTests(unittest.TestCase):
         change(profile)
         self.profile_package(name, profile)
 
-    def stack(self, *args, env=None, target=None):
+    def stack(self, *args, env=None, target=None, asks=False):
+        """Run the installer. The setup questions are not the point of most tests, so CI is set and each open
+        question takes its default. With asks True, CI is not set, and env can set it."""
+        base = {k: v for k, v in os.environ.items() if k not in ('SKILL_PACKAGES_DIR', 'CI')}
+        if not asks:
+            base['CI'] = 'true'
         return subprocess.run([sys.executable, self.packages / 'jnterfaces/scripts/install_stack.py',
                                '--target', target or self.target, *args],
                               capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                              env=dict({k: v for k, v in os.environ.items() if k != 'SKILL_PACKAGES_DIR'},
-                                       PATH=f'{self.bin}:{os.environ["PATH"]}', TOOL_LOG=str(self.log), **(env or {})))
+                              env=dict(base, PATH=f'{self.bin}:{os.environ["PATH"]}', TOOL_LOG=str(self.log),
+                                       **(env or {})))
 
     def saved(self):
         return json.loads((self.target / '.agents/stack.json').read_text())
@@ -501,6 +506,8 @@ class StackTests(unittest.TestCase):
         self.assertEqual(sorted(saved.pop('parts')), ['.agents/coverage-exclude.txt', '.agents/generated.txt',
                                                       '.gitignore', '.worktreedisposable'])
         self.assertEqual((saved.pop('steps'), saved.pop('provided_steps')), (list(STEPS), []))
+        # --defaults takes the default of each setup question.
+        self.assertEqual(saved.pop('answers'), {key: entry['default'] for key, entry in install_stack.QUESTIONS.items()})
         self.assertEqual(saved, {'version': 2, 'profiles': [], 'tools': [], 'started': True, 'parts_version': 1,
                                         'variants': {'tasker': 'git'}, 'choices': {
             'cx': False, 'jagt-protocol': False, 'prose': True, 'reporter': False, 'tasker': True}})
@@ -570,6 +577,157 @@ class StackTests(unittest.TestCase):
         commit(root)
         run = self.stack('--defaults', '--dry-run')
         self.assertNotIn('Missing program: jn-made-here (for agent_gest_git_skills): Install it', run.stdout)
+    ALL_ANSWERS = ('--answer', 'issues=top', '--answer', 'docs-publish=yes', '--answer', 'integration=check',
+                   '--answer', 'review-model=strongest')
+
+    def test_with_no_terminal_an_open_setup_question_prints_the_packet_and_writes_nothing(self):
+        run = self.stack('tasker', env={'JNTERFACES_COMMAND': 'just install tasker'}, asks=True)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('Nothing was written', run.stderr)
+        self.assertTrue(run.stdout.startswith('SETUP_QUESTIONS v1\n'), run.stdout)
+        self.assertIn('END_SETUP_QUESTIONS', run.stdout)
+        for key in ('issues', 'docs-publish', 'integration', 'tasker', 'review-model'):
+            self.assertIn(f'  - key: {key}\n', run.stdout)
+        self.assertIn('Do not give this packet to a fresh agent', run.stdout)
+        self.assertIn('then: just install tasker --answer issues=VALUE', run.stdout)
+        self.assertFalse((self.target / '.agents').exists())
+        self.assertFalse((self.target / 'Justfile').exists())
+
+    def test_an_answered_question_is_not_asked_again(self):
+        run = self.stack('tasker', '--answer', 'issues=none', asks=True)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertNotIn('  - key: issues\n', run.stdout)
+        self.assertIn('  - key: integration\n', run.stdout)
+        done = self.stack('tasker', '--answer', 'issues=none', '--answer', 'docs-publish=no', '--answer',
+                          'integration=check', '--answer', 'tasker=gitwt', '--answer', 'review-model=claude-opus-5-5',
+                          asks=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.saved()['answers'], {'docs-publish': 'no', 'integration': 'check', 'issues': 'none',
+                                                   'review-model': 'claude-opus-5-5', 'tasker': 'gitwt'})
+        # The answer of tasker is the variant of the role.
+        self.assertEqual(self.saved()['variants'], {'tasker': 'gitwt'})
+        again = self.stack(asks=True)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertNotIn('SETUP_QUESTIONS', again.stdout)
+        self.assertEqual(self.saved()['answers']['issues'], 'none')
+        # A later answer changes a saved one.
+        self.assertEqual(self.stack('--answer', 'issues=development', asks=True).returncode, 0)
+        self.assertEqual(self.saved()['answers']['issues'], 'development')
+
+    def test_in_ci_the_installer_takes_the_defaults_and_asks_nothing(self):
+        run = self.stack('tasker', env={'CI': 'true'}, asks=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('SETUP_QUESTIONS', run.stdout)
+        self.assertEqual(self.saved()['answers'], {key: entry['default']
+                                                   for key, entry in install_stack.QUESTIONS.items()})
+        # CI=false is not CI.
+        other = self.base / 'other'
+        other.mkdir()
+        git(other, 'init', '-q')
+        self.assertNotEqual(self.stack('tasker', env={'CI': 'false'}, target=other, asks=True).returncode, 0)
+
+    def test_a_question_of_a_role_that_is_off_is_not_asked(self):
+        run = self.stack('reporter', *self.ALL_ANSWERS, asks=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('tasker', self.saved()['answers'])
+
+    def test_a_bad_answer_stops_the_run(self):
+        for item, said in (('nokey=1', 'a key of the setup questions'), ('issues', 'KEY=VALUE'),
+                           ('issues=all', 'issues takes top, development, none'),
+                           ('review-model=-x', 'a model name')):
+            run = self.stack('--defaults', '--answer', item)
+            self.assertNotEqual(run.returncode, 0, item)
+            self.assertIn(said, run.stderr)
+        self.assertFalse((self.target / '.agents').exists())
+
+    def test_integration_in_just_verify_leaves_it_out_of_just_check(self):
+        self.assertEqual(self.stack('--defaults', '--answer', 'integration=verify').returncode, 0)
+        index = (self.target / '.agents/just/index.just').read_text()
+        check = next(line for line in index.splitlines() if line.startswith('check:'))
+        self.assertNotIn('integration', check.split())
+        self.assertIn('coverage-check', check.split())
+        self.assertIn('\nintegration:', index)
+        self.assertNotIn('integration', self.saved()['steps'])
+        self.assertEqual(self.stack('--answer', 'integration=check').returncode, 0)
+        index = (self.target / '.agents/just/index.just').read_text()
+        self.assertIn('integration', next(line for line in index.splitlines() if line.startswith('check:')).split())
+        self.assertIn('integration', self.saved()['steps'])
+
+    def test_with_integration_in_just_verify_verify_runs_it(self):
+        for profile in ((), ('--profile', 'python')):
+            target = self.base / f'verify{len(profile)}'
+            target.mkdir()
+            git(target, 'init', '-q')
+            run = self.stack('--defaults', *profile, '--answer', 'integration=verify', target=target)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            index = (target / '.agents/just/index.just').read_text()
+            verify = index[index.index('\nverify:'):].split('\n\n')[0]
+            self.assertIn('just --justfile {{quote(justfile())}} integration', verify, index)
+        # With the default answer, verify does not run integration a second time.
+        self.assertEqual(self.stack('--defaults', '--profile', 'python').returncode, 0)
+        index = (self.target / '.agents/just/index.just').read_text()
+        self.assertNotIn('}} integration', index[index.index('\nverify:'):].split('\n\n')[0])
+
+    def test_a_run_that_only_removes_asks_no_question_and_saves_no_answer(self):
+        self.assertEqual(self.stack('--defaults', 'reporter').returncode, 0)
+        record = self.saved()
+        record.pop('answers')
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        run = self.stack('--without', 'reporter', env={'JNTERFACES_COMMAND': 'just uninstall reporter'}, asks=True)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertNotIn('SETUP_QUESTIONS', run.stdout)
+        # Only the variant that the record had answers a question: no default is saved.
+        self.assertEqual(self.saved()['answers'], {'tasker': 'git'})
+        self.assertFalse(self.saved()['choices']['reporter'])
+
+    def test_a_dry_run_takes_the_defaults_and_names_the_open_questions(self):
+        run = self.stack('tasker', '--dry-run', asks=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('The setup questions issues, docs-publish, integration, tasker, review-model have no answer',
+                      run.stdout)
+        self.assertNotIn('SETUP_QUESTIONS', run.stdout)
+        self.assertFalse((self.target / '.agents').exists())
+
+    def test_the_packet_names_the_command_of_the_run_without_jnterfaces_command(self):
+        run = self.stack('tasker', '--profile', 'python', asks=True)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('then: install_stack.py --target', run.stdout)
+        self.assertIn('tasker --profile python --answer issues=VALUE', run.stdout)
+
+    def test_a_named_variant_and_an_answer_that_disagree_stop_the_run(self):
+        run = self.stack('--defaults', 'tasker=git', '--answer', 'tasker=gitwt')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('tasker=git and --answer tasker=gitwt disagree', run.stderr)
+        self.assertFalse((self.target / '.agents').exists())
+
+    def test_integration_in_verify_with_a_verify_of_the_project_says_so(self):
+        (self.target / 'Justfile').write_text("import? '.agents/install.just'\n\nverify:\n    echo mine\n")
+        run = self.stack('--defaults', '--answer', 'integration=verify')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('the Justfile has its own verify, so nothing runs integration', run.stderr)
+
+    def test_a_variant_that_is_not_an_answer_settles_the_question_of_its_role(self):
+        run = self.stack('tasker=jj', asks=True)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertNotIn('  - key: tasker\n', run.stdout)
+
+    def test_the_saved_variant_wins_over_a_saved_answer_that_disagrees(self):
+        self.assertEqual(self.stack('--defaults', 'tasker=gitwt').returncode, 0)
+        record = self.saved()
+        record['answers']['tasker'] = 'git'
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        self.assertEqual(self.stack(asks=True).returncode, 0)
+        self.assertEqual((self.saved()['variants']['tasker'], self.saved()['answers']['tasker']), ('gitwt', 'gitwt'))
+
+    def test_a_removal_with_an_answer_saves_it_and_asks_nothing_else(self):
+        self.assertEqual(self.stack('--defaults', 'reporter').returncode, 0)
+        record = self.saved()
+        record.pop('answers')
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        run = self.stack('--without', 'reporter', '--answer', 'issues=none', asks=True)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertNotIn('SETUP_QUESTIONS', run.stdout)
+        self.assertEqual(self.saved()['answers'], {'issues': 'none', 'tasker': 'git'})
 
     def test_a_named_role_turns_on_and_a_later_run_reuses_the_record(self):
         self.assertEqual(self.stack('--defaults', 'reporter', 'cx').returncode, 0)
@@ -2378,7 +2536,8 @@ class RealPackagesTest(unittest.TestCase):
 
             def stack(*args):
                 return subprocess.run([sys.executable, REPO / 'scripts/install_stack.py', '--target', target, *options,
-                                       *args], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+                                       *args], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                                      env=dict(os.environ, CI='true'))
             run = stack('--all')
             self.assertEqual(run.returncode, 0, run.stderr)
             for record in RECORDS.values():
@@ -2392,6 +2551,19 @@ class RealPackagesTest(unittest.TestCase):
             # The hooks of tasker go. A role that stays, such as prose, may keep its own hooks in the file.
             codex = target / '.codex/hooks.json'
             self.assertTrue(not codex.exists() or 'session-start' not in codex.read_text())
+
+
+class QuestionTests(unittest.TestCase):
+    def test_the_terminal_takes_a_number_a_value_or_the_default(self):
+        for typed, want in (('2\n', 'development'), ('none\n', 'none'), ('\n', 'top'), ('bad\n9\n3\n', 'none')):
+            with mock.patch('sys.stdin', io.StringIO(typed)), mock.patch('sys.stderr', io.StringIO()):
+                self.assertEqual(install_stack.ask_question('issues'), want, typed)
+        with mock.patch('sys.stdin', io.StringIO('')), mock.patch('sys.stderr', io.StringIO()):
+            with self.assertRaises(install_stack.StackError):
+                install_stack.ask_question('issues')
+        # A number out of range is not a model name.
+        with mock.patch('sys.stdin', io.StringIO('2\nclaude-opus-5-5\n')), mock.patch('sys.stderr', io.StringIO()):
+            self.assertEqual(install_stack.ask_question('review-model'), 'claude-opus-5-5')
 
 
 @unittest.skipUnless(shutil.which('just') and shutil.which('uv'), 'needs just and uv')

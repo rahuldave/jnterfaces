@@ -108,7 +108,7 @@ project with no code yet. A Rust project always has code, so first read
 `just check` runs the steps of the commit gates, in this order:
 
 ```text
-fmt-check lint typecheck test coverage-check integration docstring-check docs-check prose-check diff-check
+fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
 ```
 
 A step fails when the change breaks a rule. The `prose` role gives
