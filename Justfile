@@ -65,9 +65,22 @@ prose-check checker:
 tools-check:
     uv run --no-project --quiet --no-python-downloads --python '>=3.9' python .agents/tools_check.py --manifest skill-package.json
 
-# Everything a commit must pass: the programs, the lint and the tests
+# The release tags. scripts/release_tag.py is a copy of .agents/skills/gpa/scripts/release_tag.py of
+# agent_gest_git_skills at the commit 799a44b. The job release of verify.yml runs just release on each push to main.
+release_tag := "uv run --no-project --quiet --no-python-downloads --python '>=3.9' python scripts/release_tag.py"
+
+# Tag HEAD with the next release vX.Y.Z by semver, push the tag and check it. Takes --dry-run first
+release *args:
+    @{{release_tag}} "$@"
+
+# Print the next tag, or fail on a git error. It needs no network and no remote
+release-check:
+    {{release_tag}} --check
+
+# Everything a commit must pass: the programs, the release version, the lint and the tests
 check:
     just tools-check
+    just release-check
     just lint
     just test
 

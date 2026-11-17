@@ -454,9 +454,18 @@ Each package works alone, and each skill works without the optional skills:
 | `just lint` | Checks the syntax of the scripts, the Python and the JSON, and the links between skills. |
 | `just test` | Runs the tests of the installers, the link checker and the skills, in parallel with pytest. `just test tests/test_skills.py` runs one module. |
 | `just install-into <target> [names]` | Runs the installer on another project. |
-| `just check` | Runs `just lint` and `just test`. Every commit must pass it. |
+| `just check` | Runs `just tools-check`, `just release-check`, `just lint` and `just test`. Every commit must pass it. |
+| `just release-check` | Prints the next tag. It needs no network. This repository has no manifest with a version, so the tag comes from the commits since the last tag. |
+| `just release` | Tags HEAD with the next release `vX.Y.Z`, pushes the tag and checks it. `just release --dry-run` prints the tag and changes nothing. |
 | `just package-lint` | Checks `skill-package.json` with skill-package-maker. |
 | `just prose-check <check.py>` | Checks the Markdown with the nossaifd writing checker. |
+
+On each push to `main`, the job `release` of `.github/workflows/verify.yml`
+runs `just release` after the job `verify` passes. Only that job can write to
+the repository, to push the tag. So nobody tags by hand. The script is
+`scripts/release_tag.py`, a copy of the script of the gpa skill of
+agent_gest_git_skills. The section "Release tags" of its
+`docs/integration_delivery_workflow.md` gives the rules.
 
 The test of the jagt demo runs only with jagt 0.3.0 or later. If the `jagt`
 on your PATH is older, set `JAGT_BIN` to a newer binary.
