@@ -197,9 +197,11 @@ class TomlTests(unittest.TestCase):
 
     def test_a_file_with_many_tables_is_quick(self):
         mine = ''.join(f'[tool.x{index}]\na = 1\nb = 2\n' for index in range(400))
-        started = time.monotonic()
+        # The time of this process on the CPU, not the time on the clock, so other tests that run at the same time do
+        # not count.
+        started = time.process_time()
         self.round_trip(mine)
-        self.assertLess(time.monotonic() - started, 3)
+        self.assertLess(time.process_time() - started, 3)
 
     def test_a_header_that_a_removal_leaves_empty_goes(self):
         mine = '[project]\nname = "a"\n\n[tool.uv.sources]\nf = 1\n'

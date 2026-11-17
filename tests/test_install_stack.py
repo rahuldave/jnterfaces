@@ -379,11 +379,35 @@ JN = ['.agents/stack-log.jsonl', '.agents/stack-pending.json', '.agents/log/']
 
 
 class StackTests(unittest.TestCase):
+    # The package clones and the empty target of setUp, made once in each process, because Git makes them slowly. Each
+    # test gets its own copy, so a test that changes a clone changes only its copy. The folder goes when the process
+    # ends.
+    first = None
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.base = Path(temp.name)
         self.packages = self.base / 'packages'
+        self.target = self.base / 'target'
+        if StackTests.first is None:
+            self.make_packages()
+            first = tempfile.TemporaryDirectory()
+            for folder in ('packages', 'target'):
+                shutil.copytree(self.base / folder, Path(first.name) / folder, symlinks=True)
+            StackTests.first = first
+        else:
+            for folder in ('packages', 'target'):
+                shutil.copytree(Path(StackTests.first.name) / folder, self.base / folder, symlinks=True)
+        self.bin = self.base / 'bin'
+        self.bin.mkdir()
+        for tool in ('uv', 'uvx', 'cargo'):
+            (self.bin / tool).write_text(f'#!{sys.executable}\n' + FAKE_TOOL)
+            (self.bin / tool).chmod(0o755)
+        self.log = self.base / 'tools.log'
+
+    def make_packages(self):
+        """Make the clone of jnterfaces, the skill packages and the profile packages, and the empty target."""
         jn = self.packages / 'jnterfaces'
         shutil.copytree(REPO, jn, ignore=shutil.ignore_patterns('.git', '__pycache__'))
         git(jn, 'init', '-q')
@@ -392,15 +416,8 @@ class StackTests(unittest.TestCase):
             self.package(name, skill)
         for name in PROFILES:
             self.profile_package(name)
-        self.target = self.base / 'target'
         self.target.mkdir()
         git(self.target, 'init', '-q')
-        self.bin = self.base / 'bin'
-        self.bin.mkdir()
-        for tool in ('uv', 'uvx', 'cargo'):
-            (self.bin / tool).write_text(f'#!{sys.executable}\n' + FAKE_TOOL)
-            (self.bin / tool).chmod(0o755)
-        self.log = self.base / 'tools.log'
 
     def package(self, name, skill, extras=None):
         root = self.packages / name

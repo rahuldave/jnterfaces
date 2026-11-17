@@ -26,17 +26,29 @@ def sha(path):
 
 
 class InstallTest(unittest.TestCase):
+    # The source clone and the empty target of setUp, made once in each process, because Git makes them slowly. Each
+    # test gets its own copy. The folder goes when the process ends.
+    first = None
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
         self.source = root / 'source'
-        shutil.copytree(REPO, self.source, ignore=shutil.ignore_patterns('.git', '__pycache__'))
-        git(self.source, 'init', '-q')
-        git(self.source, 'add', '-A')
-        git(self.source, 'commit', '-q', '-m', 'source')
         self.target = root / 'target'
-        self.target.mkdir()
-        git(self.target, 'init', '-q')
+        if InstallTest.first is None:
+            shutil.copytree(REPO, self.source, ignore=shutil.ignore_patterns('.git', '__pycache__'))
+            git(self.source, 'init', '-q')
+            git(self.source, 'add', '-A')
+            git(self.source, 'commit', '-q', '-m', 'source')
+            self.target.mkdir()
+            git(self.target, 'init', '-q')
+            first = tempfile.TemporaryDirectory()
+            for folder in ('source', 'target'):
+                shutil.copytree(root / folder, Path(first.name) / folder, symlinks=True)
+            InstallTest.first = first
+        else:
+            for folder in ('source', 'target'):
+                shutil.copytree(Path(InstallTest.first.name) / folder, root / folder, symlinks=True)
 
     def tearDown(self):
         self.temp.cleanup()
