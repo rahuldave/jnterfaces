@@ -454,7 +454,7 @@ Each package works alone, and each skill works without the optional skills:
 | `just lint` | Checks the syntax of the scripts, the Python and the JSON, and the links between skills. |
 | `just test` | Runs the tests of the installers, the link checker and the skills, in parallel with pytest. `just test tests/test_skills.py` runs one module. |
 | `just install-into <target> [names]` | Runs the installer on another project. |
-| `just check` | Runs `just tools-check`, `just release-check`, `just lint` and `just test`. Every commit must pass it. |
+| `just check` | Runs `just tools-check`, `just release-check`, `just lint`, `just package-lint` and `just test`. Every commit must pass it. CI runs no recipe outside it. `just package-lint` clones from GitHub, so it needs the network. |
 | `just release-check` | Prints the next tag. It needs no network. This repository has no manifest with a version, so the tag comes from the commits since the last tag. |
 | `just release` | Tags HEAD with the next release `vX.Y.Z`, pushes the tag and checks it. `just release --dry-run` prints the tag and changes nothing. |
 | `just package-lint` | Checks `skill-package.json` with skill-package-maker. |

@@ -5,8 +5,8 @@ Other repositories install copies of the skills.
 
 - Work on a `codex/*` topic branch, and open a reviewed pull request to `main`.
 - Run `just check` before every commit.
-- Run `just package-lint` after a change to `skill-package.json` or to the
-  installer.
+- `just check` runs `just package-lint`, which clones skill-package-maker from
+  GitHub, so `just check` needs the network.
 - Write Markdown by the nossaifd writing guide, and check it with `just prose-check`.
 - Keep the skills free of paths from one machine. An installed copy has no
   `docs/` folder, so a skill names only files inside `.agents/skills/`.

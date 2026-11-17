@@ -6,6 +6,7 @@ copy works here, and that only the job release of CI can write to the repository
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -55,6 +56,44 @@ class CheckTest(unittest.TestCase):
                         'just check does not run release-check')
 
 
+def recipe_lines(recipe):
+    """The text of each line of a recipe from a dump, without the prefix @."""
+    return [''.join(part if isinstance(part, str) else '' for part in line).strip().lstrip('@') for line in recipe['body']]
+
+
+def check_steps():
+    """Each recipe that just check runs, through dependencies and lines just NAME, at any depth."""
+    recipes = json.loads(run(['just', '--dump', '--dump-format', 'json'], ROOT).stdout)['recipes']
+    seen, todo = set(), ['check']
+    while todo:
+        name = todo.pop()
+        if name in seen or name not in recipes:
+            continue
+        seen.add(name)
+        todo += [dependency['recipe'] for dependency in recipes[name]['dependencies']]
+        todo += [line.split()[1] for line in recipe_lines(recipes[name]) if re.fullmatch(r'just [A-Za-z0-9_-]+( .*)?', line)]
+    return seen - {'check'}
+
+
+# A line of CI that runs a recipe is the bare line just NAME, so the test can read each recipe that CI runs.
+BARE = re.compile(r'just ([A-Za-z0-9_-]+)')
+
+
+def ci_recipes(job):
+    """The recipes that the bare lines just NAME of a job run. Any other use of just raises ValueError, so CI cannot
+    hide a recipe from the test with a prefix, an argument or a shell."""
+    names = []
+    for step in job['steps']:
+        for line in (step.get('run') or '').splitlines():
+            if not re.search(r'\bjust\b', line):
+                continue
+            bare = BARE.fullmatch(line.strip())
+            if not bare:
+                raise ValueError(f'{line.strip()}: CI runs a recipe only as the bare line just NAME')
+            names.append(bare.group(1))
+    return names
+
+
 class WorkflowTest(unittest.TestCase):
     def setUp(self):
         self.flow = workflow()
@@ -74,6 +113,24 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("github.ref == 'refs/heads/main'", job['if'])
         self.assertEqual(job['steps'][-1]['run'], 'just release')
         self.assertEqual(checkout_depth(job), 0)
+
+    def test_each_recipe_of_the_job_verify_is_in_just_check(self):
+        # CI runs no recipe that just check does not run, so a developer finds each failure of CI with just check.
+        steps, names = check_steps(), ci_recipes(self.jobs['verify'])
+        self.assertTrue(names, 'the job verify runs no recipe')
+        for name in names:
+            self.assertTrue(name == 'check' or name in steps, f'just check does not run just {name}')
+
+    def test_ci_recipes_refuses_each_use_of_just_but_the_bare_line(self):
+        for line in ('FOO=1 just lint', 'cd . && just lint', 'uv run just lint', "bash -c 'just lint'", 'just\tlint',
+                     'just lint # syntax', 'just test -x', '  if true; then just lint; fi'):
+            with self.subTest(line=line), self.assertRaises(ValueError):
+                ci_recipes({'steps': [{'run': f'echo start\n{line}'}]})
+        self.assertEqual(ci_recipes({'steps': [{'run': 'just lint\n  just test  '}, {'uses': 'x'}]}), ['lint', 'test'])
+
+    def test_check_steps_follows_the_recipes_of_the_steps(self):
+        steps = check_steps()
+        self.assertLessEqual({'tools-check', 'release-check', 'lint', 'package-lint', 'test'}, steps)
 
     def test_verify_checks_the_release_with_the_whole_history(self):
         job = self.jobs['verify']
