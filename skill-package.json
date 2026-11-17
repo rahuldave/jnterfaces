@@ -26,7 +26,8 @@
   ],
   "install_extras": {
     "files": [
-      ".agents/install.just"
+      ".agents/install.just",
+      ".agents/tools_check.py"
     ]
   },
   "executables": {
@@ -34,37 +35,54 @@
       {
         "name": "just",
         "check": "just --version",
+        "version": ">=1.50.0",
         "install": "uv tool install rust-just"
       },
       {
         "name": "uv",
         "check": "uv --version",
+        "version": ">=0.12.13",
         "description": "Runs the installer, and the tools of the profiles.",
         "install": "curl -LsSf https://astral.sh/uv/install.sh | sh"
       },
       {
         "name": "git",
         "check": "git --version",
+        "version": ">=2.40",
         "description": "Clones the packages and records their revisions.",
         "install": "Install git from https://git-scm.com/downloads."
       },
       {
+        "name": "gh",
+        "check": "gh --version",
+        "version": ">=2.40",
+        "description": "The GitHub command line, for the pull requests and the checks of CI.",
+        "install": "Install gh from https://cli.github.com/."
+      },
+      {
         "name": "jlog",
         "check": "jlog --version",
-        "description": "The shell of each recipe that just install writes. It logs each line in .agents/log. Install it with git clone https://github.com/rahuldave/jlog, then just install in the clone.",
-        "install": "git clone https://github.com/rahuldave/jlog, then run just install in the clone."
+        "version": ">=0.2.0",
+        "description": "The shell of each recipe that just install writes. It logs each line in .agents/log, and it sets the PATH from the .jlog folders. Install it with git clone https://github.com/rahuldave/jlog, git checkout v0.2.0, then just install in the clone.",
+        "install": "git clone https://github.com/rahuldave/jlog, run git checkout v0.2.0 in the clone, then run just install in the clone."
       }
     ],
     "optional": [
       {
         "name": "jagt",
         "check": "jagt --version",
-        "description": "Renders and checks agentic Just packets for the jagt-protocol skill. The skill needs jagt 0.3.0 or later, which gives each packet a nonce."
+        "version": ">=0.3.0",
+        "skill": "jagt-protocol",
+        "description": "Renders and checks agentic Just packets for the jagt-protocol skill. The skill needs jagt 0.3.0 or later, which gives each packet a nonce.",
+        "install": "cargo install --locked --git https://github.com/rahuldave/jagt jagt"
       },
       {
         "name": "cx",
         "check": "cx --help",
-        "description": "Runs incremental file stages for the cx skill."
+        "version": ">=0.1.0",
+        "skill": "cx",
+        "description": "Runs incremental file stages for the cx skill. The skill needs cx 0.1.0 or later. The check is cx --help, which prints the version on each build of 0.1.0; cx --version came later in 0.1.0.",
+        "install": "cargo install --locked --git https://github.com/rahuldave/cx cx"
       }
     ]
   },

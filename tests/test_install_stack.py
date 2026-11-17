@@ -253,6 +253,10 @@ import json, os, re, signal, sys, time, tomllib
 from pathlib import Path
 
 tool, args = Path(sys.argv[0]).name, sys.argv[1:]
+# The check of the version floor of a program, which the logs of the tests leave out.
+if args in (['--version'], ['--help']):
+    print(f'{tool} 99.0.0')
+    sys.exit(0)
 with open(os.environ['TOOL_LOG'], 'a') as log:
     log.write(tool + ' ' + ' '.join(args) + '\n')
 if 'VIRTUAL_ENV' in os.environ:
@@ -401,7 +405,8 @@ class StackTests(unittest.TestCase):
                 shutil.copytree(Path(StackTests.first.name) / folder, self.base / folder, symlinks=True)
         self.bin = self.base / 'bin'
         self.bin.mkdir()
-        for tool in ('uv', 'uvx', 'cargo'):
+        # cx is a fake too: the cx skill needs cx 0.1.0 or later, which prints its version.
+        for tool in ('uv', 'uvx', 'cargo', 'cx'):
             (self.bin / tool).write_text(f'#!{sys.executable}\n' + FAKE_TOOL)
             (self.bin / tool).chmod(0o755)
         self.log = self.base / 'tools.log'
@@ -522,11 +527,13 @@ class StackTests(unittest.TestCase):
         # the project, so it also wrote its two lists.
         self.assertEqual(sorted(saved.pop('parts')), ['.agents/coverage-exclude.txt', '.agents/generated.txt',
                                                       '.gitignore', '.worktreedisposable'])
-        self.assertEqual((saved.pop('steps'), saved.pop('provided_steps')), (list(STEPS), []))
+        self.assertEqual((saved.pop('steps'), saved.pop('provided_steps')), (list(STEPS), ['tools-check']))
         # --defaults takes the default of each setup question.
         # The docs role is off, so its question has no answer.
         self.assertEqual(saved.pop('answers'), {key: entry['default'] for key, entry in install_stack.QUESTIONS.items()
                                                 if entry.get('role') != 'docs'})
+        # The record holds the programs that the base packages need, at their floors.
+        self.assertEqual(saved.pop('programs')['gh']['owners'], {'jnterfaces': '>=2.40'})
         self.assertEqual(saved, {'version': 2, 'profiles': [], 'tools': [], 'started': True, 'parts_version': 1,
                                         'variants': {'tasker': 'git'}, 'choices': {
             'cx': False, 'docs': False, 'jagt-protocol': False, 'prose': True, 'reporter': False, 'tasker': True}})
@@ -3316,14 +3323,17 @@ class StepTests(StackTests):
         self.assertEqual(run.returncode, 0, run.stderr)
         index = self.index()
         self.assertIn(install_stack.SHELL_LINE, index)
-        for step in STEPS:
+        # The installer gives tools-check; each other step is a no-op that logs a skip.
+        for step in STEPS[1:]:
             self.assertIn(f'\n{step}:\n    jlog skip {step} "', index)
+        self.assertIn('\ntools-check:\n    ' + install_stack.TOOLS_CHECK_LINE, index)
         self.assertIn(f'\ncheck: {" ".join(STEPS)}\n    jlog pass\n', index)
-        self.assertEqual((self.saved()['steps'], self.saved()['provided_steps']), (list(STEPS), []))
+        self.assertEqual((self.saved()['steps'], self.saved()['provided_steps']), (list(STEPS), ['tools-check']))
         commit(self.target)
         run = self.just_in(self.target, 'check')
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        self.assertEqual(sorted(record['step'] for record in self.records(kind='skip')), sorted(STEPS))
+        self.assertEqual(sorted(record['step'] for record in self.records(kind='skip')), sorted(STEPS[1:]))
+        self.assertEqual([record['step'] for record in self.records(kind='step')], ['tools-check'])
         self.assertEqual(len(self.records(kind='pass')), 1)
         # Each line of the run shares the run ID of the root Justfile.
         self.assertEqual(len({record['run'] for record in self.records(kind='line')}), 1)
@@ -3368,7 +3378,7 @@ class StepTests(StackTests):
 
     def test_the_steps_of_a_profile_end_with_jlog_step_and_share_the_run_of_the_root(self):
         self.assertEqual(self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose').returncode, 0)
-        self.assertEqual(self.saved()['provided_steps'], ['lint', 'test', 'diff-check'])
+        self.assertEqual(self.saved()['provided_steps'], ['tools-check', 'lint', 'test', 'diff-check'])
         index = self.index()
         self.assertIn('\nlint *args:\n    just --justfile {{quote(justfile())}} python lint "$@"\n    jlog step lint\n', index)
         # fmt is no step, so its combined recipe has no jlog step, and fmt-check is a no-op step.
@@ -3388,7 +3398,8 @@ class StepTests(StackTests):
         commit(self.target)
         run = self.just_in(self.target, 'check')
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        self.assertEqual(sorted(record['step'] for record in self.records(kind='step')), ['diff-check', 'lint', 'test'])
+        self.assertEqual(sorted(record['step'] for record in self.records(kind='step')),
+                         ['diff-check', 'lint', 'test', 'tools-check'])
         lines = self.records(kind='line')
         # The lines of the module ran in inner just calls, and they share the run of the root.
         self.assertIn('echo python lint "$@"', [record['line'] for record in lines])
@@ -3482,7 +3493,7 @@ class StepTests(StackTests):
         index = self.index()
         self.assertNotIn('mod python', index)
         self.assertIn('\nlint:\n    jlog skip lint', index)
-        self.assertEqual(self.saved()['provided_steps'], [])
+        self.assertEqual(self.saved()['provided_steps'], ['tools-check'])
 
     def test_ci_runs_the_gate_and_the_listed_steps_of_check(self):
         justfile = self.target / 'Justfile'
@@ -3538,7 +3549,7 @@ class StepTests(StackTests):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn('lint in the project is an alias, a module, or a recipe that needs an argument', run.stderr)
         self.assertNotIn('does not parse', run.stderr)
-        self.assertIn('\ncheck: fmt-check typecheck ', self.index())
+        self.assertIn('\ncheck: tools-check release-check fmt-check typecheck ', self.index())
         self.assertEqual(self.just_in(self.target, '--summary').returncode, 0)
 
     def test_the_installer_stops_with_the_install_line_when_jlog_is_missing(self):
@@ -3686,12 +3697,32 @@ class StepTests(StackTests):
         self.role('prose-check:\n    @echo prose\n    jlog step prose-check\n')
         run = self.stack('prose', '--defaults', '--without', 'tasker')
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual(self.saved()['provided_steps'], ['prose-check'])
+        self.assertEqual(self.saved()['provided_steps'], ['tools-check', 'prose-check'])
         self.assertNotIn('jlog skip prose-check', self.index())
         commit(self.target)
         run = self.just_in(self.target, 'check')
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        self.assertEqual([record['step'] for record in self.records(kind='step')], ['prose-check'])
+        self.assertEqual([record['step'] for record in self.records(kind='step')], ['tools-check', 'prose-check'])
+
+    def test_release_check_runs_when_a_role_gives_it_and_is_a_no_op_otherwise(self):
+        # Without the step in a role, the index has a no-op release-check that logs a skip.
+        run = self.stack('prose', '--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('\nrelease-check:\n    jlog skip release-check "no release check in this repository"',
+                      self.index())
+        self.assertNotIn('release-check', self.saved()['provided_steps'])
+        # The tasker role (agent_gest_git_skills) gives release-check; the test role stands in for it here.
+        self.role('release-check:\n    @echo release ok\n    jlog step release-check\n')
+        run = self.stack('prose', '--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('jlog skip release-check', self.index())
+        self.assertEqual(self.saved()['provided_steps'], ['tools-check', 'release-check'])
+        self.assertIn('\ncheck: tools-check release-check fmt-check', self.index())
+        commit(self.target)
+        run = self.just_in(self.target, 'check')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn('release ok', run.stdout)
+        self.assertEqual([record['step'] for record in self.records(kind='step')], ['tools-check', 'release-check'])
 
     def test_a_jlog_run_in_a_file_that_the_justfile_imports_counts(self):
         (self.target / 'vars.just').write_text('export JLOG_RUN := "fixed"\n')
@@ -4402,8 +4433,516 @@ class ProgramTests(StackTests):
         self.assertFalse((self.packages / 'jnprofile-rust').exists())
 
 
-# PartsTests, StepTests and ProgramTests use the fixtures of StackTests, and run only their own tests.
-for _class in (PartsTests, StepTests, ProgramTests):
+sys.path.insert(0, str(REPO / '.agents'))
+import tools_check  # noqa: E402
+
+# The banner that gest prints before its version line on older builds.
+GEST_BANNER = ' ██████╗ ███████╗\n██╔════╝ ██╔════╝\n                   by @aaronmallen\n\nv0.5.6 macos-aarch64 (2026-11-12 revision 9e3c7e7)'
+
+
+def jlog_has_run():
+    """True when jlog 0.2.0 or later, with jlog run, is on PATH."""
+    if not shutil.which('jlog'):
+        return False
+    out = subprocess.run(['jlog', '--version'], capture_output=True, text=True).stdout
+    found = tools_check.found_version(out)
+    return found is not None and found >= (0, 2, 0)
+
+
+class FloorUnitTests(unittest.TestCase):
+    """The comparison of versions and the check of one program, in .agents/tools_check.py."""
+
+    def test_the_version_is_the_first_one_in_the_output_also_after_a_banner(self):
+        self.assertEqual(tools_check.found_version(GEST_BANNER), (0, 5, 6))
+        self.assertEqual(tools_check.found_version('gh version 2.101.0 (2026-09-15)'), (2, 101, 0))
+        self.assertEqual(tools_check.found_version('git version 2.54'), (2, 54, 0))
+        self.assertIsNone(tools_check.found_version('aarch64 build, no version'))
+
+    def test_a_floor_is_greater_or_equal_with_two_or_three_numbers(self):
+        self.assertEqual(tools_check.parse_floor('>=2.40'), (2, 40, 0))
+        self.assertEqual(tools_check.parse_floor('>= 1.50.0'), (1, 50, 0))
+        self.assertIsNone(tools_check.parse_floor(None))
+        for bad in ('1.50.0', '>1.0', '==1.0.0', '>=1', '>=1.2.3.4', '^1.2', 7):
+            with self.assertRaises(ValueError, msg=bad):
+                tools_check.parse_floor(bad)
+        # The numbers compare as numbers: 2.101 is higher than 2.40.
+        self.assertEqual(tools_check.higher('>=2.40', '>=2.101'), '>=2.101')
+        self.assertEqual(tools_check.higher(None, '>=0.1'), '>=0.1')
+
+    def message(self, code=0, out='', err='', path='/opt/bin/gest', floor='>=0.5.6', expect=None):
+        program = {'check': 'gest --version', 'version': floor, 'owners': {'the tasker role': floor}}
+        if expect:
+            program['expect'] = expect
+        return tools_check.problem('gest', program, lambda argv: (code, out, err), lambda name: path)
+
+    def test_each_failure_names_the_floor_the_version_the_path_and_the_owner(self):
+        self.assertIsNone(self.message(out=GEST_BANNER))
+        self.assertEqual(self.message(out='gest 0.5.2'),
+                         'gest (for the tasker role) needs >=0.5.6, but found 0.5.2, at /opt/bin/gest.')
+        self.assertEqual(self.message(out='gest, a task tracker'),
+                         'gest (for the tasker role) needs >=0.5.6, but gest --version printed no version, at '
+                         '/opt/bin/gest.')
+        self.assertEqual(self.message(path=None), 'gest (for the tasker role) needs >=0.5.6, but gest is not on PATH, '
+                                                  'so no version was found.')
+        self.assertEqual(self.message(code=2), 'gest (for the tasker role) needs >=0.5.6, but gest --version failed '
+                                               'with exit 2, at /opt/bin/gest.')
+        self.assertIn('did not print gest-cli', self.message(out='gest 0.6.0', expect='gest-cli'))
+        # A version in the error output counts when the output has none.
+        self.assertIsNone(self.message(err='gest 0.6.0'))
+
+    def test_the_highest_floor_counts_and_each_owner_keeps_its_own(self):
+        merged = tools_check.merge([
+            {'name': 'just', 'check': 'just --version', 'version': '>=1.50.0', 'owner': 'jnterfaces'},
+            {'name': 'just', 'check': 'just -V', 'version': '>=1.51.0', 'owner': 'the project'},
+            {'name': 'cx', 'check': 'cx --version', 'owner': 'the cx skill'}])
+        self.assertEqual(merged['just'], {'check': 'just --version', 'version': '>=1.51.0',
+                                          'owners': {'jnterfaces': '>=1.50.0', 'the project': '>=1.51.0'}})
+        self.assertEqual(merged['cx'], {'check': 'cx --version', 'owners': {'the cx skill': None}})
+        self.assertIn('just (for the project, also jnterfaces) needs >=1.51.0, but found 1.50.0',
+                      tools_check.problem('just', merged['just'], lambda argv: (0, 'just 1.50.0', ''),
+                                          lambda name: '/bin/just'))
+
+    def test_the_script_checks_a_record_and_a_manifest(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        folder = Path(temp.name)
+        record = folder / 'stack.json'
+        script = [sys.executable, str(REPO / '.agents/tools_check.py')]
+
+        def run(*args):
+            return subprocess.run(script + list(args), capture_output=True, text=True, cwd=folder)
+        python = {'check': f'{Path(sys.executable).name} --version', 'version': '>=3.0',
+                  'owners': {'the python profile': '>=3.0'}}
+        record.write_text(json.dumps({'programs': {'python': python}}))
+        env_path = os.environ['PATH']
+        if not shutil.which(Path(sys.executable).name):
+            self.skipTest('the Python of the tests is not on PATH by its name')
+        self.assertEqual(run('--record', str(record)).returncode, 0, env_path)
+        # The floors of the owners count: version is the highest of them, for a person who reads the record.
+        record.write_text(json.dumps({'programs': {'python': dict(python, owners={'the python profile': '>=99.0'})}}))
+        done = run('--record', str(record))
+        self.assertEqual(done.returncode, 1)
+        self.assertIn('python (for the python profile) needs >=99.0, but found 3.', done.stderr)
+        # The project's own programs count too, also before the next just install.
+        record.write_text(json.dumps({'programs': {}, 'project_programs': [
+            {'name': 'jn-no-such-tool', 'check': 'jn-no-such-tool --version', 'version': '>=1.0'}]}))
+        self.assertIn('jn-no-such-tool is not on PATH', run('--record', str(record)).stderr)
+        record.write_text(json.dumps({'programs': {'x': {'check': 'x', 'version': '1.0', 'owners': {'a': '1.0'}}}}))
+        self.assertEqual(run('--record', str(record)).returncode, 2)
+        self.assertEqual(run('--record', str(folder / 'none.json')).returncode, 0)
+        manifest = folder / 'skill-package.json'
+        manifest.write_text(json.dumps({'repository': {'name': 'p'}, 'executables': {'required': [
+            {'name': 'python', 'check': python['check'], 'version': '>=99.0'}]}}))
+        self.assertIn('python (for p) needs >=99.0', run('--manifest', str(manifest)).stderr)
+
+    def test_the_script_checks_the_programs_of_the_machine_not_of_the_venv(self):
+        # uv run gives the script the .venv of the project, which can hold its own uv or just.
+        temp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, temp)
+        for folder, version in (('venv/bin', '0.1.0'), ('machine', '2.0.0')):
+            (temp / folder).mkdir(parents=True)
+            tool = temp / folder / 'jn-venv'
+            tool.write_text(f'#!/bin/sh\necho jn-venv {version}\n')
+            tool.chmod(0o755)
+        manifest = temp / 'skill-package.json'
+        manifest.write_text(json.dumps({'executables': {'required': [
+            {'name': 'jn-venv', 'check': 'jn-venv --version', 'version': '>=1.0'}]}}))
+        done = subprocess.run([sys.executable, str(REPO / '.agents/tools_check.py'), '--manifest', str(manifest)],
+                              capture_output=True, text=True,
+                              env=dict(os.environ, VIRTUAL_ENV=str(temp / 'venv'),
+                                       PATH=f'{temp / "venv/bin"}:{temp / "machine"}:{os.environ["PATH"]}'))
+        self.assertEqual(done.returncode, 0, done.stderr)
+
+    def test_a_floor_of_the_project_counts_as_project_programs_says_now(self):
+        # The record keeps the floor of the project from the last run; the project lowered it since.
+        record = {'programs': {'git': {'check': 'git --version', 'version': '>=99.0',
+                                       'owners': {'the project': '>=99.0', 'jnterfaces': '>=2.40'}},
+                               'gone': {'check': 'gone --version', 'owners': {'the project': None}}},
+                  'project_programs': [{'name': 'git', 'check': 'git --version', 'version': '>=2.0'}]}
+        programs = tools_check.recorded(record)
+        self.assertEqual(programs['git']['version'], '>=2.40')
+        self.assertEqual(programs['git']['owners'], {'jnterfaces': '>=2.40', 'the project': '>=2.0'})
+        self.assertNotIn('gone', programs)
+
+    def test_a_check_that_runs_tools_check_through_an_interpolation_counts(self):
+        line = ['just --justfile ', [['quote', ['call', 'justfile']]], ' tools-check']
+        dump = {'recipes': {'check': {'body': [line], 'dependencies': []}}}
+        self.assertTrue(install_stack.runs_step(dump, 'check', 'tools-check'))
+        dump['recipes']['check']['body'] = [['just lint']]
+        self.assertFalse(install_stack.runs_step(dump, 'check', 'tools-check'))
+
+    def test_the_script_refuses_a_malformed_manifest_with_exit_2(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        manifest = Path(temp.name) / 'skill-package.json'
+        for data in ([], {'repository': 'x'}, {'executables': []}, {'executables': {'required': 'git'}}):
+            manifest.write_text(json.dumps(data))
+            done = subprocess.run([sys.executable, str(REPO / '.agents/tools_check.py'), '--manifest', str(manifest)],
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 2, (data, done.stderr))
+            self.assertNotIn('Traceback', done.stderr)
+
+    def test_a_check_of_the_script_that_hangs_stops_with_its_children(self):
+        mark = Path(tempfile.mkdtemp()) / 'late'
+        self.addCleanup(shutil.rmtree, mark.parent)
+        script = (f'import subprocess, sys, time; subprocess.Popen([sys.executable, "-c", "import time, pathlib; '
+                  f'time.sleep(2); pathlib.Path({str(mark)!r}).write_text(\'x\')"]); time.sleep(30)')
+        with mock.patch.object(tools_check, 'CHECK_SECONDS', 0.5):
+            code, _, err = tools_check.run_check([sys.executable, '-c', script])
+        self.assertEqual(code, 124)
+        self.assertIn('took more than', err)
+        time.sleep(3)
+        self.assertFalse(mark.exists())
+
+    def test_a_check_of_the_script_gets_the_variables_that_stop_a_download(self):
+        code, out, _ = tools_check.run_check([sys.executable, '-c', 'import os; print(os.environ.get('
+                                                                     '"RUSTUP_AUTO_INSTALL"), os.environ.get('
+                                                                     '"UV_PYTHON_DOWNLOADS"))'])
+        self.assertEqual((code, out.strip()), (0, '0 never'))
+
+
+# A program that prints its version from the file FAKE_VERSIONS/NAME, as FAKE_VERSION_PREFIX and the text. It writes
+# its environment to ENV_LOG, so that a test sees what a check gets.
+FAKE_VERSIONED = r'''
+import json, os, sys
+from pathlib import Path
+
+name = Path(sys.argv[0]).name
+if os.environ.get('ENV_LOG'):
+    with open(os.environ['ENV_LOG'], 'a') as log:
+        log.write(json.dumps({'name': name, 'VIRTUAL_ENV': os.environ.get('VIRTUAL_ENV'),
+                              'RUSTUP_AUTO_INSTALL': os.environ.get('RUSTUP_AUTO_INSTALL'),
+                              'cwd': os.getcwd()}) + '\n')
+marker = Path(os.environ.get('FAKE_VERSIONS', '/nonexistent')) / name
+print(marker.read_text() if marker.is_file() else f'{name} 99.0.0')
+'''
+
+
+class VersionTests(StackTests):
+    """Version floors of programs, their record, the checks through jlog, and the versions of packages."""
+
+    def setUp(self):
+        super().setUp()
+        self.versions = self.base / 'versions'
+        self.versions.mkdir()
+        for name in ('gh', 'gest', 'jagt', 'cx'):
+            self.fake(name)
+
+    def fake(self, name, folder=None):
+        path = (folder or self.bin) / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f'#!{sys.executable}\n' + FAKE_VERSIONED)
+        path.chmod(0o755)
+        return path
+
+    def version(self, name, text):
+        (self.versions / name).write_text(text)
+
+    def install(self, *args, env=None):
+        return self.stack('--defaults', *args, env=dict({'FAKE_VERSIONS': str(self.versions)}, **(env or {})))
+
+    def tasker_needs(self, **entry):
+        """Give the tasker role gest in its tools table, as agent_gest_git_skills does."""
+        root = self.packages / 'agent_gest_git_skills'
+        manifest = json.loads((root / 'skill-package.json').read_text())
+        manifest['executables'] = {'required': [dict({'name': 'gest', 'check': 'gest --version',
+                                                      'install': 'cargo install gest'}, **entry)]}
+        (root / 'skill-package.json').write_text(json.dumps(manifest))
+        commit(root)
+
+    def test_a_base_program_below_its_floor_stops_the_install_before_anything_is_written(self):
+        self.version('gh', 'gh version 2.30.0 (2023-05-01)')
+        run = self.install()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn(f'gh (for jnterfaces) needs >=2.40, but found 2.30.0, at {self.bin / "gh"}.', run.stderr)
+        self.assertIn('Install gh from https://cli.github.com/.', run.stderr)
+        self.assertIn('Nothing was written', run.stderr)
+        self.assertFalse((self.target / '.agents').exists())
+
+    def test_the_record_holds_each_floor_with_its_owners_and_the_highest_counts(self):
+        self.version('gest', GEST_BANNER)
+        self.tasker_needs(version='>=0.5.6')
+        run = self.install()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        programs = self.saved()['programs']
+        self.assertEqual(programs['just'], {'check': 'just --version', 'version': '>=1.50.0',
+                                            'owners': {'jnterfaces': '>=1.50.0'}})
+        self.assertEqual(programs['gest']['owners'], {'agent_gest_git_skills': '>=0.5.6'})
+        for name, floor in (('jlog', '>=0.2.0'), ('uv', '>=0.12.13'), ('git', '>=2.40'), ('gh', '>=2.40')):
+            self.assertEqual(programs[name]['version'], floor)
+        # The optional skills are off, so their programs are not in the record.
+        self.assertNotIn('jagt', programs)
+        # The project adds its own floor for gest. The higher one counts, each owner keeps its own, and a reinstall
+        # keeps the project's section.
+        record = self.saved()
+        record['project_programs'] = [{'name': 'gest', 'check': 'gest --version', 'version': '>=0.6.0'}]
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        run = self.install()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn(f'gest (for the project) needs >=0.6.0, but found 0.5.6, at {self.bin / "gest"}', run.stderr)
+        self.assertIn('Nothing was written', run.stderr)
+        self.version('gest', 'gest 0.6.1')
+        run = self.install()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        saved = self.saved()
+        self.assertEqual(saved['programs']['gest']['version'], '>=0.6.0')
+        self.assertEqual(saved['programs']['gest']['owners'],
+                         {'the project': '>=0.6.0', 'agent_gest_git_skills': '>=0.5.6'})
+        self.assertEqual(saved['project_programs'], record['project_programs'])
+        # The record holds no path of a program.
+        self.assertNotIn(str(self.bin), json.dumps(saved))
+        # just install --check reads the floors from the record, also without the clones of the packages.
+        self.version('gest', 'gest 0.5.9')
+        shutil.rmtree(self.packages / 'agent_gest_git_skills')
+        check = self.stack('--check', env={'FAKE_VERSIONS': str(self.versions)})
+        self.assertEqual(check.returncode, 1)
+        self.assertIn('Missing program: gest (for the project, also agent_gest_git_skills) needs >=0.6.0, but found '
+                      '0.5.9', check.stdout)
+
+    def test_a_malformed_project_section_stops_the_install(self):
+        self.assertEqual(self.install().returncode, 0)
+        record = self.saved()
+        record['project_programs'] = [{'name': 'gest', 'check': 'gest --version', 'version': '0.6'}]
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        run = self.install()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('the version of the program gest', run.stderr)
+
+    def test_an_optional_skill_brings_the_floor_of_its_program(self):
+        self.version('jagt', 'jagt 0.2.9')
+        self.version('cx', 'cx: unknown cx option: --version')
+        run = self.install('jagt-protocol', 'cx')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('jagt (for the jagt-protocol skill) needs >=0.3.0, but found 0.2.9', run.stderr)
+        self.assertIn('cx (for the cx skill) needs >=0.1.0, but cx --help printed no version', run.stderr)
+        self.version('jagt', 'jagt 0.6.3')
+        self.version('cx', 'cx 0.1.0')
+        run = self.install('jagt-protocol', 'cx')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.saved()['programs']['cx']['owners'], {'the cx skill': '>=0.1.0'})
+
+    def test_a_floor_of_a_profile_program_is_checked_and_a_malformed_one_is_refused(self):
+        profile = json.loads(json.dumps(PROFILES['rust']))
+        with_programs(profile)
+        profile['programs'][0]['version'] = '1.80'
+        with self.assertRaises(install_stack.StackError) as caught:
+            install_stack.check_profile('rust', profile, {'tasker': {}, 'prose': {}})
+        self.assertIn('the version of the program cargo', str(caught.exception))
+        self.fake('rustc')
+        self.version('rustc', 'rustc 1.79.0 (2026-01-01)')
+        self.edit_profile('rust', lambda p: p.update(programs=[
+            {'name': 'rustc', 'check': 'rustc --version', 'version': '>=1.80', 'description': 'Get Rust.'}],
+            base=dict(p['base'], programs=['rustc'])))
+        run = self.stack('--profile', 'rust', '--defaults', env={'FAKE_VERSIONS': str(self.versions)})
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('rustc (for the rust profile) needs >=1.80, but found 1.79.0', run.stderr)
+        self.assertIn('Get Rust.', run.stderr)
+
+    @unittest.skipUnless(jlog_has_run(), 'needs jlog 0.2.0 or later')
+    def test_a_program_that_only_jlog_bin_gives_passes_the_install_and_the_check(self):
+        # The tool is in .jlog/bin of the target only, so the PATH of the installer does not find it, as in a recipe.
+        self.tasker_needs(name='jn-scoped', check='jn-scoped --version', version='>=1.2')
+        self.fake('jn-scoped', self.target / '.jlog/bin')
+        self.version('jn-scoped', 'jn-scoped 1.2.3')
+        self.assertIsNone(shutil.which('jn-scoped'))
+        log = self.base / 'env.jsonl'
+        run = self.install(env={'VIRTUAL_ENV': str(self.base / 'venv'), 'ENV_LOG': str(log)})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('is not on PATH, so the installer checks', run.stderr)
+        checks = [json.loads(line) for line in log.read_text().splitlines()]
+        scoped = [entry for entry in checks if entry['name'] == 'jn-scoped']
+        self.assertTrue(scoped)
+        # The check ran in the project, without the VIRTUAL_ENV of the installer, and with no download.
+        for entry in scoped:
+            self.assertIsNone(entry['VIRTUAL_ENV'])
+            self.assertEqual(entry['RUSTUP_AUTO_INSTALL'], '0')
+            self.assertEqual(Path(entry['cwd']).resolve(), self.target.resolve())
+        # The installer writes its files in the target, as without jlog.
+        self.assertTrue((self.target / '.agents/stack.json').is_file())
+        self.assertTrue((self.target / '.agents/tools_check.py').is_file())
+        self.assertEqual(self.saved()['programs']['jn-scoped']['check'], 'jn-scoped --version')
+        check = self.stack('--check', env={'FAKE_VERSIONS': str(self.versions)})
+        self.assertNotIn('jn-scoped', check.stdout)
+        # tools-check, as a recipe line runs it, finds the tool too.
+        tools = subprocess.run(['jlog', 'run', sys.executable, '.agents/tools_check.py'], cwd=self.target,
+                               capture_output=True, text=True,
+                               env=dict(os.environ, PATH=f'{self.bin}:{os.environ["PATH"]}',
+                                        FAKE_VERSIONS=str(self.versions)))
+        self.assertEqual(tools.returncode, 0, tools.stderr)
+
+    def test_without_jlog_run_the_checks_use_the_path_of_the_installer_and_say_so_once(self):
+        self.tasker_needs(name='jn-scoped', check='jn-scoped --version')
+        self.fake('jn-scoped', self.bin)
+        self.assertEqual(self.install().returncode, 0)
+        (self.bin / 'jn-scoped').unlink()
+        self.fake('jn-scoped', self.target / '.jlog/bin')
+        # An old jlog has no jlog run: the checks use the PATH of the installer, and jlog fails its own floor.
+        self.fake('jlog')
+        self.version('jlog', 'jlog 0.1.1')
+        run = self.stack('--check', env={'FAKE_VERSIONS': str(self.versions)})
+        self.assertEqual(run.returncode, 1)
+        self.assertEqual(run.stderr.count('or later is not on PATH, so the installer checks each program with its own '
+                                          'PATH'), 1, run.stderr)
+        self.assertIn('jlog (for jnterfaces) needs >=0.2.0, but found 0.1.1', run.stdout)
+        self.assertIn('jn-scoped (for agent_gest_git_skills): jn-scoped --version failed', run.stdout)
+        with mock.patch.dict(os.environ, {'PATH': f'{self.bin}:{os.environ["PATH"]}',
+                                          'FAKE_VERSIONS': str(self.versions)}), \
+                mock.patch('sys.stderr', new_callable=io.StringIO):
+            install_stack.RUNNER.clear()
+            self.assertFalse(install_stack.jlog_runs())
+            self.assertEqual(install_stack.through_jlog(['x']), ['x'])
+            self.assertFalse(install_stack.program_works(self.target, {'name': 'jn-scoped', 'check': 'jn-scoped -V',
+                                                                       'owner': 'the project'}))
+        install_stack.RUNNER.clear()
+        install_stack.RESOLVED.clear()
+
+    def snapshot(self):
+        """Each file and folder of the target, with its mode and bytes, and its time of change."""
+        found = {}
+        for path in sorted(self.target.rglob('*')):
+            stat = path.lstat()
+            found[str(path.relative_to(self.target))] = (stat.st_mode, stat.st_mtime_ns,
+                                                         path.read_bytes() if path.is_file() else None)
+        return found
+
+    def test_install_check_makes_no_change_to_the_target(self):
+        self.tasker_needs(version='>=0.5.6')
+        self.assertEqual(self.install().returncode, 0)
+        self.fake('jn-scoped', self.target / '.jlog/bin')
+        before = self.snapshot()
+        for _ in range(2):
+            check = self.stack('--check', env={'FAKE_VERSIONS': str(self.versions)})
+            self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_the_index_has_tools_check_and_check_runs_it_first(self):
+        self.assertEqual(self.install().returncode, 0)
+        index = (self.target / '.agents/just/index.just').read_text()
+        self.assertIn('tools-check:\n    ' + install_stack.TOOLS_CHECK_LINE + '\n    jlog step tools-check', index)
+        self.assertIn('\ncheck: tools-check release-check fmt-check', index)
+        self.assertEqual(self.saved()['steps'][0], 'tools-check')
+        self.assertIn('tools-check', self.saved()['provided_steps'])
+
+    @unittest.skipUnless(jlog_has_run() and shutil.which('uv'), 'needs jlog 0.2.0 and uv')
+    def test_just_tools_check_runs_in_the_project_with_uv_and_jlog(self):
+        self.assertEqual(self.install().returncode, 0)
+        # The fake uv of the tests is left out: the recipe runs the real uv, with the fakes of the programs.
+        bin_ = self.base / 'versions-bin'
+        for name in ('gh', 'gest', 'jagt', 'cx'):
+            self.fake(name, bin_)
+        env = dict(os.environ, PATH=f'{bin_}:{os.environ["PATH"]}', FAKE_VERSIONS=str(self.versions))
+        env.pop('VIRTUAL_ENV', None)
+        done = subprocess.run(['just', 'tools-check'], cwd=self.target, capture_output=True, text=True, env=env)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.version('gh', 'gh version 2.0.0')
+        done = subprocess.run(['just', 'tools-check'], cwd=self.target, capture_output=True, text=True, env=env)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn('gh (for jnterfaces) needs >=2.40, but found 2.0.0', done.stderr)
+
+    def test_a_package_that_requires_a_higher_version_of_another_stops_the_run(self):
+        root = self.packages / 'agent_gest_git_skills'
+        manifest = json.loads((root / 'skill-package.json').read_text())
+        manifest['requires'] = {'jnterfaces': '>=0.2.0'}
+        (root / 'skill-package.json').write_text(json.dumps(manifest))
+        commit(root)
+        jn = self.packages / 'jnterfaces'
+        run = self.install()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('agent_gest_git_skills requires jnterfaces >=0.2.0, but the clone of jnterfaces at', run.stderr)
+        self.assertIn('is at no tag, so its version is not known', run.stderr)
+        git(jn, 'tag', 'v0.1.0')
+        run = self.install()
+        self.assertIn('is at v0.1.0. Update that clone', run.stderr)
+        self.assertFalse((self.target / '.agents').exists())
+        git(jn, 'tag', 'v0.2.0')
+        run = self.install()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(json.loads((self.target / RECORDS['jnterfaces']).read_text())['source_version'], 'v0.2.0')
+        # A package that this run does not install cannot meet the floor.
+        manifest['requires'] = {'nossaifd': '>=0.1.0'}
+        (root / 'skill-package.json').write_text(json.dumps(manifest))
+        commit(root)
+        run = self.install('--without', 'prose')
+        self.assertIn('but this run does not install nossaifd', run.stderr)
+        for floor in ('0.1', None):
+            manifest['requires'] = {'jnterfaces': floor}
+            (root / 'skill-package.json').write_text(json.dumps(manifest))
+            commit(root)
+            self.assertIn('is not a version floor', self.install().stderr)
+
+    def role_extras(self, programs=None, required=None):
+        """Give the tasker role programs in install_extras.programs, and a tools table."""
+        root = self.packages / 'agent_gest_git_skills'
+        manifest = json.loads((root / 'skill-package.json').read_text())
+        if programs is not None:
+            manifest['install_extras']['programs'] = programs
+        if required is not None:
+            manifest['executables'] = {'required': required}
+        (root / 'skill-package.json').write_text(json.dumps(manifest))
+        commit(root)
+
+    def test_a_program_with_an_install_is_not_in_the_record(self):
+        # The git hooks of a role are the state of one machine: a fresh clone has none until just install runs.
+        self.role_extras(programs=[{'name': 'hooks', 'check': 'gest --version', 'install': 'gest install hooks'}])
+        self.assertEqual(self.install().returncode, 0)
+        self.assertNotIn('hooks', self.saved()['programs'])
+        self.assertIn('gh', self.saved()['programs'])
+
+    def test_a_table_floor_on_a_program_with_an_install_is_checked_again_and_in_a_dry_run(self):
+        self.version('gest', 'gest 0.5.0')
+        self.role_extras(programs=[{'name': 'gest', 'check': 'gest --version', 'install': 'gest install'}],
+                         required=[{'name': 'gest', 'check': 'gest --version', 'version': '>=0.5.6'}])
+        dry = self.install('--dry-run')
+        self.assertEqual(dry.returncode, 0, dry.stderr)
+        self.assertIn('Would install gest for the tasker role: gest install', dry.stdout)
+        # The real run installs it at the end, and checks the floor again: the fake install changes nothing.
+        run = self.install()
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('gest install ran, but gest (for agent_gest_git_skills, also the tasker role) needs >=0.5.6, but '
+                      'found 0.5.0', run.stderr)
+
+    def test_a_table_entry_that_tools_check_would_refuse_stays_out_of_the_record(self):
+        self.fake('jn-odd')
+        self.role_extras(required=[{'name': 'jn-odd', 'check': './bin/jn-odd --version'}])
+        self.assertEqual(self.install().returncode, 0)
+        self.assertNotIn('jn-odd', self.saved()['programs'])
+        done = subprocess.run([sys.executable, str(REPO / '.agents/tools_check.py')], cwd=self.target,
+                              capture_output=True, text=True,
+                              env=dict(os.environ, PATH=f'{self.bin}:{os.environ["PATH"]}',
+                                       FAKE_VERSIONS=str(self.versions)))
+        self.assertEqual(done.returncode, 0, done.stderr)
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_check_of_the_project_without_tools_check_is_named(self):
+        self.assertEqual(self.install().returncode, 0)
+        justfile = self.target / 'Justfile'
+        start = justfile.read_text()
+        justfile.write_text(start + '\ncheck: lint\n    jlog pass\n')
+        run = self.stack('--check', env={'FAKE_VERSIONS': str(self.versions)})
+        self.assertIn('check: it does not run tools-check, release-check, fmt-check', run.stdout)
+        # A check from before release-check, with the other steps, is named for that step alone.
+        steps = ' '.join(step for step in STEPS if step != 'release-check')
+        justfile.write_text(start + f'\ncheck: {steps}\n    jlog pass\n')
+        run = self.stack('--check', env={'FAKE_VERSIONS': str(self.versions)})
+        self.assertIn('check: it does not run release-check, which', run.stdout)
+        justfile.write_text(start + f'\ncheck: {" ".join(STEPS)}\n    jlog pass\n')
+        run = self.stack('--check', env={'FAKE_VERSIONS': str(self.versions)})
+        self.assertNotIn('does not run', run.stdout)
+        # integration is a step of the record with the default answer, so a check without it is named.
+        steps = ' '.join(step for step in STEPS if step != 'integration')
+        justfile.write_text(start + f'\ncheck: {steps}\n    jlog pass\n')
+        run = self.stack('--check', env={'FAKE_VERSIONS': str(self.versions)})
+        self.assertIn('check: it does not run integration, which', run.stdout)
+        # With the answer integration=verify, it is not a step of the record, so the same check is fine.
+        record = json.loads((self.target / '.agents/stack.json').read_text())
+        record['steps'] = [step for step in record['steps'] if step != 'integration']
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        run = self.stack('--check', env={'FAKE_VERSIONS': str(self.versions)})
+        self.assertNotIn('does not run', run.stdout)
+
+
+# PartsTests, StepTests, ProgramTests and VersionTests use the fixtures of StackTests, and run only their own tests.
+for _class in (PartsTests, StepTests, ProgramTests, VersionTests):
     for _name in [name for name in dir(StackTests) if name.startswith('test_') and name not in _class.__dict__]:
         setattr(_class, _name, None)
 # The loader would find the class under this name too, and run its tests twice.

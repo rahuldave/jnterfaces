@@ -76,6 +76,48 @@ class InstallTest(unittest.TestCase):
         self.assertTrue(os.access(script, os.X_OK))
         self.assertEqual(record['managed_files'][script.relative_to(self.target).as_posix()], sha(script))
 
+    def test_source_version_is_the_release_tag_else_the_description_else_null(self):
+        self.install()
+        self.assertIsNone(self.record()['source_version'])
+        git(self.source, 'tag', 'v0.1.0')
+        git(self.source, 'tag', 'v0.1.2')
+        git(self.source, 'tag', 'not-a-release')
+        self.install()
+        self.assertEqual(self.record()['source_version'], 'v0.1.2')
+        (self.source / 'new.txt').write_text('x\n')
+        self.commit_source()
+        self.install()
+        # Only a release tag counts for the description, so a later tag of another form does not change it.
+        git(self.source, 'tag', '2026.11.17-snap')
+        self.install()
+        self.assertRegex(self.record()['source_version'], r'^v0\.1\.2-1-g[0-9a-f]+$')
+        # A pre-release tag is not a release, so it cannot meet a floor such as >=0.3.0.
+        git(self.source, 'tag', 'v0.3.0-rc1')
+        (self.source / 'newer.txt').write_text('x\n')
+        self.commit_source()
+        self.install()
+        self.assertRegex(self.record()['source_version'], r'^v0\.1\.2-2-g[0-9a-f]+$')
+
+    def test_an_untracked_file_under_claude_does_not_make_the_source_dirty(self):
+        worktree = self.source / '.claude/worktrees/agent-1'
+        worktree.mkdir(parents=True)
+        (worktree / 'file.txt').write_text('work of an agent\n')
+        self.install()
+        self.assertFalse(self.record()['source_worktree_dirty'])
+        # Any other untracked file counts, and so does a change to a tracked file under .claude/.
+        (self.source / 'claude-notes.txt').write_text('x\n')
+        self.install()
+        self.assertTrue(self.record()['source_worktree_dirty'])
+        (self.source / 'claude-notes.txt').unlink()
+        (self.source / '.claude/settings.json').write_text('{}\n')
+        git(self.source, 'add', '.claude/settings.json')
+        git(self.source, 'commit', '-q', '-m', 'settings')
+        self.install()
+        self.assertFalse(self.record()['source_worktree_dirty'])
+        (self.source / '.claude/settings.json').write_text('{"a": 1}\n')
+        self.install()
+        self.assertTrue(self.record()['source_worktree_dirty'])
+
     def test_dry_run_writes_nothing(self):
         result = self.install('--dry-run')
         self.assertIn('Would install', result.stdout)

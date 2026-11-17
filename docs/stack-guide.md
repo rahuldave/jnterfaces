@@ -66,19 +66,29 @@ install` clones new copies into `~/.local/share/skill-packages`.
 
 ## What a machine needs
 
-A machine needs `git`, `just`, `uv` and `jlog`. The installer, Python, the
-Python tools and Node all come through `uv`. jlog is the shell of each recipe
-in `.agents/just`, and it logs each line in the run log. When jlog is missing,
-the installer stops and writes nothing. To install jlog, clone
-https://github.com/rahuldave/jlog, run `git checkout v0.1.1` in the clone,
-then run `just install`. The roles need more programs:
+A machine needs `git` 2.40, `gh` 2.40, `just` 1.50.0, `uv` 0.12.13 and
+`jlog` 0.2.0, or later versions. The installer, Python, the Python tools and
+Node all come through `uv`. jlog is the shell of each recipe in
+`.agents/just`, and it logs each line in the run log. When a program is
+missing, or older than its version floor, the installer stops and writes
+nothing. To install jlog, clone https://github.com/rahuldave/jlog, run
+`git checkout v0.2.0` in the clone, then run `just install`. The roles and
+skills need more programs:
 
-| Role or tool | Program | How the stack handles a missing program |
+| Role or skill | Program | How the stack handles a missing program |
 |---|---|---|
-| `tasker` | `gest` | The installer prints a warning and installs the skills. |
-| `cx` | `cx` | The skill describes a fallback. |
-| `jagt-protocol` | `jagt` | The skill describes a fallback. |
+| `tasker` | `gest` 0.5.6 | The installer stops, once agent_gest_git_skills gives the floor. Before that, it runs `gest --version`, and any version counts. |
+| `cx` | `cx` 0.1.0 | The installer stops while the skill is on. |
+| `jagt-protocol` | `jagt` 0.3.0 | The installer stops while the skill is on. |
 | `reporter` | `node` 22 or later | The package says to run node with `uvx --from 'nodejs-wheel==24.*' node`. |
+
+**Version floors.** A floor is the lowest version that an owner of a program
+accepts, for example `>=1.50.0` for `just`. The installer joins the floors of
+jnterfaces, the skills, the profiles, the roles and the project, and the
+highest floor counts. It saves each floor in the key `programs` of
+`.agents/stack.json`, and the step `tools-check` of `just check` checks them
+in each clone. [The programs of a profile](stack-files.md#the-programs-of-a-profile)
+gives the rules.
 
 **The programs of a profile.** A profile names the programs that it needs in
 the key `programs` of its `profile.json`. For example, the rust profile needs
@@ -109,7 +119,11 @@ tool that is off does not need its programs.
   with an error.
 
 The installer runs each command without a shell, and it never downloads a
-script. It never uninstalls a program, also when a tool or a profile goes.
+script. It runs each check and install of a program through `jlog run`, so
+it sees the PATH that the recipes see. A check installs and downloads
+nothing.
+
+The installer never uninstalls a program, also when a tool or a profile goes.
 `just install --dry-run` lists the missing programs and the installs, and it
 installs nothing. `just install --check` lists the missing programs.
 [The programs of a profile](stack-files.md#the-programs-of-a-profile) gives
@@ -209,7 +223,7 @@ Each tool of a profile has one recipe file, for example
 **The steps of just check.** `just check` runs these steps in every project:
 
 ```text
-fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
+tools-check release-check fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
 ```
 
 - **A combined step** ends with the line `jlog step NAME`, so the run log

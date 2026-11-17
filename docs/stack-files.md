@@ -151,7 +151,8 @@ Each package has one `skill-package.json`. The installer reads these keys:
 | `install_extras.programs` | The programs of a role, with the keys of the `programs` of a profile. A role that is on needs all of them. For example, tasker installs `pre-commit`, then its git hooks. |
 | `install_extras.before_remove` | `{git_hook, command}`. When the role goes and the Git hook is there, the command runs in the project before the files of the role go. For example, tasker runs `pre-commit uninstall`, because a hook without its config stops each commit. A failed command does not stop the removal. |
 | `install_extras.merge_hooks` and `install_extras.seed` | The same hooks and starter for an installer from before the parts. A newer installer leaves these files to the parts. |
-| `executables` | The tools table: the programs that the package needs, with a command that checks each one. Each entry of `required` can have the key `install`, the line that installs it. When a required program is not on `PATH`, the installer stops before it writes anything, and prints the `install` line of the program, or else its `description`. |
+| `executables` | The tools table: the programs that the package needs, with a command that checks each one. Each entry of `required` can have the key `install`, the line that installs it, and the keys `version` and `expect` of a program of a profile. When the check of a required program fails, the installer stops before it writes anything, and prints the `install` line of the program, or else its `description`. An entry without a check needs its program on the PATH only. The installer never runs this `install` line. An entry of `optional` with the key `skill` counts as required while that skill is on, for example `jagt` for the `jagt-protocol` skill. The value of `skill` must be the name of a choice of the role, and the name of the skill is the same. |
+| `requires` | The versions of other packages that the package needs: `{"jnterfaces": ">=0.1.0"}`. The version of a package is its `source_version`, from its clone. Before it writes anything, the installer stops when a named package is not in the run, when its clone has no tag, or when its version is below the floor. |
 
 ### A profile: `profile.json`
 
@@ -196,6 +197,7 @@ The top key `programs` is a list of programs. Each program has these keys:
 | `name` | The name of the program. `base.programs` and `programs` of a tool use this name. |
 | `check` | A command that exits with 0 when the program is there, for example `cargo llvm-cov --version`. |
 | `expect` | Optional. A text that the output of `check` must have, for example `llvm-tools`. |
+| `version` | Optional. The version floor, `>=X.Y.Z` or `>=X.Y`, for example `>=1.50.0`. Without it, the check must pass, and any version counts. |
 | `install` | The command that installs the program, for example `cargo +stable install --locked cargo-llvm-cov@0.9.1`. |
 | `install_in` | Optional, with `install`. `project`, the default, runs `install` in the folder of the project. `home` runs it in your home folder, or in an empty folder outside the project when `HOME` is not set. |
 | `description` | For a program without `install`: what a person does to get it. For a program with `install`: optional, what the program does. |
@@ -217,6 +219,47 @@ A role names its programs in `install_extras.programs` of its
 `skill-package.json`. They have the same keys and rules. A run needs each
 program of a role that is on, after the programs of the profiles. When a profile
 has a program with the same name, the program of the profile counts.
+
+**The version of a program** is the first `X.Y.Z`, or `X.Y`, anywhere in
+the output of its check. The search covers the whole output, because some
+programs, such as `gest`, print a banner before the version. When the output
+has no version, the search goes on in the error output. The parts compare as
+numbers, so `2.101.0` is higher than `2.40`. A check with a floor fails when
+the program is not on the PATH, when the check fails, when the output has no
+version, or when the version is below the floor. The message names the floor,
+the version found, the path of the program and the owner.
+
+**One floor for each program.** The programs of the profiles and their
+tools, of the project, of the roles, and of the tools tables of the packages
+and their skills can name the same program. The installer joins them in this
+order, and the highest floor counts. The first entry gives the check, but an
+entry with `install` comes before an entry without one. The record keeps the
+floor of each owner. A floor that a tools table adds to a program with
+`install` is checked at the end of the run, when the installer checks that
+program again.
+
+| Owner | Floors |
+|---|---|
+| jnterfaces, in each project | `jlog` >=0.2.0, `just` >=1.50.0, `uv` >=0.12.13, `git` >=2.40, `gh` >=2.40 |
+| the `jagt-protocol` skill | `jagt` >=0.3.0 |
+| the `cx` skill | `cx` >=0.1.0 |
+| the `tasker` role | `gest` >=0.5.6, when agent_gest_git_skills gives it |
+
+**The checks run through jlog.** When jlog 0.2.0 or later is on the PATH,
+the installer runs each check and each install of a program as `jlog run
+COMMAND`, from the folder of the command. So a check sees the PATH that a
+recipe line sees, also a tool that only `.jlog/bin` of the project gives.
+Without jlog 0.2.0, the installer uses its own PATH, and it says so once.
+The commands of the tools, such as `uv add`, keep the PATH of the installer.
+No command gets the `VIRTUAL_ENV` of the installer.
+
+**A check never installs or downloads.** A check must only read. It must
+not install a program, download a file, or change the project. The installer
+sets `RUSTUP_AUTO_INSTALL=0` and `UV_PYTHON_DOWNLOADS=never` for each check,
+so that `rustup` installs no toolchain that the project pins, and `uv`
+downloads no Python. The installer cannot stop every download, for example
+of `uvx` or `npx`, so do not start a check with them. Give such a program an
+`install`, and a check that only reads.
 
 A run uses the programs in this order:
 
@@ -251,20 +294,23 @@ These rules follow from the order:
 - **A missing program stops a removal too.** A missing program without
   `install` stops every run of its profile, also a run that only removes a
   tool.
-- **A check can download.** A check of `cargo` in a project with a toolchain
-  file can make rustup download the toolchain, also in a dry run
-  and in `just install --check`. A check that takes more than 15 minutes
-  fails.
+- **A check that hangs fails.** A check that takes more than 15 minutes
+  fails. A check of `cargo` in a project with a toolchain that is not
+  installed fails at once, and the program `toolchain` then installs it.
 - **A dry run installs nothing.** `just install --dry-run` prints each
   missing program and each install that it would run.
 - **`just install --check` lists the missing programs.** It fails when one is
-  missing. It skips a profile or a role that has no clone.
+  missing or below its floor. It reads the key `programs` of the record, so
+  it also checks a project without the clones of its packages. It skips the
+  rest of a profile or a role that has no clone. It changes nothing in the
+  project.
 - **A program stays.** The installer never uninstalls a program, also when a
   tool, a profile or a role goes. The `before_remove` step of a role can take
   out what its programs put in the project, such as a Git hook.
 
-The programs of jnterfaces itself, `git`, `just`, `uv` and `jlog`, are not in
-a profile.
+The programs of jnterfaces itself, `git`, `gh`, `just`, `uv` and `jlog`, are
+not in a profile. They are in `executables.required` of the
+`skill-package.json` of jnterfaces.
 
 #### A toolchain file
 
@@ -318,7 +364,9 @@ The record has these keys:
 | `started` | `true` when the installer wrote the starter Justfile. | `true` |
 | `code` | The globs of the source files of each profile, for `@code` of the gate. | `{"python": ["**/*.py"]}` |
 | `tests` | The globs of the test files of each profile. `test-parent` copies only these files into the parent commit. | `{"python": ["tests/**"]}` |
-| `steps` | The steps of `just check`, in their order. `jlog pass` reads them. With the answer `integration=verify`, `integration` is not in the list. | `["fmt-check", "lint", ...]` |
+| `steps` | The steps of `just check`, in their order. `jlog pass` reads them. With the answer `integration=verify`, `integration` is not in the list. | `["tools-check", "release-check", "fmt-check", ...]` |
+| `programs` | Each program without `install` that the project needs, with its check, its `expect`, its floor in `version`, and the floor of each owner in `owners`. The installer writes it at each run. `tools-check` and `just install --check` read it, so a clone can check its programs from this key alone. The floors of `owners` count, and `version` is the highest of them. A program with `install`, such as the git hooks of a role or a toolchain, is not in it: it is the state of one machine, and `just install` sets it up. | `{"just": {"check": "just --version", "version": ">=1.50.0", "owners": {"jnterfaces": ">=1.50.0"}}}` |
+| `project_programs` | The programs that the project itself needs. You write it, and the installer keeps it. Each entry has `name` and `check`, and can have `version`, `expect` and `description`. The owner is the project. A program without `install` must be there before a run writes anything. | `[{"name": "gest", "check": "gest --version", "version": ">=0.6.0"}]` |
 | `ci` | The steps that `just ci` runs after `ci-gate`. Each one must be a step of `just check`. You edit it, and `just install` keeps it. | `["test"]` |
 | `provided_steps` | The steps that an installed profile or role provides. `jlog pass` counts a skip only for a step that is not in this list. | `["lint", "test", "diff-check"]` |
 | `justfile_clash` | The hash of your Justfile and the error of `just`, when a run took the block out again because the Justfile did not parse with it. While the Justfile keeps this hash, the installer does not add the block. | |
@@ -469,7 +517,8 @@ keys are these:
 | `schema_version` | The version of the format. |
 | `package`, `source_repository` | The package and the repository of its clone. |
 | `source_revision` | The commit of the clone that the run installed. |
-| `source_worktree_dirty` | `true` when the clone had changes that are not committed. |
+| `source_version` | The version of the clone at `source_revision`: the release tag `vX.Y.Z` at that commit, the highest when there are several. Else the output of `git describe --tags` over the release tags, for example `v0.1.0-3-g1a2b3c4`. Else `null`. |
+| `source_worktree_dirty` | `true` when the clone had changes that are not committed. A file that git does not track under `.claude/` does not count, because the worktrees of agents are there. |
 | `source_requested_commit` | The commit that the run asked for, if any. |
 | `skills`, `skill_folders` | The installed skills. |
 | `extras` | The extra files and folders of `install_extras.files`. |
@@ -519,10 +568,27 @@ what to do. Git ignores it.
 | `.agents/config/...` and `.agents/instructions/...` | No. The installer writes them again. Put your settings in the shared file, for example `ruff.toml` or `AGENTS.md`. |
 | `.agents/just/...` | No. A file that you change is yours, and the installer stops changing it. Put your recipes in the Justfile. |
 | `.agents/skills/...` | Only if you want to keep the change. The installer then leaves the file alone and names it. |
-| `.agents/stack.json` | Only to resolve a Git conflict. Run `just install --check` after. |
+| `.agents/stack.json` | Only the key `project_programs`, and a Git conflict. Run `just install --check` after. |
+| `.agents/tools_check.py` | No. jnterfaces installs it, and `tools-check` runs it. |
 | `.agents/*-install.json`, `.agents/stack-pending.json`, `.agents/stack-log.jsonl` | No. |
 
 ## Check the files
+
+**The step `tools-check`** is the first step of `just check`. The installer
+writes it into `.agents/just/index.just`. It runs `.agents/tools_check.py`,
+which reads the keys `programs` and `project_programs` of
+`.agents/stack.json` and runs each check. It needs Python 3.9 or later,
+which `uv` finds, and it installs and downloads nothing. It runs through
+jlog, as each recipe line does, so it sees the tools of `.jlog/bin`.
+
+A Justfile with its own `check` must run each step of the record, such as
+`tools-check` and `release-check`, because `jlog pass` reads the steps from
+the record. A recipe of the project with the name of a step, such as its own
+`release-check`, is that step. `just check` runs it, and it must end with
+`jlog step`. The lint of steps names a `check` that does
+not, at each run and in `just install --check`. To check the programs in CI,
+add `tools-check` to the list `ci`. The CI then needs each program of the key
+`programs`.
 
 `just install --check` compares `parts` in `.agents/stack.json` with the
 shared files, and changes nothing. It prints each difference, for example:
