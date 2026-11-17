@@ -2695,6 +2695,15 @@ class RecipeTests(unittest.TestCase):
         git(self.target, 'init', '-q')
         shutil.copy(REPO / '.agents/install.just', self.target / '.agents/install.just')
         (self.target / 'Justfile').write_text("import? '.agents/install.just'\n")
+        # The tests turn on the cx skill, which needs cx 0.1.0 or later on PATH. A fake stands in for it, as CI has
+        # no cx.
+        fake = self.base / 'bin'
+        fake.mkdir()
+        (fake / 'cx').write_text('#!/bin/sh\necho cx 0.1.0\n')
+        (fake / 'cx').chmod(0o755)
+        patch = mock.patch.dict(os.environ, PATH=f'{fake}{os.pathsep}{os.environ.get("PATH", "")}')
+        patch.start()
+        self.addCleanup(patch.stop)
 
     def just(self, *args, **env):
         return subprocess.run(['just', *args], cwd=self.target, capture_output=True, text=True, stdin=subprocess.DEVNULL,
