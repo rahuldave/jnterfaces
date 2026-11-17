@@ -85,7 +85,7 @@ Besides Git, a project assumes three programs only, `just`, `uv` and `jlog`.
 Every other tool comes through a recipe. `just install` is that recipe. It is
 in `.agents/install.just`, and the Justfile imports it with the line
 `import? '.agents/install.just'`. To install jlog, clone
-https://github.com/rahuldave/jlog, run `git checkout v0.1.1` in the clone,
+https://github.com/rahuldave/jlog, run `git checkout v0.2.0` in the clone,
 then run `just install`.
 
 - **`just install lint`** adds a tool. A tool is a set of packages for the
@@ -122,7 +122,7 @@ the Justfile.
 this order, in every project:
 
 ```text
-fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
+tools-check release-check fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
 ```
 
 `references/command_contract.md` gives the meaning of each step. The rules

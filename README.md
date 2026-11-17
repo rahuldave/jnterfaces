@@ -118,7 +118,7 @@ file stays.
 
 1. Install `git`, `just`, `uv` and `jlog`. jlog logs each line of the
    recipes that `just install` writes. To install it, clone
-   https://github.com/rahuldave/jlog, run `git checkout v0.1.1` in the
+   https://github.com/rahuldave/jlog, run `git checkout v0.2.0` in the
    clone, then run `just install`.
 2. Choose the folder of the package clones. The default is
    `~/.local/share/skill-packages`. To use another folder, export
@@ -222,10 +222,10 @@ In a project that jnterfaces started, with its starter Justfile:
 **The steps of just check.** `just check` runs these steps, in this order:
 
 ```text
-fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
+tools-check release-check fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
 ```
 
-The `prose` role gives `prose-check`, and the installer gives `diff-check`.
+The `prose` role gives `prose-check`, the tasker role (agent_gest_git_skills) gives `release-check`, and the installer gives `tools-check` and `diff-check`. `tools-check` checks that each program of `.agents/stack.json` is there, at its version floor.
 Each profile gives the steps of its installed tools:
 
 | Profile | Steps | `test-paths` |

@@ -39,8 +39,12 @@ import tomllib
 import lint_steps
 from lint_steps import REASONS, STEPS
 import shared_files
+import install_package
 
 ROOT = Path(__file__).resolve().parents[1]
+# The check of the programs, which the installer also writes into each project as .agents/tools_check.py.
+sys.path.insert(0, str(ROOT / '.agents'))
+import tools_check  # noqa: E402
 RECORD = Path('.agents/stack.json')
 JUSTFILES = ('justfile', 'Justfile', '.justfile', 'JUSTFILE')
 IMPORT_LINE = "import? '.agents/install.just'"
@@ -73,7 +77,7 @@ QUESTIONS = {
                      'answers': {'strongest': 'the strongest model of the harness'}, 'default': 'strongest',
                      'free': True},
 }
-JLOG_INSTALL = 'clone https://github.com/rahuldave/jlog, run git checkout v0.1.1 in the clone, then run just install'
+JLOG_INSTALL = 'clone https://github.com/rahuldave/jlog, run git checkout v0.2.0 in the clone, then run just install'
 
 
 class StackError(Exception):
@@ -251,7 +255,7 @@ def check_profile(name, profile, choices):
 
 
 PROGRAM_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.+-]*')
-PROGRAM_KEYS = {'name', 'check', 'install', 'description', 'expect', 'install_in'}
+PROGRAM_KEYS = {'name', 'check', 'install', 'description', 'expect', 'install_in', 'version'}
 
 
 def command_of(text):
@@ -313,6 +317,10 @@ def check_program_list(programs, fail):
             fail(f'the description of the program {program} must be a text')
         if 'expect' in entry and not (isinstance(entry['expect'], str) and entry['expect']):
             fail(f'the expect of the program {program} must be a text')
+        try:
+            tools_check.parse_floor(entry.get('version'))
+        except ValueError as exc:
+            fail(f'the version of the program {program}: {exc}')
         if entry.get('install_in', 'project') not in ('project', 'home') or ('install_in' in entry
                                                                              and 'install' not in entry):
             fail(f'install_in of the program {program} must be project or home, and only with an install')
@@ -337,11 +345,7 @@ def needed_programs(profiles, names, pairs):
 
 def owner_of(entry):
     """Who needs a program, for the messages: the profile, or the role that the entry names."""
-    return entry.get('owner') or f'the {entry["profile"]} profile'
-
-
-# The seconds that a check of a program may take. A check of cargo can make rustup download a toolchain first.
-CHECK_SECONDS = 900
+    return entry.get('owner') or (f'the {entry["profile"]} profile' if entry.get('profile') else 'the project')
 
 
 def stop_check(run):
@@ -362,42 +366,133 @@ def stop_check(run):
             print(f'Could not stop process {run.pid} of a check; it may still run.', file=sys.stderr)
 
 
+# The seconds that a check of a program may take. A check never installs or downloads, so this is a limit for a check
+# that hangs.
+CHECK_SECONDS = 900
+# The first version of jlog with jlog run, which sets the PATH from the .jlog folders as each recipe line gets it.
+JLOG_RUN_FLOOR = '>=0.2.0'
+# Whether jlog runs the checks, by the PATH of the installer, and the PATH that the checks get, by folder and PATH.
+RUNNER, RESOLVED = {}, {}
+
+
+def check_env():
+    """The environment of a check: that of a command in the project, with the variables that stop rustup and uv from
+    an install or a download."""
+    return dict(project_env(), **tools_check.NO_DOWNLOADS)
+
+
+def jlog_runs():
+    """True when jlog 0.2.0 or later is on PATH. Then each check and install of a program runs through jlog run, from
+    its folder, so it gets the PATH that a recipe line gets there. Else the run says once that it uses its own PATH."""
+    key = os.environ.get('PATH', '')
+    if key not in RUNNER:
+        found = None
+        if shutil.which('jlog'):
+            code, out, _ = tools_check.run_check(['jlog', '--version'], env=project_env())
+            found = tools_check.found_version(out) if code == 0 else None
+        RUNNER[key] = found is not None and found >= tools_check.parse_floor(JLOG_RUN_FLOOR)
+        if not RUNNER[key]:
+            say(f'jlog {JLOG_RUN_FLOOR[2:]} or later is not on PATH, so the installer checks each program with its '
+                f'own PATH. A program that only .jlog/bin gives counts as missing here, although the recipes find it.')
+    return RUNNER[key]
+
+
+def through_jlog(argv):
+    """The argv of a command of a program: through jlog run when jlog runs the checks."""
+    return ['jlog', 'run', *argv] if jlog_runs() else list(argv)
+
+
+def resolved_path(folder):
+    """The PATH that a command of a program gets in the folder: the PATH of jlog run there, else the PATH of the
+    installer."""
+    key = (str(folder), os.environ.get('PATH', ''))
+    if key not in RESOLVED:
+        RESOLVED[key] = os.environ.get('PATH', '')
+        if jlog_runs():
+            code, out, err = tools_check.run_check(
+                ['jlog', 'run', sys.executable, '-c', 'import os; print(os.environ.get("PATH", ""))'], cwd=folder,
+                env=project_env())
+            if code == 0:
+                RESOLVED[key] = out.rstrip('\n')
+            else:
+                say(f'jlog run failed in {folder}, so the installer looks for the programs on its own PATH: '
+                    + (err.strip().splitlines() or [f'exit {code}'])[0])
+    return RESOLVED[key]
+
+
+def which(name, folder):
+    """The path of a program as a command in the folder finds it, or None."""
+    return shutil.which(name, path=resolved_path(folder))
+
+
+def floors_of(entry):
+    """The owners of a program, each with its floor or None: from the merge of the programs, else the one owner."""
+    return entry.get('floors') or {owner_of(entry): entry.get('version')}
+
+
+def program_problem(target, entry, show=False):
+    """Run the check of a program in the target, without a shell, and return None when it passes, else why it
+    failed. It passes when it exits with 0, its output holds the text of expect, and the first version in its output
+    meets the floor of the key version. The output is not shown, unless SHOW is set and the check fails: then its
+    error output is, since it says what to fix. A check that takes more than CHECK_SECONDS fails."""
+    shown = []
+
+    def run(argv):
+        try:
+            # A session of its own, so that a timeout stops each process that the check started, not only the first.
+            started = subprocess.Popen(through_jlog(argv), cwd=target, env=check_env(), stdin=subprocess.DEVNULL,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors='replace',
+                                       start_new_session=True)
+        except OSError:
+            return 127, '', ''
+        try:
+            out, err = started.communicate(timeout=CHECK_SECONDS)
+        except subprocess.TimeoutExpired:
+            stop_check(started)
+            print(f'{entry["check"]} took more than {CHECK_SECONDS} seconds, so it counts as failed', file=sys.stderr)
+            return 124, '', ''
+        except BaseException:
+            # Ctrl-C does not reach a session of its own, so the check stops here.
+            stop_check(started)
+            raise
+        shown.append(err)
+        return started.returncode, out, err
+    program = {'check': entry['check'], 'owners': floors_of(entry)}
+    program.update({key: entry[key] for key in ('version', 'expect') if key in entry})
+    found = tools_check.problem(entry['name'], program, run, lambda name: which(name, target))
+    # An error of jlog itself, such as a malformed .jlog/environment.json, is not an error of the program.
+    said = (shown[0].strip().splitlines() or [''])[0] if shown else ''
+    if found and jlog_runs() and said.startswith('jlog'):
+        found = f'{found} jlog said: {said}'
+    if show and found and shown and shown[0].strip():
+        print(shown[0].rstrip()[-4000:], file=sys.stderr)
+    return found
+
+
 def program_works(target, entry, show=False):
-    """Run the check of a program in the target, without a shell. True when it exits with 0 and its output holds the
-    text of expect. The output is not shown, unless SHOW is set and the check fails: then its error output is, since
-    it says what to fix. A check that takes more than CHECK_SECONDS fails."""
-    try:
-        # A session of its own, so that a timeout stops each process that the check started, not only the first.
-        run = subprocess.Popen(command_of(entry['check']), cwd=target, env=project_env(), stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE if show else subprocess.DEVNULL,
-                               text=True, errors='replace', start_new_session=True)
-    except OSError:
-        return False
-    try:
-        out, err = run.communicate(timeout=CHECK_SECONDS)
-    except subprocess.TimeoutExpired:
-        stop_check(run)
-        print(f'{entry["check"]} took more than {CHECK_SECONDS} seconds, so it counts as failed', file=sys.stderr)
-        return False
-    except BaseException:
-        # Ctrl-C does not reach a session of its own, so the check stops here.
-        stop_check(run)
-        raise
-    works = run.returncode == 0 and entry.get('expect', '') in out
-    if show and not works and err and err.strip():
-        print(err.rstrip()[-4000:], file=sys.stderr)
-    return works
+    """True when the check of a program passes in the target, as program_problem says."""
+    return program_problem(target, entry, show) is None
+
+
+def failed_text(target, entry, problem=None):
+    """Why a program failed, for the messages. With a floor: the floor, the version found, the path and the owner.
+    Else: that its check failed, or did not print the text of expect."""
+    if entry.get('version'):
+        return problem or program_problem(target, entry)
+    return (f'{entry["name"]} (for {owner_of(entry)}): {entry["check"]} failed'
+            + (f' or did not print {entry["expect"]}' if entry.get('expect') else ''))
 
 
 def missing_expected(target, programs, works=None, earlier=()):
     """The problems with the programs before the run writes anything: each program without an install whose check
     fails, and each missing program whose install command is not on PATH. One line each. works, when given, gets the
     result of each check that ran, by the name of the program. earlier are the programs that install before these."""
-    problems = []
+    problems, reasons = [], {}
     works = {} if works is None else works
 
     def check(entry):
-        works[entry['name']] = program_works(target, entry)
+        reasons[entry['name']] = program_problem(target, entry)
+        works[entry['name']] = reasons[entry['name']] is None
         return works[entry['name']]
     # A program that an earlier program installs in this run counts as on PATH when a later install starts with its
     # name. Only a program whose check fails is installed, so only such a program counts.
@@ -405,7 +500,7 @@ def missing_expected(target, programs, works=None, earlier=()):
     coming = set()
 
     def installs(entry):
-        if 'install' in entry and entry['name'] in firsts and not shutil.which(entry['name']):
+        if 'install' in entry and entry['name'] in firsts and not which(entry['name'], target):
             if not (works[entry['name']] if entry['name'] in works else check(entry)):
                 coming.add(entry['name'])
     for entry in earlier:
@@ -413,14 +508,13 @@ def missing_expected(target, programs, works=None, earlier=()):
     for entry in programs:
         if 'install' in entry:
             first = command_of(entry['install'])[0]
-            if first not in coming and not shutil.which(first) and not check(entry):
+            if first not in coming and not which(first, target) and not check(entry):
                 problems.append(f'{entry["name"]} (for {owner_of(entry)}): its install, {entry["install"]}, '
                                 f'needs {first}, which is not on PATH.')
             installs(entry)
         elif not check(entry):
-            problems.append(f'{entry["name"]} (for {owner_of(entry)}): {entry["check"]} failed'
-                            + (f' or did not print {entry["expect"]}' if entry.get('expect') else '')
-                            + f'. {entry["description"]}')
+            text = failed_text(target, entry, reasons[entry['name']])
+            problems.append(text + ('' if text.endswith('.') else '.') + f' {entry["description"]}')
     return problems
 
 
@@ -440,7 +534,9 @@ def install_programs(target, programs):
             spare = tempfile.TemporaryDirectory()
         folder = Path(spare.name) if spare else Path(os.environ['HOME']) if home else target
         try:
-            code = subprocess.run(command_of(entry['install']), cwd=folder, env=project_env(),
+            # Through jlog run, from the folder of the install, so that the install gets the PATH and the variables
+            # that the check gets there.
+            code = subprocess.run(through_jlog(command_of(entry['install'])), cwd=folder, env=project_env(),
                                   stdin=subprocess.DEVNULL).returncode
         except OSError as exc:
             code = str(exc)
@@ -453,9 +549,11 @@ def install_programs(target, programs):
             raise StackError(f'The install of the program {entry["name"]} failed: {entry["install"]}: {reason}. The '
                              f'rest of the install is done. Install {entry["name"]} yourself, or fix the cause, and run '
                              f'just install again.{about}')
-        if not program_works(target, entry, show=True):
-            raise StackError(f'{entry["install"]} ran, but {entry["check"]} still fails'
-                             + (f' or does not print {entry["expect"]}' if entry.get('expect') else '')
+        problem = program_problem(target, entry, show=True)
+        if problem:
+            raise StackError(f'{entry["install"]} ran, but '
+                             + (problem.rstrip('.') if entry.get('version') else f'{entry["check"]} still fails'
+                                + (f' or does not print {entry["expect"]}' if entry.get('expect') else ''))
                              + f'. The rest of the install is done. Install {entry["name"]} yourself, and run just '
                              f'install again.{about}')
 
@@ -645,10 +743,11 @@ def role_extras(clone):
     return parts, starter
 
 
-def role_programs(packages, clones, known=()):
+def role_programs(packages, clones):
     """The programs of each role package, from install_extras.programs, in the order of stack.json. A role needs all
-    of its programs while it is on. A program that a profile, or an earlier role, declares is not taken again."""
-    found = {name: None for name in known}
+    of its programs while it is on. merge_programs joins a program that a profile, or an earlier role, declares
+    too."""
+    found = []
     for package in packages:
         clone = clones.get(package['name'])
         if 'choice' not in package or clone is None:
@@ -662,10 +761,151 @@ def role_programs(packages, clones, known=()):
         def fail(reason):
             raise StackError(f'install_extras.programs in {clone}/skill-package.json is malformed: {reason}')
         check_program_list(programs, fail)
-        for entry in programs:
-            if entry['name'] not in found:
-                found[entry['name']] = dict(entry, profile=package['choice'], owner=f'the {package["choice"]} role')
-    return [entry for entry in found.values() if entry is not None]
+        found += [dict(entry, profile=package['choice'], owner=f'the {package["choice"]} role') for entry in programs]
+    return found
+
+
+def package_programs(clone, chosen, owner):
+    """The tools table of a package, from the key executables of its skill-package.json, as programs without an
+    install: the installer never runs their install line, it prints it. Each required executable counts, and an
+    optional one counts when its key skill names a skill that is on. owner is the owner of the required ones. Each
+    entry has the line that installs it, in description: the key install, else the description, else the check. An
+    entry without a name is skipped, and a malformed version or expect stops the run."""
+    try:
+        executables = json.loads((clone / 'skill-package.json').read_text()).get('executables', {})
+    except (OSError, ValueError, AttributeError):
+        return []
+    found = []
+    for kind in ('required', 'optional'):
+        listed = executables.get(kind, []) if isinstance(executables, dict) else []
+        for entry in listed if isinstance(listed, list) else []:
+            if not isinstance(entry, dict) or not isinstance(entry.get('name'), str) or not entry['name']:
+                continue
+            skill = entry.get('skill')
+            if kind == 'optional' and not (isinstance(skill, str) and chosen.get(skill)):
+                continue
+            where = f'executables.{kind} in {clone}/skill-package.json'
+            reason = tools_check.check_entry(entry, where)
+            if reason and ('version' in entry or 'expect' in entry):
+                raise StackError(reason)
+            item = {'name': entry['name'], 'executable': True, 'has_install': 'install' in entry,
+                    'owner': f'the {skill} skill' if kind == 'optional' else owner,
+                    'description': entry.get('install') or entry.get('description')
+                    or f'Install it so that {entry.get("check", entry["name"])} works.'}
+            # An entry whose name or check tools-check would refuse needs its program on PATH only, as before the
+            # floors, and stays out of the record.
+            if not reason:
+                item['check'] = entry['check']
+            item.update({key: entry[key] for key in ('version', 'expect') if key in entry})
+            found.append(item)
+    return found
+
+
+def table_problem(target, entry):
+    """Why a program of a tools table fails, or None. A program with a check needs the check to pass, as
+    program_problem says. A program without one needs to be on PATH, as a command in the project finds it."""
+    if 'check' in entry:
+        problem = program_problem(target, entry)
+        if problem is None:
+            return None
+        if entry.get('version'):
+            return f'{problem} {entry["description"]}'
+    elif which(entry['name'], target):
+        return None
+    return f'{entry["name"]} (for {entry["owner"]}): {entry["description"]}'
+
+
+def project_programs(raw):
+    """The programs that the project itself needs, from the key project_programs of .agents/stack.json."""
+    try:
+        entries = tools_check.project_programs(raw if isinstance(raw, dict) else {})
+    except ValueError as exc:
+        raise StackError(f'{exc}. Fix it in {RECORD}, and run just install again.')
+    return [dict(entry, description=entry.get('description') or f'Install it so that {entry["check"]} works.')
+            for entry in entries]
+
+
+def merge_programs(programs, extra):
+    """Add the programs of extra to the list programs, by name, in place. A program that the list has already keeps
+    its place. It gets each owner of the new entry in floors, and the highest floor as version. The first entry gives
+    the check, unless a later entry has an install and the first has none. Return the entries that are new, and the
+    entries whose check or floor changed, which need a check again."""
+    by_name = {entry['name']: entry for entry in programs}
+    new, changed = [], []
+    for entry in extra:
+        old = by_name.get(entry['name'])
+        if old is None:
+            item = dict(entry, floors=dict(floors_of(entry)))
+            by_name[item['name']] = item
+            programs.append(item)
+            new.append(item)
+            continue
+        before = (old.get('check'), old.get('expect'), old.get('install'), old.get('version'))
+        floors = dict(floors_of(old))
+        for owner, floor in floors_of(entry).items():
+            floors[owner] = tools_check.higher(floors.get(owner), floor)
+        takes = ('install' in entry and 'install' not in old) or ('check' in entry and 'check' not in old)
+        merged = dict(entry) if takes else dict(old)
+        merged['floors'] = floors
+        merged.pop('version', None)
+        version = None
+        for floor in floors.values():
+            version = tools_check.higher(version, floor)
+        if version:
+            merged['version'] = version
+        old.clear()
+        old.update(merged)
+        if (old.get('check'), old.get('expect'), old.get('install'), old.get('version')) != before \
+                and old not in changed:
+            changed.append(old)
+    return new, changed
+
+
+def recorded_programs(programs):
+    """The key programs of .agents/stack.json: each program with its check, its expect, its floor and the floor of
+    each owner, so that a clone can check the programs from the record alone. Only a program without an install is
+    in it: the machine must have it. A program with an install, such as the git hooks of a role or a toolchain, is
+    the state of one machine, which just install sets up, so a fresh clone or CI would fail on it. A program of a
+    tools table without a check is left out too: only the installer checks that it is on PATH."""
+    found = {}
+    for entry in sorted(programs, key=lambda item: item['name']):
+        if not entry.get('check') or 'install' in entry:
+            continue
+        program = {'check': entry['check']}
+        program.update({key: entry[key] for key in ('expect', 'version') if entry.get(key)})
+        program['owners'] = dict(floors_of(entry))
+        found[entry['name']] = program
+    return found
+
+
+def check_requires(packages, clones, heads):
+    """Check the key requires of each package: {package: floor}, such as {"jnterfaces": ">=0.1.0"}. The version of a
+    package is the version of its clone, as its install record saves it in source_version. Stop with the reason at the
+    first package that does not meet its floor."""
+    for package in packages:
+        try:
+            requires = json.loads((clones[package['name']] / 'skill-package.json').read_text()).get('requires', {})
+        except (OSError, ValueError, AttributeError):
+            requires = {}
+        if not isinstance(requires, dict) or not all(isinstance(name, str) for name in requires):
+            raise StackError(f'requires in the skill-package.json of {package["name"]} must map package names to '
+                             f'version floors, for example {{"jnterfaces": ">=0.1.0"}}')
+        for name, floor in requires.items():
+            try:
+                wanted = tools_check.parse_floor(floor if floor is not None else 'none')
+            except ValueError as exc:
+                raise StackError(f'requires of {name} in the skill-package.json of {package["name"]}: {exc}')
+            clone = clones.get(name)
+            if clone is None:
+                raise StackError(f'{package["name"]} requires {name} {floor}, but this run does not install {name}. '
+                                 f'Nothing was written.')
+            version = install_package.source_version(clone, heads.get(name) or 'HEAD')
+            found = tools_check.found_version(version)
+            if found is None or found < wanted:
+                raise StackError(f'{package["name"]} requires {name} {floor}, but the clone of {name} at {clone} is '
+                                 + (f'at {version}' if version else 'at no tag, so its version is not known')
+                                 + f'. Update that clone, for example with git pull --ff-only in {clone}, then run just '
+                                   f'install again. Nothing was written.')
 
 
 def role_before_remove(package, clone):
@@ -852,7 +1092,36 @@ def check_record_programs(target, record, registry, overrides):
     is missing. True when one is missing. A profile or role without a clone is not checked, and --check clones
     nothing."""
     record = record if isinstance(record, dict) else {}
+    found, missing, covered = clone_programs(target, record, registry, overrides)
+    # The programs of the record join them: a clone of the project, as in CI, has no clone of a package, and the
+    # project can change its own programs before the next run. The clone of a profile or role says what it needs
+    # now, for example without a tool that is being removed, so its floors in the record are left out.
+    try:
+        saved = tools_check.recorded(record)
+    except ValueError as exc:
+        print(f'The programs of {RECORD} are not checked: {exc}')
+        saved, missing = {}, True
+    merge_programs(found, [{'name': name, 'check': program['check'], 'owner': owner, 'description':
+                            f'Install it, or run just install, so that {program["check"]} works.',
+                            **({'version': floor} if floor else {}),
+                            **({'expect': program['expect']} if program.get('expect') else {})}
+                           for name, program in saved.items() for owner, floor in program['owners'].items()
+                           if owner not in covered])
+    for entry in found:
+        problem = program_problem(target, entry)
+        if problem is None:
+            continue
+        missing = True
+        text = failed_text(target, entry, problem).rstrip('.')
+        print(f'Missing program: {text}. ' + (f'just install runs: {entry["install"]}' if 'install' in entry
+                                              else entry['description']))
+    return missing
 
+
+def clone_programs(target, record, registry, overrides):
+    """The programs that the profiles, tools and roles of the record need, from the clones of their packages, True
+    when one could not be read, and the owners that the clones cover. A profile or role without a clone is left out,
+    and nothing is cloned."""
     def listed(key):
         value = record.get(key, [])
         return value if string_list(value) else []
@@ -860,12 +1129,12 @@ def check_record_programs(target, record, registry, overrides):
     names = [name for name in listed('profiles') if name not in listed('removing_profiles')]
     saved = record.get('choices')
     if not names and not (isinstance(saved, dict) and True in saved.values()):
-        return False
+        return [], False, set()
     try:
         packages, choices, aliases, registry_profiles = load_registry(registry)
     except StackError as exc:
         print(f'The programs are not checked: {exc}')
-        return False
+        return [], False, set()
     # A record from before the renames saves a role under its old name.
     roles = [aliases.get(name, name) for name, on in saved.items() if on is True] if isinstance(saved, dict) else []
     tools = [pair for pair in listed('tools') + listed('pending_tools') if pair not in listed('removing_tools')]
@@ -889,29 +1158,22 @@ def check_record_programs(target, record, registry, overrides):
     # A record from before the pairs lists bare tool names: the tool of each saved profile that has it.
     pairs = {pair if ':' in pair else f'{name}:{pair}' for pair in tools for name in kept}
     missing = unchecked
-    programs = needed_programs(profiles, kept, pairs)
+    programs = []
+    merge_programs(programs, needed_programs(profiles, kept, pairs))
     role_packages, clones = [p for p in packages if p.get('choice') in roles], {}
     for package in role_packages:
         try:
             clones[package['name']] = clone_dir(package, overrides, fetch=False)
         except StackError as exc:
             print(f'The programs of the {package["choice"]} role are not checked: {exc}')
+    covered = {f'the {name} profile' for name in kept}
     try:
-        programs += role_programs(role_packages, clones, [entry['name'] for entry in programs])
+        merge_programs(programs, role_programs(role_packages, clones))
+        covered |= {f'the {package["choice"]} role' for package in role_packages if package['name'] in clones}
     except StackError as exc:
         print(f'The programs of the roles are not checked: {exc}')
         missing = True
-    for entry in programs:
-        if program_works(target, entry):
-            continue
-        missing = True
-        if 'install' in entry:
-            print(f'Missing program: {entry["name"]} (for {owner_of(entry)}): {entry["check"]} failed. '
-                  f'just install runs: {entry["install"]}')
-        else:
-            print(f'Missing program: {entry["name"]} (for {owner_of(entry)}): {entry["check"]} failed. '
-                  f'{entry["description"]}')
-    return missing
+    return programs, missing, covered
 
 
 def read_record(target, choices, aliases):
@@ -1411,23 +1673,6 @@ def update(clone):
     run = subprocess.run(['git', '-C', str(clone), 'pull', '--ff-only', '--quiet'], capture_output=True, text=True)
     if run.returncode:
         raise StackError(f'Cannot update {clone} with git pull --ff-only: {run.stderr.strip()}')
-
-
-def missing_tools(clone):
-    """The required executables that a package names in skill-package.json and that are not on PATH, each with the
-    line that installs it: the key install, else the description, else the check. A malformed entry is skipped."""
-    try:
-        required = json.loads((clone / 'skill-package.json').read_text()).get('executables', {}).get('required', [])
-    except (OSError, ValueError, AttributeError):
-        return []
-    found = []
-    for entry in required if isinstance(required, list) else []:
-        if not isinstance(entry, dict) or not isinstance(entry.get('name'), str) or not entry['name']:
-            continue
-        if not shutil.which(entry['name']):
-            found.append((entry['name'], entry.get('install') or entry.get('description')
-                          or f'Install it so that {entry.get("check", entry["name"])} works.', 'install' in entry))
-    return found
 
 
 def run_installer(clone, options, target, head, dry_run, quiet=False):
@@ -2167,6 +2412,10 @@ def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runn
         lines += ['    just --justfile {{quote(justfile())}} integration'] if late and not provided else []
         lines += ['    git diff --check']
     real = set(names)
+    if 'tools-check' not in real | taken:
+        lines += ['', '# Check each program that .agents/stack.json records: it is there, and at its version floor',
+                  'tools-check:', f'    {TOOLS_CHECK_LINE}', '    jlog step tools-check']
+        real.add('tools-check')
     if modules and 'diff-check' not in real | taken:
         # git diff HEAD also checks the changes that are not staged. A repository with no commit compares with the
         # empty tree.
@@ -2196,6 +2445,8 @@ def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runn
 
 # The line of a stub of the index, in the form with which the installer reads the names of the project.
 STUB = 'jnterfaces-stub-of-the-index'
+# The line of the step tools-check. uv finds a Python 3.9 or later and downloads none. The check reads the record only.
+TOOLS_CHECK_LINE = "uv run --no-project --quiet --no-python-downloads --python '>=3.9' python .agents/tools_check.py"
 
 
 def probe_text(modules, stubs=(), setting=False):
@@ -2231,10 +2482,10 @@ def provided_of(modules, recipes, role_recipes):
     also provides diff-check."""
     having = {recipe for name in modules for recipe in recipes.get(name, {})}
     having |= {recipe for dump in role_recipes.values() for recipe in (dump or {}).get('recipes') or {}}
-    return [step for step in STEPS if step in having or (step == 'diff-check' and modules)]
+    return [step for step in STEPS if step in having or (step == 'diff-check' and modules) or step == 'tools-check']
 
 
-def lint_project(dump, modules=()):
+def lint_project(dump, modules=(), steps=STEPS):
     """The findings of the lint of steps for the dump of a root Justfile that imports the index: each step and check
     at the top, which must also end with their lines of jlog, and the steps of each module of a profile in modules.
     check never runs another module of the project, so the lint leaves it alone."""
@@ -2242,7 +2493,35 @@ def lint_project(dump, modules=()):
     for name, module in sorted(((dump or {}).get('modules') or {}).items()):
         if name in modules:
             findings += [f'{name}::{finding}' for finding in lint_steps.lint(module, STEPS)]
+    # jlog pass needs a line for each step of the record, the steps of just check for the answers.
+    absent = [step for step in steps if not runs_step(dump, 'check', step)]
+    if absent:
+        findings.append(f'check: it does not run {", ".join(absent)}, which .agents/stack.json lists as steps, so jlog '
+                        f'pass fails. Add them to its dependencies')
     return findings
+
+
+def runs_step(dump, name, step):
+    """True when the recipe name of the dump is missing, or runs step: as a dependency, also of a dependency, or in
+    a line that names it."""
+    recipes = (dump or {}).get('recipes') or {}
+    todo, seen = [name], set()
+    if name not in recipes:
+        return True
+    while todo:
+        current = todo.pop()
+        if current == step:
+            return True
+        if current in seen or current not in recipes:
+            continue
+        seen.add(current)
+        recipe = recipes[current]
+        # A line keeps its text fragments; an interpolation, such as {{quote(justfile())}}, is left out.
+        if any(step in ''.join(part for part in line if isinstance(part, str)).split()
+               for line in recipe.get('body') or []):
+            return True
+        todo += [dep.get('recipe') for dep in recipe.get('dependencies') or []]
+    return False
 
 
 def step_findings(target, record):
@@ -2265,7 +2544,9 @@ def step_findings(target, record):
     found = []
     if shell and Path(shell[0] or '').name != 'jlog':
         found.append(SHELL_NOTE.format(name=justfile.name, line=json.dumps(['jlog'] + shell)))
-    return found + lint_project(dump, profiles)
+    steps = record.get('steps')
+    steps = tuple(step for step in steps if step in STEPS) if isinstance(steps, list) else STEPS
+    return found + lint_project(dump, profiles, steps)
 
 
 def shell_of(dump):
@@ -2464,13 +2745,15 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
         say(f'The Justfile does not parse with the index, so the installer put the old index back. just said: {error}')
         return error
     if imported and justfile is not None:
-        for finding in lint_project(just_dump(target, justfile), mods):
+        for finding in lint_project(just_dump(target, justfile), mods, tuple(check)):
             say(f'The lint of steps: {finding}. Run just install --check after the fix.')
     return None
 
 
 def main(argv=None):
     SAID.clear()
+    RUNNER.clear()
+    RESOLVED.clear()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('names', nargs='*', help='roles, tools or profiles to turn on')
     parser.add_argument('--target', type=Path, default=Path('.'), help='the repository to install into; default: here')
@@ -2621,11 +2904,14 @@ def main(argv=None):
     tools_remove = [pair for pair in saved_tools if pair in off]
     # The programs of the profiles and tools that stay on. A program without an install must be there before the run
     # writes anything. A program with an install is installed at the end, after the files of the profiles.
-    programs = needed_programs(profiles, [name for name in active if name not in leaving], tools)
+    # The programs of the project itself, from project_programs of the record, have no install, so they count here too.
+    programs = []
+    merge_programs(programs, needed_programs(profiles, [name for name in active if name not in leaving], tools)
+                   + project_programs((record or {}).get('raw')))
     works = {}
     missing = missing_expected(target, programs, works)
     if missing and not args.dry_run:
-        raise StackError('A program that the profiles need is missing. Nothing was written. Install it, then run just '
+        raise StackError('A program that the profiles or the project need is missing. Nothing was written. Install it, then run just '
                          'install again:\n  ' + '\n  '.join(missing))
     steps = plan(packages, chosen)
     # The package of each profile is installed like a package of a role: its skills and its recipe files.
@@ -2643,13 +2929,19 @@ def main(argv=None):
             if name != 'jnterfaces':
                 update(clone)
     heads = {name: head_of(clone) for name, clone in clones.items()} if args.clean else {}
-    # The programs of the roles that are on. Their clones are here only now, and still nothing is written.
-    extra = role_programs([p for p, _ in steps], clones, [entry['name'] for entry in programs])
-    extra_missing = missing_expected(target, extra, works, earlier=programs)
+    # A package that requires a version of another package stops the run here, before anything is written.
+    check_requires([p for p, _ in steps], {p['name']: clones[p['name']] for p, _ in steps}, heads)
+    # The programs of the roles that are on. Their clones are here only now, and still nothing is written. A program
+    # that a profile declares too keeps the check of the profile, and gets the higher floor, so it is checked again.
+    new, changed = merge_programs(programs, role_programs([p for p, _ in steps], clones))
+    for entry in changed:
+        works.pop(entry['name'], None)
+    again = new + changed
+    extra_missing = missing_expected(target, again, works, earlier=[entry for entry in programs if entry not in again])
     if extra_missing and not args.dry_run:
         raise StackError('A program that the roles need is missing. Nothing was written. Install it, then run just '
                          'install again:\n  ' + '\n  '.join(extra_missing))
-    programs, missing = programs + extra, missing + extra_missing
+    missing = missing + extra_missing
     # The step of each role is checked when the role installs too, so that a bad step cannot block its removal later.
     befores = {p['name']: role_before_remove(p, clones[p['name']]) for p in [s[0] for s in steps] + removals
                if 'choice' in p}
@@ -2657,12 +2949,31 @@ def main(argv=None):
     # install line, before anything is written. A program that a profile or a role of this run installs, from its
     # programs, does not count. Each program is named once, with an install line when a package gives one. A dry run
     # only prints the lines.
+    # A program of a table with a version needs its check, and a version that meets it. The floor of a program that
+    # a profile or a role installs joins that program, whose check after the install meets it.
     installing = {entry['name'] for entry in programs if 'install' in entry}
-    lacking = {}
+    lacking, table = {}, []
     for package, _ in steps:
-        for name, line, has_install in missing_tools(clones[package['name']]):
-            if name not in installing and (name not in lacking or (has_install and not lacking[name][1])):
-                lacking[name] = (f'{name} (for {package["name"]}): {line}', has_install)
+        table += package_programs(clones[package['name']], chosen, package['name'])
+    for entry in table:
+        name = entry['name']
+        if name in installing or (name in lacking and not (entry['has_install'] and not lacking[name][1])):
+            continue
+        problem = table_problem(target, entry)
+        if problem:
+            lacking[name] = (problem, entry['has_install'])
+    # The floors of the tables join the programs, for the record. A program of a profile or a role whose floor rose is
+    # checked again.
+    new, changed = merge_programs(programs, [{key: value for key, value in entry.items() if key != 'has_install'}
+                                             for entry in table])
+    for entry in changed:
+        # A program with an install is checked again at the end, with its new floor, and installed when it fails it.
+        # The dry run checks it again too.
+        works.pop(entry['name'], None)
+        if 'install' not in entry and entry['name'] not in lacking and not entry.get('executable'):
+            problem = program_problem(target, entry)
+            if problem:
+                lacking[entry['name']] = (problem, False)
     lacking = [line for line, _ in lacking.values()]
     if lacking and not args.dry_run:
         raise StackError('A program that the packages need is not on PATH. Nothing was written. Install it, then run '
@@ -2789,7 +3100,7 @@ def main(argv=None):
     # The keys that save writes. It keeps each other key of the record, so that it never drops one.
     managed = {'version', 'profiles', 'choices', 'tools', 'variants', 'owned_packages', 'added_packages',
                'pending_tools', 'removing_tools', 'removing_profiles', 'generated', 'started', 'parts',
-               'parts_version', 'code', 'tests', 'justfile_clash', 'steps', 'provided_steps', 'answers'}
+               'parts_version', 'code', 'tests', 'justfile_clash', 'steps', 'provided_steps', 'answers', 'programs'}
 
     def save(tool_list, waiting, going=()):
         record_file.parent.mkdir(exist_ok=True)
@@ -2843,6 +3154,9 @@ def main(argv=None):
         if isinstance(state['clash'], dict):
             record['justfile_clash'] = state['clash']
         record['parts'], record['parts_version'] = state['parts'], 1
+        # Each program with its check and floor, and the floor of each owner, for tools-check in a clone. The key
+        # project_programs is the project's own, so the loop below keeps it.
+        record['programs'] = recorded_programs(programs)
         for key, value in old.items():
             if key not in managed:
                 record[key] = value

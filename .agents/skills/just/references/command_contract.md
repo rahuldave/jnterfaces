@@ -60,6 +60,8 @@ does not ignore.
 
 | Step | What it checks |
 |---|---|
+| `tools-check` | That each program of `.agents/stack.json` is there, at its version floor. It installs and downloads nothing. |
+| `release-check` | That the next release tag will be valid. The tasker role (agent_gest_git_skills) gives it, and it needs no network. Without that role, the step logs a skip. |
 | `fmt-check` | The format of the code. `fmt` changes the format, and it stays outside `just check`. |
 | `lint` | The rules of the linter. |
 | `typecheck` | The types. |

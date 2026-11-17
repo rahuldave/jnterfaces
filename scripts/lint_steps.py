@@ -25,11 +25,15 @@ import sys
 # The import line of the recipe file of jnterfaces, which brings the index and its check.
 IMPORTS = re.compile(r'''^import\??\s+['"](\./)?\.agents/install\.just['"]''', re.M)
 # The steps of just check, in their order. integration comes before coverage-check, so that the gate of coverage reads
-# the reports of test and integration from the same run.
-STEPS = ('fmt-check', 'lint', 'typecheck', 'test', 'integration', 'coverage-check', 'docstring-check', 'docs-check',
-         'prose-check', 'diff-check')
+# the reports of test and integration from the same run. tools-check comes first: a step fails in a confusing way when
+# a program is missing or too old. release-check comes next: the tasker role (agent_gest_git_skills) gives it, and it
+# checks offline that the next release tag will be valid.
+STEPS = ('tools-check', 'release-check', 'fmt-check', 'lint', 'typecheck', 'test', 'integration', 'coverage-check',
+         'docstring-check', 'docs-check', 'prose-check', 'diff-check')
 # The reason that a no-op step logs with jlog skip.
 REASONS = {
+    'tools-check': 'no tools check in this repository',
+    'release-check': 'no release check in this repository',
     'fmt-check': 'no format checker in this repository',
     'lint': 'no linter in this repository',
     'typecheck': 'no type checker in this repository',

@@ -15,7 +15,7 @@ test_python := "uv run --no-project --quiet --with tomlkit==0.15.2 --with ruamel
 # Check the shell scripts, the Python, the JSON and the Justfile templates for syntax, lint the steps of the templates, and check that each link to an optional skill has a fallback
 lint:
     for script in .agents/skills/*/scripts/*.sh; do bash -n "$script"; done
-    {{python}} -m py_compile scripts/*.py tests/*.py
+    {{python}} -m py_compile scripts/*.py tests/*.py .agents/tools_check.py
     {{python}} -m json.tool skill-package.json > /dev/null
     {{python}} -m json.tool stack.json > /dev/null
     for template in .agents/skills/just/assets/templates/*.just .agents/install.just; do just --justfile "$template" --summary > /dev/null; done
@@ -61,8 +61,13 @@ prose-check checker:
     done
     exit "$status"
 
-# Everything a commit must pass: the lint and the tests
+# Check each required program of skill-package.json: it is there, and at its version floor
+tools-check:
+    uv run --no-project --quiet --no-python-downloads --python '>=3.9' python .agents/tools_check.py --manifest skill-package.json
+
+# Everything a commit must pass: the programs, the lint and the tests
 check:
+    just tools-check
     just lint
     just test
 

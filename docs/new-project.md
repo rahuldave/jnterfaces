@@ -26,11 +26,12 @@ were run on 2026-11-15.
 
 | Program | For | How to get it |
 |---|---|---|
-| `git` | Each project and each package clone | The system package manager |
-| `just` | Every recipe | https://just.systems |
-| `uv` | The installer, Python, and Node for TypeScript | https://docs.astral.sh/uv |
-| `jlog` v0.1.1 | The shell of each recipe that `just install` writes. It logs each line in the run log. | Clone https://github.com/rahuldave/jlog, run `git checkout v0.1.1` in the clone, then run `just install` there. Its install builds with `cargo`, so it needs Rust, from https://rustup.rs/, for every profile. The installer stops when jlog is missing. |
-| `gest` | The skills of the `tasker` role | Install it on its own. It does not come through `uv`. The installer warns when it is missing. |
+| `git` 2.40 or later | Each project and each package clone | The system package manager |
+| `gh` 2.40 or later | The pull requests and the checks of CI | https://cli.github.com |
+| `just` 1.50.0 or later | Every recipe | https://just.systems |
+| `uv` 0.12.13 or later | The installer, Python, and Node for TypeScript | https://docs.astral.sh/uv |
+| `jlog` v0.2.0 or later | The shell of each recipe that `just install` writes. It logs each line in the run log. | Clone https://github.com/rahuldave/jlog, run `git checkout v0.2.0` in the clone, then run `just install` there. Its install builds with `cargo`, so it needs Rust, from https://rustup.rs/, for every profile. The installer stops when jlog is missing. |
+| `gest` 0.5.6 or later | The skills of the `tasker` role | Install it on its own. It does not come through `uv`. The installer stops when it is missing. |
 
 A profile can need more programs. The rust profile needs `rustup`, from
 https://rustup.rs/. The installer checks each program of the profile. When
@@ -109,11 +110,12 @@ project with no code yet. A Rust project always has code, so first read
 `just check` runs the steps of the commit gates, in this order:
 
 ```text
-fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
+tools-check release-check fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
 ```
 
 A step fails when the change breaks a rule. The `prose` role gives
-`prose-check`, and the installer gives `diff-check`. A step that nothing gives
+`prose-check`, and the tasker role (agent_gest_git_skills) gives
+`release-check`. The installer gives `tools-check` and `diff-check`. A step that nothing gives
 logs a skip. Each profile gives the steps of its installed tools, and the
 `test-paths` recipe:
 

@@ -22,6 +22,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -73,10 +74,59 @@ def source_revision(source, requested):
         revision = git(source, 'rev-parse', '--verify', f'{requested or "HEAD"}^{{commit}}')
         remote = subprocess.run(['git', '-C', str(source), 'config', '--get', 'remote.origin.url'],
                                 capture_output=True, text=True).stdout.strip() or None
-        dirty = bool(git(source, 'status', '--porcelain', '--untracked-files=all'))
-        return revision, remote, dirty
+        return revision, remote, worktree_dirty(source)
     except subprocess.CalledProcessError as exc:
         fail(f'Cannot resolve source Git revision: {exc.stderr.strip()}')
+
+
+def worktree_dirty(source):
+    """True when the clone has a change that is not committed. A file that git does not track under .claude/ does not
+    count: the worktrees of agents live there."""
+    out = subprocess.check_output(['git', '-C', str(source), 'status', '--porcelain', '-z', '--untracked-files=all'],
+                                  stderr=subprocess.PIPE)
+    entries, skip = out.split(b'\0'), False
+    for entry in entries:
+        if skip:
+            # The old name of a rename or a copy follows its entry.
+            skip = False
+            continue
+        if not entry:
+            continue
+        status, path = entry[:2], entry[3:]
+        skip = status[:1] in (b'R', b'C')
+        if status == b'??' and (path + b'/').startswith(b'.claude/'):
+            continue
+        return True
+    return False
+
+
+# A release tag: v and three numbers.
+RELEASE_TAG = re.compile(r'v\d+\.\d+\.\d+')
+
+
+def source_version(source, revision):
+    """The version of the clone at revision: the release tag vX.Y.Z at that commit, else the output of git describe
+    --tags of the release tags before it, such as v0.1.0-3-g1a2b3c4, else None. With several release tags at the
+    commit, the highest counts. Another tag, such as a date, does not count, so it cannot meet the floor of a package
+    that requires this one."""
+    def release_at(commit):
+        run = subprocess.run(['git', '-C', str(source), 'tag', '--points-at', commit], capture_output=True, text=True)
+        tags = [tag for tag in run.stdout.split() if RELEASE_TAG.fullmatch(tag)] if run.returncode == 0 else []
+        return max(tags, key=lambda tag: tuple(int(part) for part in tag[1:].split('.'))) if tags else None
+    if release_at(revision):
+        return release_at(revision)
+    # Only release tags count: --exclude leaves out a tag with another sign after the v, such as v0.3.0-rc1.
+    releases = ['--match', 'v[0-9]*.[0-9]*.[0-9]*', '--exclude', 'v*[!0-9.]*']
+    run = subprocess.run(['git', '-C', str(source), 'describe', '--tags', *releases, revision], capture_output=True,
+                         text=True)
+    described = run.stdout.strip() if run.returncode == 0 else ''
+    if not described:
+        return None
+    # git describe picks one of several tags of one commit, so the highest release tag there takes its place.
+    base = subprocess.run(['git', '-C', str(source), 'describe', '--tags', '--abbrev=0', *releases, revision],
+                          capture_output=True, text=True).stdout.strip()
+    best = release_at(f'{base}^{{commit}}') if base else None
+    return best + described[len(base):] if best and described.startswith(base) else described
 
 
 def old_revision(source, old):
@@ -914,6 +964,7 @@ def main():
         'package': package,
         'source_repository': remote,
         'source_revision': revision,
+        'source_version': source_version(source, revision),
         'source_worktree_dirty': dirty if not args.source_commit else False,
         'source_requested_commit': args.source_commit,
         'skills': (sorted(set(old_skills) | set(paths) | legacy_kept) if partial
