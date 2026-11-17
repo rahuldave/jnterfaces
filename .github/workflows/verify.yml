@@ -14,9 +14,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
+      # The whole history and the tags, for just release-check.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
       - uses: extractions/setup-just@v3
+      - name: Check the release version against the tags and the commits
+        run: just release-check
       - name: Check syntax
         run: just lint
       - name: Build jlog, the shell of the recipes that the installer writes
@@ -35,3 +40,28 @@ jobs:
         run: just test
       - name: Validate package manifest with skill-package-maker
         run: just package-lint
+
+  # On a push to main, after the job verify passed, tag the next release with just release. No agent runs here.
+  release:
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    # One release at a time. A run on an older commit after a newer release prints no release.
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - uses: extractions/setup-just@v3
+      - name: Name the author of the tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Tag the release
+        run: just release
