@@ -452,7 +452,7 @@ Each package works alone, and each skill works without the optional skills:
 | Command | What it does |
 |---|---|
 | `just lint` | Checks the syntax of the scripts, the Python and the JSON, and the links between skills. |
-| `just test` | Runs the tests of the installers, the link checker and the skills. |
+| `just test` | Runs the tests of the installers, the link checker and the skills, in parallel with pytest. `just test tests/test_skills.py` runs one module. |
 | `just install-into <target> [names]` | Runs the installer on another project. |
 | `just check` | Runs `just lint` and `just test`. Every commit must pass it. |
 | `just package-lint` | Checks `skill-package.json` with skill-package-maker. |

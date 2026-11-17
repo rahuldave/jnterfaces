@@ -9,6 +9,8 @@ default:
 
 # Python comes from uv, so the machine needs just and uv only
 python := "uv run --no-project --quiet --with tomlkit==0.15.2 --with ruamel.yaml==0.19.1 python"
+# The tests run with pytest, and pytest-xdist runs them in parallel
+test_python := "uv run --no-project --quiet --with tomlkit==0.15.2 --with ruamel.yaml==0.19.1 --with pytest==8.4.2 --with pytest-xdist==3.8.0 python"
 
 # Check the shell scripts, the Python, the JSON and the Justfile templates for syntax, lint the steps of the templates, and check that each link to an optional skill has a fallback
 lint:
@@ -20,9 +22,22 @@ lint:
     {{python}} scripts/lint_steps.py .agents/skills/just/assets/templates/*.just templates/project.just
     find .agents/skills -type f \( -name '*.md' -o -name '*.sh' -o -name '*.just' -o -name '*.yaml' -o -name '*.txt' \) -exec {{python}} scripts/check_skill_links.py --package . {} +
 
-# Run the tests. Extra arguments go to unittest: just test tests.test_skills. Set JAGT_BIN to run the jagt demo with jagt 0.3.0 or later
+# Run the tests in parallel, one process for each CPU. Extra arguments go to pytest: just test tests/test_skills.py, or a unittest name such as tests.test_skills.SkillTest. Set JAGT_BIN to run the jagt demo with jagt 0.3.0 or later
 test *args:
-    {{python}} -m unittest discover -s tests -q "$@"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    words=()
+    for word in "$@"; do
+        # A unittest name, such as tests.test_skills.SkillTest.test_x, becomes tests/test_skills.py::SkillTest::test_x
+        # A path such as tests/test_skills.py stays as it is
+        if [[ "$word" =~ ^tests\.(test_[A-Za-z0-9_]+)((\.[A-Za-z0-9_]+)*)$ && "$word" != *.py ]]; then
+            rest="${BASH_REMATCH[2]}"
+            words+=("tests/${BASH_REMATCH[1]}.py${rest//./::}")
+        else
+            words+=("$word")
+        fi
+    done
+    exec {{test_python}} -m pytest -q -p no:cacheprovider -c /dev/null --rootdir . -o testpaths=tests -n auto ${words[@]+"${words[@]}"}
 
 # Check skill-package.json with skill-package-maker at the commit that CI uses
 package-lint:
