@@ -77,11 +77,12 @@ release *args:
 release-check:
     {{release_tag}} --check
 
-# Everything a commit must pass: the programs, the release version, the lint and the tests
+# Everything a commit must pass, and each check that CI runs: the programs, the release version, the lint, the manifest and the tests
 check:
     just tools-check
     just release-check
     just lint
+    just package-lint
     just test
 
 # Run the installer on another project, with roles, tools or options: just install-into ../app --defaults lint
