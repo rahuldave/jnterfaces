@@ -286,28 +286,35 @@ in the run log, also the lines of the inner `just` calls. A module or an
 imported file must not have the line, because it would make a second ID.
 
 **How the installer reads the names of the project.** It reads names with
-`just --dump`. It runs these steps:
+`just --dump`. It builds the new files of `.agents/just` in a stage, a
+temporary folder in the project that holds a copy of `.agents`. A copy of the
+Justfile imports the stage in place of `.agents/install.just`. The installer
+runs these steps:
 
-1. It keeps a copy of the old index. Then it writes the index with the `mod`
-   lines, and with a placeholder recipe for each name of the old index. So a
-   recipe of the Justfile can still depend on `check`, for example `ci:
-   check`.
-2. It reads the names of the Justfile. If the Justfile does not parse, it
-   tries again with no `mod` line, because a module can meet a name of the
-   project. If the Justfile still does not parse, it stops with the error of
-   just.
+1. It writes an index with no `mod` line in the stage. The index has a
+   placeholder recipe for each name of the old index. So a recipe of the
+   Justfile can still depend on `check`, for example `ci: check`.
+2. It reads the names of the Justfile from the copy. If the copy does not
+   parse, the installer tries again with the `mod` lines. If the copy still
+   does not parse, it stops with the error of just.
 3. It reads the names of each role file and each module. A role file must
    parse alone.
-4. It writes the whole index without each name of the project. It writes a
-   no-op step only for a step that no role file and no combined recipe has.
-5. When it stops before the end, it puts the old index back. If the old index
-   does not parse now, for example because a module is gone, it writes an
-   index with no recipe.
+4. It writes the whole index in the stage without each name of the project.
+   It writes a no-op step only for a step that no role file and no combined
+   recipe has. The copy of the Justfile must parse with it.
+5. Only then does it write each new file over the old file. Each file goes
+   through a file next to it and a rename. So a run that stops leaves each old
+   file whole. When a step fails, the old files stay exactly as they were.
 
-The installer stops, and names the recipe and the file, in these cases:
+The installer stops, and changes nothing in `.agents/just`, in these cases:
 
-- A recipe of the Justfile and a recipe of a role file have the same name.
-  just would stop with "Recipe redefined".
+- The project defines a name that the index also defines. Examples are a
+  `mod rust` of the project and the `rust` profile, or a `release` recipe of
+  the project and the same recipe in a role file. just would stop with
+  "Module redefined" or "Recipe redefined". The message names the name, the
+  file of the project that defines it, and the package that defines it too.
+  Remove the local copy, or rename it, then run `just install` again.
+  `just install --dry-run` and `just install --check` name the same conflict.
 - A recipe of a role file has the name of a step of a profile, such as
   `lint`. The step of the profile would not run in `just check`.
 

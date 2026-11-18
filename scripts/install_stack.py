@@ -1949,12 +1949,27 @@ def write_new(target, relative, data):
         if current.is_symlink():
             raise StackError(f'{current} is a symlink; write {relative} yourself')
         current.mkdir(exist_ok=True)
+    # The data goes into a file next to it first, and a hard link gives it its name, so a run that stops leaves no
+    # half file. The link fails when the name is there, so a file that appeared stays as it is.
+    path = target / relative
+    temporary = path.with_name(f'.{path.name}.{secrets.token_hex(4)}.tmp')
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0), 0o644)
     try:
-        fd = os.open(target / relative, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0), 0o644)
+        with os.fdopen(fd, 'wb') as handle:
+            handle.write(data)
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            raise
+        except OSError:
+            # A disk without hard links: the file is written in place, still never over a file that is there.
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0), 0o644)
+            with os.fdopen(fd, 'wb') as handle:
+                handle.write(data)
     except FileExistsError:
-        raise StackError(f'{target / relative} appeared while the installer ran; it is left alone')
-    with os.fdopen(fd, 'wb') as handle:
-        handle.write(data)
+        raise StackError(f'{path} appeared while the installer ran; it is left alone')
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def prepare(target, profile, steps):
@@ -2004,7 +2019,7 @@ def drop_empty_group(target, group):
     except tomllib.TOMLDecodeError:
         good = False
     if good:
-        path.write_text(new)
+        shared_files.write(path, new.encode())
         print(f'Took the empty dependency group {group} out of pyproject.toml.', file=sys.stderr)
 
 
@@ -2370,8 +2385,8 @@ def owned_by_install(target, path, generated):
 
 def write_generated(target, path, text, generated):
     """Write a file of just install, and record its hash."""
-    if not path.exists() or path.read_text() != text:
-        path.write_text(text)
+    if not path.exists() or path.read_text(errors='replace') != text:
+        shared_files.write(path, text.encode())
     generated[path.relative_to(target).as_posix()] = hashlib.sha256(text.encode()).hexdigest()
 
 
@@ -2631,16 +2646,262 @@ def shell_of(dump):
     return [shell.get('command')] + list(shell.get('arguments') or []) if isinstance(shell, dict) else None
 
 
+# The folder in the target where the installer checks the new files of .agents before it writes them.
+STAGE_PREFIX = '.jnterfaces-stage-'
+# An import or a module of a path in .agents, in a line of the Justfile.
+AGENTS_ROW = re.compile(r'''^((?:import\??|mod\??[ \t]+[A-Za-z0-9_-]+)[ \t]+)(['"])(?:\./)?\.agents/''')
+
+
+def stage_fill(folder, source):
+    """Put a link in folder to each entry of source that folder does not have yet."""
+    try:
+        entries = os.listdir(source) if source.is_dir() else []
+    except OSError:
+        entries = []
+    for entry in entries:
+        if not os.path.lexists(folder / entry):
+            os.symlink(source / entry, folder / entry)
+
+
+def stage_folder(stage, relative):
+    """Make each parent of relative in the stage a real folder, with a link to each entry of the folder that the old
+    link named. Return the path of relative in the stage."""
+    current = stage
+    for part in Path(relative).parts[:-1]:
+        current = current / part
+        if current.is_symlink():
+            source = Path(os.readlink(current))
+            current.unlink()
+            current.mkdir()
+            stage_fill(current, source)
+        elif not current.is_dir():
+            current.mkdir()
+    return stage / relative
+
+
+def stage_put(stage, relative, text=None, source=None):
+    """Put a file of this text, or a link to source, at relative in the stage. With neither, take it out."""
+    path = stage_folder(stage, relative)
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+    if source is not None:
+        os.symlink(source, path)
+    elif text is not None:
+        path.write_bytes(text.encode('utf-8', errors='surrogateescape'))
+    return path
+
+
+def make_stage(target, overlays=None):
+    """A copy of .agents in a new folder of the target, made of links to the files of .agents. overlays maps a path
+    under .agents to a file or folder of a clone, for the dry run: the clone puts it there in the real run. A copy of
+    .agents/install.just is a real file, so that its line import? 'just/index.just' reads the index of the stage."""
+    stage = target / f'{STAGE_PREFIX}{secrets.token_hex(4)}'
+    stage.mkdir()
+    try:
+        base = target / '.agents'
+        stage_fill(stage, base)
+        for relative, source in sorted((overlays or {}).items(), key=lambda item: len(Path(item[0]).parts)):
+            stage_put(stage, relative, source=source)
+        recipe = stage / 'install.just'
+        origin = recipe.resolve() if recipe.exists() else ROOT / '.agents/install.just'
+        stage_put(stage, 'install.just', text=origin.read_bytes().decode('utf-8', errors='surrogateescape'))
+        stage_folder(stage, 'just/index.just')
+    except BaseException:
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
+    return stage
+
+
+def staged_text(stage, text):
+    """The text of the Justfile with each import of a file in .agents, such as .agents/install.just, turned to the
+    copy in the stage."""
+    # Each other import of a file in .agents reads the stage too, so that just sees one path for a file that both
+    # the Justfile and the index import, and reads it once.
+    return ''.join(AGENTS_ROW.sub(lambda found: f'{found.group(1)}{found.group(2)}{stage.name}/', row, count=1)
+                   for row in text.splitlines(keepends=True))
+
+
+def staged_call(target, stage, text, call):
+    """call(target, path) for a copy of the Justfile next to it that reads the stage in place of .agents. The copy is
+    next to the Justfile, so that its other imports find the same files."""
+    probe = target / f'.jnterfaces-probe-{secrets.token_hex(4)}.just'
+    try:
+        probe.write_bytes(staged_text(stage, text).encode('utf-8', errors='surrogateescape'))
+        return call(target, probe)
+    except OSError:
+        return None
+    finally:
+        probe.unlink(missing_ok=True)
+
+
+def source_text(justfile):
+    """The text of the Justfile, also through a symlink, or None."""
+    try:
+        return justfile.read_bytes().decode('utf-8', errors='surrogateescape').removeprefix('﻿')
+    except (OSError, AttributeError):
+        return None
+
+
+IMPORT_ROW = re.compile(r'''^import\??[ \t]+(['"])(.+?)\1''')
+
+
+def defined_in(target, justfile, name, seen=None):
+    """The file of the project that defines name, as a recipe, an alias or a module: the Justfile or a file that it
+    imports. The search leaves out .agents/install.just and what it imports. None when no file has the line."""
+    seen = set() if seen is None else seen
+    key = os.path.abspath(justfile)
+    if key in seen or len(seen) > 50:
+        return None
+    seen.add(key)
+    text = source_text(Path(justfile))
+    if text is None:
+        return None
+    # A recipe line: the name, its parameters, which can have defaults such as v="1", then a colon that is not :=.
+    pattern = re.compile(rf'^(@?{re.escape(name)}(?=[\s:])(?![ \t]*:=)[^\n]*?:(?!=)|alias[ \t]+{re.escape(name)}[ \t]*:='
+                         rf'|mod\??[ \t]+{re.escape(name)}(?=[\s]|$))')
+    imports = []
+    for row in text.splitlines():
+        if pattern.match(row):
+            return Path(justfile)
+        found = IMPORT_ROW.match(row)
+        if found and not INSTALL_IMPORT.match(row.rstrip('\r')):
+            imports.append(Path(os.path.dirname(key)) / os.path.expanduser(found.group(2)))
+    for path in imports:
+        where = defined_in(target, path, name, seen)
+        if where is not None:
+            return where
+    return None
+
+
+def shown(target, path):
+    """A path relative to the target when it is in it."""
+    try:
+        return Path(os.path.abspath(path)).relative_to(target).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def role_package(role):
+    """The package of the recipe file of a role: roles/NAME.just belongs to the package NAME."""
+    return 'jnterfaces (the docs role)' if role == DOCS_RECIPES else Path(role).stem
+
+
+def role_shown(role):
+    return os.path.normpath(f'.agents/just/{role}')
+
+
+def name_conflicts(target, justfile, root, modules, role_recipes, packages=None, minus=()):
+    """The names that the project defines and that the index would define too: a module of a profile, or a name of
+    the recipe file of a role. root is a dump of the Justfile with an index of stubs; minus holds the modules of that
+    index. Each finding names the name, the file of the project that defines it, and the package that defines it
+    too."""
+    own = {name: recipe for name, recipe in (root.get('recipes') or {}).items() if not is_stub(recipe)}
+    project = (set(own) | set(root.get('aliases') or {}) | set(root.get('modules') or {})) - set(minus)
+
+    def where(name):
+        found = defined_in(target, justfile, name)
+        return shown(target, found if found is not None else justfile)
+
+    def kind(name):
+        return 'module' if name in (root.get('modules') or {}) else 'alias' if name in (root.get('aliases') or {}) \
+            else 'recipe'
+
+    found = []
+    for name in sorted(project & set(modules)):
+        package = (packages or {}).get(name) or f'jnprofile-{name}'
+        found.append(f'The {kind(name)} {name} is in {where(name)} and is the module of the {name} profile, from the '
+                     f'package {package}, so just would stop with "Module `{name}` ... redefined".')
+    for role, dump in role_recipes.items():
+        for name in sorted(names_of(dump) & project):
+            # A Justfile that imports the role file itself has the recipe of the role, and that is no clash.
+            if (dump.get('recipes') or {}).get(name) != own.get(name):
+                found.append(f'The recipe {name} is in {where(name)} and in the recipe file of a role, '
+                             f'{role_shown(role)}, from the package {role_package(role)}, so just would stop with '
+                             f'"Recipe redefined".')
+    return found
+
+
+CONFLICT_FIX = ('Remove the local copy from the project, or rename it, then run just install again. Nothing in '
+                '.agents/just changed.')
+
+
+def package_overlays(steps, clones):
+    """For the dry run: each skill folder and extra file that a package of the run puts in .agents, from its clone,
+    keyed by its path under .agents."""
+    found = {}
+    for package, _ in steps:
+        clone = clones.get(package['name'])
+        try:
+            manifest = json.loads((clone / 'skill-package.json').read_text())
+        except (OSError, ValueError, TypeError):
+            continue
+        skills = manifest.get('skills') if isinstance(manifest.get('skills'), list) else []
+        extras = manifest.get('install_extras') if isinstance(manifest.get('install_extras'), dict) else {}
+        files = extras.get('files') if isinstance(extras.get('files'), list) else []
+        paths = [entry.get('path') for entry in skills if isinstance(entry, dict)] + files
+        for path in paths:
+            if plain_path(path) and path.startswith('.agents/') and (clone / path).exists():
+                found[path.removeprefix('.agents/')] = clone / path
+    return found
+
+
+def check_conflicts(target, record, registry_profiles, packages=()):
+    """For just install --check: the names of the project that the next just install would also write in the index,
+    from the profiles of the record and the recipe files of the roles that the record turns on, as just install
+    reads them."""
+    record = record if isinstance(record, dict) else {}
+    justfile = justfile_of(target)
+    text = source_text(justfile) if justfile is not None else None
+    if text is None or not (record.get('started') is True or imports_install(text)) or not shutil.which('just'):
+        return []
+    modules = [name for name in record.get('profiles') or [] if isinstance(name, str)]
+    folder = target / RECIPES
+    choices = record.get('choices') if isinstance(record.get('choices'), dict) else {}
+    on = [package['name'] for package in packages
+          if package['name'] == 'jnterfaces' or (package.get('choice') and choices.get(package['choice']))]
+    on += [entry['package'] for name, entry in registry_profiles.items() if name in modules]
+    roles = [f'roles/{name}.just' for name in on if (folder / f'roles/{name}.just').is_file()]
+    if choices.get('docs') and (folder / DOCS_RECIPES).is_file():
+        roles.append(DOCS_RECIPES)
+    try:
+        stage = make_stage(target)
+    except OSError as exc:
+        print(f'The check could not read the names of {justfile.name}, because it cannot make its stage in {target}: '
+              f'{exc}')
+        return []
+    try:
+        role_recipes = {role: just_dump(target, stage / 'just' / role) or {} for role in roles}
+        stubs = sorted(set(STEPS) | {'check', 'verify', 'ci', 'ci-gate'}
+                       | {name for dump in role_recipes.values() for name in names_of(dump)})
+        root = None
+        for with_stubs, setting in ((True, True), (True, False), (False, False)):
+            stage_put(stage, 'just/index.just', text=probe_text({}, stubs if with_stubs else (), setting))
+            root = staged_call(target, stage, text, just_dump)
+            if root is not None:
+                break
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+    if root is None:
+        return []
+    packages = {name: (registry_profiles.get(name) or {}).get('package') for name in modules}
+    return name_conflicts(target, justfile, root, modules, role_recipes, packages)
+
+
 def write_recipes(target, profiles, active, tools, dry_run, generated, started, known=(), roles=(), adding=False,
-                  out=None, check=STEPS):
+                  out=None, check=STEPS, overlays=None):
     """Write .agents/just: a module for each active profile with the recipes of its installed tools, and the index.
-    A file that the user changed stays as it is. The index comes in the order of the spec of the commit gates: the
-    installer keeps the old index, writes the index with the modules only, reads the names of the project from a
-    dump of the Justfile, then writes the whole index without those names. When it stops before the end, it puts the
-    old index back. adding is True while the run is still to add the import of the recipe file to the Justfile, so
-    that the run does not tell the user to add it. out gets the steps and the provided steps for .agents/stack.json.
-    check holds the steps of just check, for the answers of the setup questions. Return the error of just when the
-    Justfile does not parse."""
+    A file that the user changed stays as it is. The installer builds the new files in a stage, a copy of .agents in
+    a folder of the target, and checks them there: a copy of the Justfile that imports the stage must parse with
+    them. It writes them over the old files, each through a rename, only when every check passed, so a run that
+    stops leaves the old files whole. In the stage it writes the index with the modules only, reads the names of the
+    project from a dump of the Justfile, then writes the whole index without those names. A name of the project that
+    the index also defines stops the run. adding is True while the run is still to add the import of the recipe file
+    to the Justfile, so that the run does not tell the user to add it. out gets the steps and the provided steps for
+    .agents/stack.json. check holds the steps of just check, for the answers of the setup questions. With dry_run,
+    the run checks the same, and writes nothing; overlays then names the files that the clones put in .agents.
+    Return the error of just when the Justfile does not parse."""
     out = {} if out is None else out
     out['steps'] = list(check)
     folder = target / RECIPES
@@ -2652,11 +2913,32 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
         installed = [tool for tool in profiles[name]['tools'] if f'{name}:{tool}' in tools]
         modules[name] = module_text(name, profiles[name], installed)
         verifies[name] = {step for tool in installed for step in profiles[name]['tools'][tool].get('verify', [])}
-    if dry_run:
+    if dry_run and not shutil.which('just'):
         print('Would write the recipes of ' + (', '.join(modules) if modules else 'no profile') + ' in .agents/just')
         ci_steps(target, check)
         return
-    kept = {}
+    try:
+        stage = make_stage(target, overlays)
+    except OSError as exc:
+        if not dry_run:
+            raise StackError(f'The installer cannot make its stage in {target}, so it wrote nothing in .agents/just: '
+                             f'{exc}')
+        print(f'Would write the recipes of {", ".join(modules) if modules else "no profile"} in .agents/just. The '
+              f'dry run could not check them, because it cannot make its stage in {target}: {exc}')
+        return
+    try:
+        return staged_recipes(target, profiles, modules, verifies, dry_run, generated, started, known, roles, adding,
+                              out, check, stage)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
+
+def staged_recipes(target, profiles, modules, verifies, dry_run, generated, started, known, roles, adding, out, check,
+                   stage):
+    """The body of write_recipes, with the stage."""
+    folder = target / RECIPES
+    just_dir = stage / 'just'
+    kept, staged = {}, {}
     for name, text in modules.items():
         path = folder / f'{name}.just'
         # A file with the text that just install writes now is its own, also after a run that stopped before the record.
@@ -2665,18 +2947,20 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
             say(f'Kept {path.relative_to(target)}: just install did not write it as it is now, so it leaves it alone.')
             kept[name] = path
             continue
-        folder.mkdir(parents=True, exist_ok=True)
-        write_generated(target, path, text, generated)
+        stage_put(stage, f'just/{name}.just', text=text)
+        staged[name] = text
         kept[name] = path
     # The module of a profile that left goes, when just install wrote it as it is now.
+    gone = []
     for relative in list(generated):
         path = target / relative
         if (Path(relative).parent == RECIPES and path.suffix == '.just' and path.stem in known
                 and path.stem not in modules and owned_by_install(target, path, generated)):
-            remove_generated(target, path, generated)
+            gone.append(relative)
+            stage_put(stage, f'just/{path.name}')
     recipes = {}
-    for name, path in kept.items():
-        dump = just_dump(target, path)
+    for name in kept:
+        dump = just_dump(target, just_dir / f'{name}.just')
         recipes[name] = {} if dump is None else {
             recipe: bool(info.get('parameters')) for recipe, info in dump.get('recipes', {}).items()
             if not info.get('private')}
@@ -2687,10 +2971,53 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
     # A Justfile that jnterfaces did not start reads the index when it imports the recipe file: through the block of
     # the installer, or through a line of its own.
     imported = started or (text is not None and imports_install(text))
-    present = [role for role in roles if (folder / role).is_file()]
+    source = source_text(justfile) if justfile is not None else None
+    present = [role for role in roles if (just_dir / role).is_file()]
     roles = present if imported else []
     candidates = {index_text(kept, recipes, full=False), index_text({}, recipes, full=False)}
     same = index.is_file() and not index.is_symlink() and index.read_text(errors='replace') in candidates
+    old = index.read_bytes() if index.is_file() else None
+
+    def commit(whole=None):
+        """Write the staged modules, take out the modules that went, and write the index when whole is given. Each
+        file goes through a file next to it and a rename. Return what undo needs."""
+        backups, before = [], dict(generated)
+        if dry_run:
+            return backups, before
+        # The new modules come first, then the index, and the modules that went come out last, so that the index
+        # never names a module that is gone. A write that fails puts back each file that the commit already wrote.
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            for name, text in staged.items():
+                path = folder / f'{name}.just'
+                backups.append((path, path.read_bytes() if path.is_file() else None))
+                write_generated(target, path, text, generated)
+            if whole is not None:
+                backups.append((index, old))
+                write_generated(target, index, whole, generated)
+            for relative in gone:
+                path = target / relative
+                backups.append((path, path.read_bytes() if path.is_file() else None))
+                remove_generated(target, path, generated)
+        except BaseException:
+            undo((backups, before))
+            raise
+        return backups, before
+
+    def undo(done):
+        backups, before = done
+        # Each file goes back on its own, so that one that cannot be written does not keep the others from it. A
+        # file that still has its old bytes, such as one whose write failed, needs no write.
+        for path, data in reversed(backups):
+            try:
+                if data is None:
+                    path.unlink(missing_ok=True)
+                elif not (path.is_file() and path.read_bytes() == data):
+                    shared_files.write(path, data)
+            except OSError as exc:
+                say(f'The installer could not put back {path.relative_to(target)}: {exc}')
+        generated.clear()
+        generated.update(before)
 
     def keep():
         out.pop('provided_steps', None)
@@ -2701,105 +3028,72 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
         return error
 
     if index.is_symlink() or (index.exists() and not index.is_file()):
+        commit()
         return keep()
     # An index with no recorded hash can still be the whole index of a run that stopped before its record. The
-    # installer knows that only after it wrote the index again, so it compares at the end and puts the file back.
+    # installer knows that only after it built the index again, so it compares at the end.
     mine = same or owned_by_install(target, index, generated)
     if (kept or present) and not imported and text is not None and not adding:
         say(f'{justfile.name} does not import .agents/install.just, so the recipes of the profiles and roles are not '
             f'in it. To add them, put this line in it: {IMPORT_LINE}')
-    folder.mkdir(parents=True, exist_ok=True)
-    key = index.relative_to(target).as_posix()
-    old, old_hash = (index.read_bytes() if index.is_file() else None), generated.get(key)
-
-    def put_back():
-        if old is None:
-            remove_generated(target, index, generated)
-            return
-        index.write_bytes(old)
-        if old_hash is None:
-            generated.pop(key, None)
-        else:
-            generated[key] = old_hash
-
-    def restore():
-        # Step 5: put the old index back, so that just check keeps the steps that it had, and the record keeps its
-        # old provided steps. An old index that no longer parses, for example because it names a module that is
-        # gone, gives way to an index with no recipe, so that just install still runs.
-        out.pop('provided_steps', None)
-        put_back()
-        if mine and old is not None and justfile is not None and just_error(target, justfile):
-            write_generated(target, index, index_text({}, recipes, full=False), generated)
-            if just_error(target, justfile):
-                put_back()
-            else:
-                out['provided_steps'] = []
-                say('The old index did not parse either, so the index has no recipe now. just check comes back with '
-                    'the next just install that works.')
-
-    # Step 3 of the order: each role file alone, as each module. A role file must parse alone, or the installer
-    # cannot know its names.
+    # Each role file alone, as each module. A role file must parse alone, or the installer cannot know its names.
     role_recipes = {}
     for role in roles:
-        role_recipes[role] = just_dump(target, folder / role)
+        role_recipes[role] = just_dump(target, just_dir / role)
         if role_recipes[role] is None:
-            raise StackError(f'The recipe file of a role, .agents/just/{role}, does not parse alone, so the installer '
-                             f'cannot read its names. just said: {just_error(target, folder / role)}. The index stays '
-                             f'as it was.')
+            raise StackError(f'The recipe file of a role, {role_shown(role)}, does not parse alone, so the installer '
+                             f'cannot read its names. just said: {just_error(target, just_dir / role)}. Nothing in '
+                             f'.agents/just changed.')
     role_names = {name for dump in role_recipes.values() for name in names_of(dump)}
     for name in sorted(role_names & {recipe for module in kept for recipe in recipes.get(module, {})} & set(STEPS)):
         raise StackError(f'The recipe {name} is in a recipe file of a role and in a profile, so the role would hide '
-                         f'the step of the profile. Take the role or the tool out. The index stays as it was.')
-    # Steps 1 and 2: the index with the modules only, then the names of the project from a dump of the Justfile. The
-    # Justfile can name a recipe of the index, for example ci: check, so the first forms also hold a stub of each
-    # name that the index can write. A recipe of the Justfile takes the place of a stub, so the stubs that stay show
-    # which names are not the Justfile's own.
+                         f'the step of the profile. Take the role or the tool out. Nothing in .agents/just changed.')
+    # The names of the project, from a dump of the Justfile with an index of stubs in the stage. The Justfile can
+    # name a recipe of the index, for example ci: check, so the first forms hold a stub of each name that the index
+    # can write. A recipe of the Justfile takes the place of a stub, so the stubs that stay show which names are not
+    # the Justfile's own. The forms with no module come first, so that a module of the project with the name of a
+    # profile is a name of the project. A form with the modules is for a Justfile that names a recipe of a module.
     stubs = sorted(set(STEPS) | {'check', 'verify', 'ci', 'ci-gate'} | role_names
                    | {recipe for module in kept for recipe in recipes.get(module, {})})
-    forms = [(kept, True, True), (kept, True, False), (kept, False, False), ({}, True, True), ({}, True, False),
-             ({}, False, False)]
-    mods, root, first, of_setting = kept, ({} if justfile is None else None), None, None
-    for mods, with_stubs, setting in forms if justfile is not None else []:
-        write_generated(target, index, probe_text(mods, stubs if with_stubs else (), setting), generated)
-        root = just_dump(target, justfile)
+    forms = [(mods, with_stubs, setting) for mods in ({}, kept)
+             for with_stubs, setting in ((True, True), (True, False), (False, False))]
+    mods, root, first, of_setting = {}, ({} if justfile is None else None), None, None
+    for mods, with_stubs, setting in forms if source is not None else []:
+        stage_put(stage, 'just/index.just', text=probe_text(mods, stubs if with_stubs else (), setting))
+        root = staged_call(target, stage, source, just_dump)
         if root is not None:
             break
         # A Justfile that sets allow-duplicate-recipes itself fails each form with the setting, so the error of a form
         # without it names the real problem.
+        error = staged_call(target, stage, source, just_error)
         if setting:
-            of_setting = of_setting or just_error(target, justfile)
+            of_setting = of_setting or error
         else:
-            first = first or just_error(target, justfile)
+            first = first or error
     first = first or of_setting
     if root is None:
-        restore()
-        if not mine:
-            return keep()
-        if text is None or not has_block(text):
-            say(f'The Justfile does not parse, also with an index with no module, so the installer put the old index '
-                f'back. just said: {first}')
-        return first
-    if kept and not mods:
-        say(f'The Justfile does not parse with the modules of the profiles, so the index has no module. Rename the '
-            f'recipe, alias or module of the project with that name. just said: {first}')
+        out.pop('provided_steps', None)
+        if justfile is not None and source is None:
+            root = {}
+        else:
+            if not mine:
+                return keep()
+            if text is None or not has_block(text):
+                say(f'The Justfile does not parse, also with an index with no module, so the installer wrote nothing '
+                    f'in .agents/just. just said: {first}')
+            return first
     own = {name: recipe for name, recipe in (root.get('recipes') or {}).items() if not is_stub(recipe)}
     project = (set(own) | set(root.get('aliases') or {}) | set(root.get('modules') or {})) - set(mods)
-    for role, dump in role_recipes.items():
-        for name in sorted(names_of(dump) & project):
-            # A Justfile that imports the role file itself has the recipe of the role, and that is no clash.
-            if (dump.get('recipes') or {}).get(name) != own.get(name):
-                restore()
-                if not mine:
-                    return keep()
-                raise StackError(f'The recipe {name} is in {justfile.name} and in the recipe file of a role, '
-                                 f'.agents/just/{role}, so just would stop with "Recipe redefined". Rename the recipe '
-                                 f'of {justfile.name}, or take the role out with just uninstall. The index stays as '
-                                 f'it was.')
+    if imported and justfile is not None:
+        packages = {name: profiles[name]['package']['name'] for name in kept if name in profiles}
+        found = name_conflicts(target, justfile, root, kept, role_recipes, packages, minus=mods)
+        if found:
+            raise StackError(' '.join(found) + ' ' + CONFLICT_FIX)
     shell = shell_of(root)
     if shell and imported and Path(shell[0] or '').name != 'jlog':
         say(SHELL_NOTE.format(name=justfile.name, line=json.dumps(['jlog'] + shell)))
-    # Step 4: the whole index, without the names of the project and of the roles. check can depend only on a recipe
-    # that needs no argument.
+    # The whole index, without the names of the project and of the roles. check can depend only on a recipe that
+    # needs no argument.
     taken = project | role_names
     runnable = {name for name, recipe in own.items() if not needs_arguments(recipe)} | {
         name for dump in role_recipes.values() for name, recipe in ((dump or {}).get('recipes') or {}).items()
@@ -2808,20 +3102,34 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
         if step in taken and step not in runnable:
             say(f'{step} in the project is an alias, a module, or a recipe that needs an argument, so check cannot run '
                 f'the step {step}, and jlog pass fails. Rename it, or give each argument a default.')
-    out['provided_steps'] = provided_of(mods, recipes, role_recipes)
-    whole = index_text(mods, recipes, roles, True, taken, shell=shell is None, runnable=runnable,
+    whole = index_text(kept, recipes, roles, True, taken, shell=shell is None, runnable=runnable,
                        ci=ci_steps(target, check), check=check, verifies=verifies)
     if not mine and whole.encode() != old:
-        restore()
+        commit()
         return keep()
-    write_generated(target, index, whole, generated)
-    error = just_error(target, justfile) if justfile is not None else None
+    stage_put(stage, 'just/index.just', text=whole)
+    error = staged_call(target, stage, source, just_error) if source is not None and imported else None
     if error:
-        restore()
-        say(f'The Justfile does not parse with the index, so the installer put the old index back. just said: {error}')
+        out.pop('provided_steps', None)
+        say(f'The Justfile does not parse with the new index, so the installer wrote nothing in .agents/just. just '
+            f'said: {error}')
+        return error
+    out['provided_steps'] = provided_of(kept, recipes, role_recipes)
+    if dry_run:
+        print('Would write the recipes of ' + (', '.join(modules) if modules else 'no profile') + ' in .agents/just')
+        return None
+    done = commit(whole)
+    # The check in the stage saw the same files, so this fails only when the Justfile reads the recipe file through
+    # a file of its own. Then the old files come back.
+    error = just_error(target, justfile) if justfile is not None and imported else None
+    if error:
+        undo(done)
+        out.pop('provided_steps', None)
+        say(f'The Justfile does not parse with the new index, so the installer put the old files of .agents/just '
+            f'back. just said: {error}')
         return error
     if imported and justfile is not None:
-        for finding in lint_project(just_dump(target, justfile), mods, tuple(check)):
+        for finding in lint_project(just_dump(target, justfile), kept, tuple(check)):
             say(f'The lint of steps: {finding}. Run just install --check after the fix.')
     return None
 
@@ -2877,7 +3185,11 @@ def main(argv=None):
         findings = step_findings(target, raw)
         for finding in findings:
             print(f'The lint of steps: {finding}')
-        return 1 if gone or findings or missing else code
+        registry = load_registry(args.registry)
+        conflicts = check_conflicts(target, raw, registry[3], registry[0])
+        for finding in conflicts:
+            print(f'The next just install stops: {finding} {CONFLICT_FIX}')
+        return 1 if gone or findings or missing or conflicts else code
     # jlog is the shell of each recipe in .agents/just, so a recipe fails without it.
     if not shutil.which('jlog'):
         raise StackError(f'jlog is not on PATH. Each recipe that just install writes runs through jlog, so install it '
@@ -3141,7 +3453,15 @@ def main(argv=None):
                    gone_roles, unsure, migrating, after=after, justfile=dry_lines, dropped=dropped, started=starting)
         write_justfile(target, True, bool((record or {}).get('started')))
         write_claude_md(target, True, after)
-        write_recipes(target, profiles, [n for n in active if n not in leaving], tools, True, {}, False)
+        try:
+            write_recipes(target, profiles, [n for n in active if n not in leaving], tools, True,
+                          dict((record or {}).get('generated', {})), starting, registry_profiles,
+                          [f'roles/{package["name"]}.just' for package, _ in steps]
+                          + ([DOCS_RECIPES] if chosen.get('docs') else []), bool(dry_lines), {}, check_steps(answers),
+                          package_overlays(steps, clones))
+        except StackError as exc:
+            print(f'Dry run: the real run would stop here: {exc}')
+            return 1
         if missing:
             print('Dry run: the real run would stop before it writes anything, because a program is missing.')
             return 1
