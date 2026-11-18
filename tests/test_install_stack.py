@@ -1423,12 +1423,15 @@ class StackTests(unittest.TestCase):
         self.assertIn('prose', self.just_in_target('--summary').stdout.split())
 
     @unittest.skipUnless(shutil.which('just'), 'needs just')
-    def test_a_module_that_clashes_keeps_the_recipes_of_the_roles(self):
+    def test_a_module_that_clashes_stops_the_install_and_the_justfile_still_runs(self):
         justfile = self.target / 'Justfile'
         justfile.write_text('python:\n    @echo mine\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        index = (self.target / '.agents/just/index.just').read_bytes()
         run = self.stack('--profile', 'python', 'prose')
-        self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn('so the index has no module', run.stderr)
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertIn('The recipe python is in Justfile and is the module of the python profile', run.stderr)
+        self.assertEqual((self.target / '.agents/just/index.just').read_bytes(), index)
         self.assertEqual(self.just_in_target('python').stdout.strip(), 'mine')
         self.assertEqual(self.just_in_target('prose', 'a').stdout.strip(), 'prose a')
 
@@ -1692,14 +1695,19 @@ sys.exit(run.returncode)
                  (start + '\npython:\n    @echo own\n', 'python', 'own')]
         for text, recipe, out in cases:
             justfile.write_text(text)
+            index = (self.target / '.agents/just/index.just').read_bytes()
             run = self.stack()
-            self.assertEqual(run.returncode, 0, run.stderr)
-            # The index leaves out a name of the Justfile. Only a module of that name makes the Justfile fail.
+            # The index leaves out a name of the Justfile. A name of a module stops the install, and the index stays.
             if recipe == 'python':
-                self.assertIn('Rename the recipe, alias or module of the project with that name', run.stderr)
-            else:
-                self.assertNotIn('does not parse', run.stderr)
-                self.assertNotIn(f'\n{recipe}', (self.target / '.agents/just/index.just').read_text())
+                self.assertEqual(run.returncode, 1, run.stderr)
+                self.assertIn('The recipe python is in Justfile and is the module of the python profile', run.stderr)
+                self.assertEqual((self.target / '.agents/just/index.just').read_bytes(), index)
+                justfile.write_text(start)
+                self.assertEqual(self.stack().returncode, 0)
+                continue
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertNotIn('does not parse', run.stderr)
+            self.assertNotIn(f'\n{recipe}', (self.target / '.agents/just/index.just').read_text())
             self.assertEqual(self.just_in_target('--summary').returncode, 0, text)
             self.assertEqual(self.just_in_target(recipe).stdout.strip(), out)
             self.assertEqual(self.just_in_target('install', '--help').returncode, 0)
@@ -3592,12 +3600,11 @@ class StepTests(StackTests):
         justfile = self.target / 'Justfile'
         justfile.write_text("import? '.agents/install.just'\n\npython:\n    @echo mine\n")
         run = self.stack('--profile', 'python', '--defaults', '--without', 'tasker,prose')
-        self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn('so the index has no module', run.stderr)
-        index = self.index()
-        self.assertNotIn('mod python', index)
-        self.assertIn('\nlint:\n    jlog skip lint', index)
-        self.assertEqual(self.saved()['provided_steps'], ['tools-check'])
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertIn('The recipe python is in Justfile and is the module of the python profile, from the package '
+                      'jnprofile-python', run.stderr)
+        self.assertFalse((self.target / '.agents/just/index.just').exists())
+        self.assertEqual(self.just_in(self.target, 'python').stdout.strip(), 'mine')
 
     def test_ci_runs_the_gate_and_the_listed_steps_of_check(self):
         justfile = self.target / 'Justfile'
@@ -3744,12 +3751,21 @@ class StepTests(StackTests):
         run = self.just_in(self.target, '--summary')
         self.assertEqual(run.returncode, 0, run.stderr)
 
-    def test_a_stop_after_a_profile_is_gone_leaves_a_justfile_that_parses(self):
+    def test_a_stop_after_a_profile_is_gone_keeps_the_old_files_and_the_fix_finishes_it(self):
         self.assertEqual(self.stack('prose', '--profile', 'python', '--defaults', '--without', 'tasker').returncode, 0)
+        index = (self.target / '.agents/just/index.just').read_bytes()
+        module = (self.target / '.agents/just/python.just').read_bytes()
         justfile = self.target / 'Justfile'
-        justfile.write_text(justfile.read_text() + '\nprose:\n    @echo mine\n')
+        text = justfile.read_text()
+        justfile.write_text(text + '\nprose:\n    @echo mine\n')
         run = self.stack('--without', 'python')
         self.assertEqual(run.returncode, 1)
+        self.assertIn('The recipe prose is in Justfile and in the recipe file of a role', run.stderr)
+        # A stop writes nothing in .agents/just: the old index and the old module stay as they were.
+        self.assertEqual((self.target / '.agents/just/index.just').read_bytes(), index)
+        self.assertEqual((self.target / '.agents/just/python.just').read_bytes(), module)
+        justfile.write_text(text)
+        self.assertEqual(self.stack('--without', 'python').returncode, 0)
         self.assertFalse((self.target / '.agents/just/python.just').exists())
         self.assertNotIn('mod python', self.index())
         self.parses()
@@ -3807,6 +3823,176 @@ class StepTests(StackTests):
         run = self.just_in(self.target, 'check')
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertEqual([record['step'] for record in self.records(kind='step')], ['tools-check', 'prose-check'])
+
+    def tasker_role(self, text):
+        """Give the tasker role of the test packages, agent_gest_git_skills, a recipe file of this text."""
+        root = self.packages / 'agent_gest_git_skills'
+        (root / '.agents/just/roles').mkdir(parents=True, exist_ok=True)
+        (root / '.agents/just/roles/agent_gest_git_skills.just').write_text(text)
+        manifest = json.loads((root / 'skill-package.json').read_text())
+        files = manifest['install_extras']['files']
+        if '.agents/just/roles/agent_gest_git_skills.just' not in files:
+            files.append('.agents/just/roles/agent_gest_git_skills.just')
+        (root / 'skill-package.json').write_text(json.dumps(manifest))
+        commit(root)
+
+    def local_copies(self):
+        """A project with a module rust of its own and the recipes release and release-check of its own, in a file
+        that the Justfile imports, and an index from a run without the rust profile. Return the bytes of the index."""
+        self.assertEqual(self.stack('--defaults').returncode, 0)
+        (self.target / 'scripts').mkdir()
+        (self.target / 'scripts/rust.just').write_text('hello:\n    @echo hello\n')
+        (self.target / 'scripts/release.just').write_text('release:\n    @echo mine\n\nrelease-check:\n    @echo mine\n'
+                                                          '    jlog step release-check\n')
+        justfile = self.target / 'Justfile'
+        justfile.write_text(justfile.read_text() + "\nmod rust 'scripts/rust.just'\nimport 'scripts/release.just'\n")
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.parses()
+        self.tasker_role('release:\n    @echo role release\n\nrelease-check:\n    @echo role\n'
+                         '    jlog step release-check\n')
+        return (self.target / '.agents/just/index.just').read_bytes()
+
+    def assert_conflicts(self, output):
+        self.assertIn('The module rust is in Justfile and is the module of the rust profile, from the package '
+                      'jnprofile-rust', output)
+        for name in ('release', 'release-check'):
+            self.assertIn(f'The recipe {name} is in scripts/release.just and in the recipe file of a role, '
+                          f'.agents/just/roles/agent_gest_git_skills.just, from the package agent_gest_git_skills',
+                          output)
+        self.assertIn('Remove the local copy from the project, or rename it', output)
+
+    def test_a_local_module_and_recipes_that_the_install_also_writes_stop_it_and_keep_the_index(self):
+        index = self.local_copies()
+        justfile = (self.target / 'Justfile').read_bytes()
+        # The dry run names the same conflict, and writes nothing.
+        run = self.stack('--profile', 'rust', '--dry-run')
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertIn('Dry run: the real run would stop here', run.stdout)
+        self.assert_conflicts(run.stdout)
+        self.assertEqual((self.target / '.agents/just/index.just').read_bytes(), index)
+        run = self.stack('--profile', 'rust')
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assert_conflicts(run.stderr)
+        self.assertEqual((self.target / '.agents/just/index.just').read_bytes(), index)
+        self.assertEqual((self.target / 'Justfile').read_bytes(), justfile)
+        self.assertFalse((self.target / '.agents/just/rust.just').exists())
+        self.assertEqual([path.name for path in self.target.iterdir() if path.name.startswith('.jnterfaces-')], [])
+        listing = self.just_in(self.target, '--list')
+        self.assertEqual(listing.returncode, 0, listing.stderr)
+        self.assertIn('hello', self.just_in(self.target, 'rust', 'hello').stdout)
+        self.assertEqual(self.just_in(self.target, 'release').stdout.strip(), 'mine')
+        # A record that names the rust profile, as in a project that wrote its stack.json by hand: --check names the
+        # conflict of the next just install, and a plain just install stops on it too.
+        record = self.saved()
+        record['profiles'] = ['rust']
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        run = self.stack()
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assert_conflicts(run.stderr)
+        self.assertEqual((self.target / '.agents/just/index.just').read_bytes(), index)
+        run = self.stack('--check')
+        self.assertNotEqual(run.returncode, 0)
+        self.assert_conflicts(run.stdout)
+        self.assertIn('The next just install stops', run.stdout)
+        # After the local copies go, the install passes.
+        text = (self.target / 'Justfile').read_text()
+        (self.target / 'Justfile').write_text(text.replace("\nmod rust 'scripts/rust.just'\nimport 'scripts/release.just'"
+                                                           "\n", ''))
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("mod rust 'rust.just'", self.index())
+        self.assertIn("import? 'roles/agent_gest_git_skills.just'", self.index())
+        self.assertEqual(self.just_in(self.target, 'release').stdout.strip(), 'role release')
+        self.assertEqual(self.stack('--check').returncode, 0)
+
+    def test_a_local_module_that_breaks_the_old_index_stops_the_install_and_the_index_stays(self):
+        # The index has the module rust, then the project adds a module rust of its own: the Justfile no longer
+        # parses with the old index. The install names the conflict and leaves the old index as it was, not empty.
+        self.assertEqual(self.stack('--profile', 'rust', '--defaults', '--without', 'tasker').returncode, 0)
+        index = (self.target / '.agents/just/index.just').read_bytes()
+        (self.target / 'scripts').mkdir()
+        (self.target / 'scripts/rust.just').write_text('hello:\n    @echo hello\n')
+        justfile = self.target / 'Justfile'
+        justfile.write_text(justfile.read_text() + "\nmod rust 'scripts/rust.just'\n")
+        run = self.stack()
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertIn('The module rust is in Justfile and is the module of the rust profile', run.stderr)
+        self.assertEqual((self.target / '.agents/just/index.just').read_bytes(), index)
+        self.assertIn('The module rust is in Justfile', self.stack('--check').stdout)
+        justfile.write_text(justfile.read_text().replace("\nmod rust 'scripts/rust.just'\n", ''))
+        self.assertEqual(self.stack().returncode, 0)
+        self.parses()
+
+    def test_a_write_that_fails_during_the_commit_puts_the_old_files_back(self):
+        self.assertEqual(self.stack('prose', '--profile', 'python', '--defaults', '--without', 'tasker').returncode, 0)
+        index = (self.target / '.agents/just/index.just').read_bytes()
+        module = (self.target / '.agents/just/python.just').read_bytes()
+        scripts = self.packages / 'jnterfaces/scripts'
+        # A disk that fills up when the installer writes the index.
+        (scripts / 'full_disk.py').write_text(
+            f'import sys\nsys.path.insert(0, {str(scripts)!r})\nimport install_stack, shared_files\n'
+            'real = shared_files.write\n'
+            'def write(path, data):\n'
+            '    if str(path).endswith("index.just"):\n'
+            '        raise OSError(28, "No space left on device")\n'
+            '    return real(path, data)\n'
+            'shared_files.write = write\n'
+            'sys.exit(install_stack.main())\n')
+        base = {k: v for k, v in os.environ.items() if k not in ('SKILL_PACKAGES_DIR', 'CI')}
+        run = subprocess.run([sys.executable, scripts / 'full_disk.py', '--target', self.target, 'typecheck'],
+                             capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                             env=dict(base, CI='true', PATH=f'{self.bin}:{os.environ["PATH"]}', TOOL_LOG=str(self.log)))
+        # The new module of python was written before the index failed, and goes back.
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('No space left on device', run.stderr)
+        self.assertEqual((self.target / '.agents/just/index.just').read_bytes(), index)
+        self.assertEqual((self.target / '.agents/just/python.just').read_bytes(), module)
+        self.parses()
+        self.assertEqual([path.name for path in self.target.iterdir() if path.name.startswith('.jnterfaces-')], [])
+
+    def test_a_dry_run_and_a_check_in_a_target_that_is_read_only_do_not_crash(self):
+        self.assertEqual(self.stack('prose', '--defaults', '--without', 'tasker').returncode, 0)
+        os.chmod(self.target, 0o555)
+        try:
+            run = self.stack('--profile', 'rust', '--dry-run')
+            self.assertNotIn('Traceback', run.stderr)
+            self.assertIn('could not check them', run.stdout)
+            run = self.stack('--check')
+            self.assertNotIn('Traceback', run.stderr)
+            self.assertIn('cannot make its stage', run.stdout)
+        finally:
+            os.chmod(self.target, 0o755)
+
+    def test_check_reads_only_the_role_files_that_just_install_reads(self):
+        self.assertEqual(self.stack('prose', '--defaults', '--without', 'tasker').returncode, 0)
+        (self.target / '.agents/just/roles/custom.just').write_text('release:\n    @echo custom\n')
+        justfile = self.target / 'Justfile'
+        justfile.write_text(justfile.read_text() + '\nrelease:\n    @echo mine\n')
+        self.assertEqual(self.stack().returncode, 0)
+        self.assertNotIn('The next just install stops', self.stack('--check').stdout)
+
+    def test_a_conflict_names_the_imported_file_of_a_recipe_with_a_default_or_a_dependency(self):
+        self.assertEqual(self.stack('prose', '--defaults', '--without', 'tasker').returncode, 0)
+        (self.target / 'scripts').mkdir()
+        justfile = self.target / 'Justfile'
+        start = justfile.read_text()
+        for recipe in ('prose v="1":\n    @echo m\n', 'prose: hello\n    @echo m\nhello:\n    @echo h\n'):
+            (self.target / 'scripts/x.just').write_text(f'prose_x := "1"\n{recipe}')
+            justfile.write_text(start + "\nimport 'scripts/x.just'\n")
+            run = self.stack()
+            self.assertEqual(run.returncode, 1, run.stderr)
+            self.assertIn('The recipe prose is in scripts/x.just and in the recipe file of a role', run.stderr)
+            self.assertIn('The recipe prose is in scripts/x.just', self.stack('--check').stdout)
+            justfile.write_text(start)
+
+    def test_a_write_of_the_index_goes_through_a_rename(self):
+        self.assertEqual(self.stack('--defaults', '--without', 'tasker').returncode, 0)
+        path = self.target / '.agents/just/index.just'
+        inode = path.stat().st_ino
+        self.assertEqual(self.stack('--profile', 'rust').returncode, 0)
+        self.assertNotEqual(path.stat().st_ino, inode)
+        self.assertEqual(list((self.target / '.agents/just').glob('.*.tmp')), [])
 
     def test_release_check_runs_when_a_role_gives_it_and_is_a_no_op_otherwise(self):
         # Without the step in a role, the index has a no-op release-check that logs a skip.
