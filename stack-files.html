@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="generator" content="smalldocs-0.5.5"><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"><title>The files of the stack – jnterfaces</title><link rel="icon" href="favicon.svg"><link rel="stylesheet" href="site_libs/themes/folio/folio.css" data-mode="light" class="quarto-color-scheme" id="quarto-bootstrap-light" media="not all and (prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/themes/folio/folio-dark.css" data-mode="dark" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap-dark" media="(prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/bootstrap-icons/bootstrap-icons.min.css"><link rel="stylesheet" href="site_libs/smalldocs.css"><meta name="smalldocs:offset" content="./"><script src="site_libs/bootstrap/bootstrap.bundle.min.js"></script><script src="site_libs/fuse/fuse.min.js"></script><script src="site_libs/smalldocs.js" defer></script><script>(function(){var d=document.documentElement,s=null;try{s=localStorage.getItem('smalldocs-scheme')}catch(e){}var alt=s?s==='alternate':!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);var ls=document.querySelectorAll('link.quarto-color-scheme');if(alt)d.dataset.scheme='alternate';if(s)ls.forEach(function(l){var on=l.classList.contains('quarto-color-alternate')===alt;if(on)l.setAttribute('blocking','render');l.media=on?'all':'not all'});var on=ls[alt?1:0];if(on&&on.dataset.mode==='dark')d.classList.add('quarto-dark')})();</script></head><body class="nav-fixed"><header id="quarto-header" class="headroom sticky-top"><nav class="navbar navbar-expand-lg sd-navbar-default"><div class="navbar-container container-fluid"><div class="navbar-brand-container mx-auto"><a class="navbar-brand" href="index.html"><span class="navbar-title">jnterfaces</span></a></div><button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button><div class="collapse navbar-collapse" id="navbarCollapse"><ul class="navbar-nav navbar-nav-scroll me-auto"><li class="nav-item"><a class="nav-link" href="index.html"><span class="menu-text">Home</span></a></li><li class="nav-item"><a class="nav-link" href="new-project.html"><span class="menu-text">New project</span></a></li><li class="nav-item"><a class="nav-link" href="stack-guide.html"><span class="menu-text">Stack guide</span></a></li><li class="nav-item"><a class="nav-link active" href="stack-files.html" aria-current="page"><span class="menu-text">Stack files</span></a></li></ul><ul class="navbar-nav navbar-nav-scroll ms-auto"><li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" id="nav-menu-1" role="link" data-bs-toggle="dropdown" aria-expanded="false"><span class="menu-text">Projects</span></a><ul class="dropdown-menu" aria-labelledby="nav-menu-1"><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnterfaces/"><span class="menu-text">jnterfaces</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-python/"><span class="menu-text">jnprofile-python</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-typescript/"><span class="menu-text">jnprofile-typescript</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/agent_gest_git_skills/"><span class="menu-text">agent_gest_git_skills</span></a></li></ul></li><li class="nav-item compact"><a class="nav-link" href="https://github.com/rahuldave/jnterfaces" aria-label="github"><i class="bi bi-github" role="img"></i></a></li><li class="nav-item compact"><a class="quarto-color-scheme-toggle nav-link" href="" title="Toggle dark mode" onclick="window.smalldocsToggleScheme(); return false;"><i class="bi"></i></a></li></ul><div class="quarto-navbar-tools"><div class="smalldocs-search" id="quarto-search"><i class="bi bi-search" aria-hidden="true"></i><input type="search" class="form-control form-control-sm" placeholder="Search" aria-label="Search" autocomplete="off"><div class="smalldocs-search-results dropdown-menu"></div></div></div></div></div></nav></header><div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article has-margin"><div id="quarto-margin-sidebar" class="sidebar margin-sidebar"><nav id="TOC" role="doc-toc" class="toc-active"><h2 id="toc-title">On this page</h2><ul><li><a href="#terms" id="toc-terms" class="nav-link" data-scroll-target="#terms">Terms</a></li><li><a href="#one-record-for-each-project" id="toc-one-record-for-each-project" class="nav-link" data-scroll-target="#one-record-for-each-project">One record for each project</a></li><li><a href="#the-files-at-a-glance" id="toc-the-files-at-a-glance" class="nav-link" data-scroll-target="#the-files-at-a-glance">The files at a glance</a></li><li><a href="#how-one-run-uses-the-files" id="toc-how-one-run-uses-the-files" class="nav-link" data-scroll-target="#how-one-run-uses-the-files">How one run uses the files</a></li><li><a href="#in-the-packages" id="toc-in-the-packages" class="nav-link" data-scroll-target="#in-the-packages">In the packages</a><ul><li><a href="#the-catalog-stack.json-of-jnterfaces" id="toc-the-catalog-stack.json-of-jnterfaces" class="nav-link" data-scroll-target="#the-catalog-stack.json-of-jnterfaces">The catalog: stack.json of jnterfaces</a></li><li><a href="#a-package-skill-package.json" id="toc-a-package-skill-package.json" class="nav-link" data-scroll-target="#a-package-skill-package.json">A package: skill-package.json</a></li><li><a href="#a-profile-profile.json" id="toc-a-profile-profile.json" class="nav-link" data-scroll-target="#a-profile-profile.json">A profile: profile.json</a></li><li><a href="#the-formats-scriptsformats.json" id="toc-the-formats-scriptsformats.json" class="nav-link" data-scroll-target="#the-formats-scriptsformats.json">The formats: scripts/formats.json</a></li></ul></li><li><a href="#in-the-project" id="toc-in-the-project" class="nav-link" data-scroll-target="#in-the-project">In the project</a><ul><li><a href="#the-record-.agentsstack.json" id="toc-the-record-.agentsstack.json" class="nav-link" data-scroll-target="#the-record-.agentsstack.json">The record: .agents/stack.json</a></li><li><a href="#which-file-holds-a-part" id="toc-which-file-holds-a-part" class="nav-link" data-scroll-target="#which-file-holds-a-part">Which file holds a part</a></li><li><a href="#the-layout-of-a-json-file" id="toc-the-layout-of-a-json-file" class="nav-link" data-scroll-target="#the-layout-of-a-json-file">The layout of a JSON file</a></li><li><a href="#the-package-records-.agentspackage-install.json" id="toc-the-package-records-.agentspackage-install.json" class="nav-link" data-scroll-target="#the-package-records-.agentspackage-install.json">The package records: .agents/&lt;package&gt;-install.json</a></li><li><a href="#a-run-that-stops-.agentsstack-pending.json" id="toc-a-run-that-stops-.agentsstack-pending.json" class="nav-link" data-scroll-target="#a-run-that-stops-.agentsstack-pending.json">A run that stops: .agents/stack-pending.json</a></li><li><a href="#the-history-.agentsstack-log.jsonl" id="toc-the-history-.agentsstack-log.jsonl" class="nav-link" data-scroll-target="#the-history-.agentsstack-log.jsonl">The history: .agents/stack-log.jsonl</a></li></ul></li><li><a href="#what-you-can-edit" id="toc-what-you-can-edit" class="nav-link" data-scroll-target="#what-you-can-edit">What you can edit</a></li><li><a href="#check-the-files" id="toc-check-the-files" class="nav-link" data-scroll-target="#check-the-files">Check the files</a></li></ul></nav><div class="toc-actions"><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/blob/main/docs/stack-files.md" class="toc-action"><i class="bi bi-code"></i> View source</a></div><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/issues/new" class="toc-action"><i class="bi bi-chat-right"></i> Report an issue</a></div></div></div><main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block default"><div class="quarto-title"><h1 class="title">The files of the stack</h1></div><div class="quarto-title-meta"></div></header><p>This page lists each file that the stack reads or writes, the meaning of each
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="generator" content="smalldocs-0.5.12"><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"><title>The files of the stack – jnterfaces</title><link rel="icon" href="favicon.svg"><link rel="stylesheet" href="site_libs/themes/atelier/atelier.css" data-mode="light" class="quarto-color-scheme" id="quarto-bootstrap-light" media="not all and (prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/themes/atelier/atelier-dark.css" data-mode="dark" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap-dark" media="(prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/bootstrap-icons/bootstrap-icons.min.css"><link rel="stylesheet" href="site_libs/smalldocs.css"><meta name="smalldocs:offset" content="./"><script src="site_libs/bootstrap/bootstrap.bundle.min.js"></script><script src="site_libs/fuse/fuse.min.js"></script><script src="site_libs/smalldocs.js" defer></script><script>(function(){var d=document.documentElement,s=null;try{s=localStorage.getItem('smalldocs-scheme')}catch(e){}var alt=s?s==='alternate':!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);var ls=document.querySelectorAll('link.quarto-color-scheme');if(alt)d.dataset.scheme='alternate';if(s)ls.forEach(function(l){var on=l.classList.contains('quarto-color-alternate')===alt;if(on)l.setAttribute('blocking','render');l.media=on?'all':'not all'});var on=ls[alt?1:0];if(on&&on.dataset.mode==='dark')d.classList.add('quarto-dark')})();</script></head><body class="nav-fixed"><header id="quarto-header" class="headroom sticky-top"><nav class="navbar navbar-expand-lg sd-navbar-default"><div class="navbar-container container-fluid"><div class="navbar-brand-container mx-auto"><a class="navbar-brand" href="index.html"><span class="navbar-title">jnterfaces</span></a></div><button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button><div class="collapse navbar-collapse" id="navbarCollapse"><ul class="navbar-nav navbar-nav-scroll me-auto"><li class="nav-item"><a class="nav-link" href="index.html"><span class="menu-text">Home</span></a></li><li class="nav-item"><a class="nav-link" href="new-project.html"><span class="menu-text">New project</span></a></li><li class="nav-item"><a class="nav-link" href="stack-guide.html"><span class="menu-text">Stack guide</span></a></li><li class="nav-item"><a class="nav-link active" href="stack-files.html" aria-current="page"><span class="menu-text">Stack files</span></a></li></ul><ul class="navbar-nav navbar-nav-scroll ms-auto"><li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" id="nav-menu-1" role="link" data-bs-toggle="dropdown" aria-expanded="false"><span class="menu-text">Projects</span></a><ul class="dropdown-menu" aria-labelledby="nav-menu-1"><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnterfaces/"><span class="menu-text">jnterfaces</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-python/"><span class="menu-text">jnprofile-python</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-typescript/"><span class="menu-text">jnprofile-typescript</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/agent_gest_git_skills/"><span class="menu-text">agent_gest_git_skills</span></a></li></ul></li><li class="nav-item compact"><a class="nav-link" href="https://github.com/rahuldave/jnterfaces" aria-label="github"><i class="bi bi-github" role="img"></i></a></li><li class="nav-item compact"><a class="quarto-color-scheme-toggle nav-link" href="" title="Toggle dark mode" onclick="window.smalldocsToggleScheme(); return false;"><i class="bi"></i></a></li></ul><div class="quarto-navbar-tools"><div class="smalldocs-search" id="quarto-search"><i class="bi bi-search" aria-hidden="true"></i><input type="search" class="form-control form-control-sm" placeholder="Search" aria-label="Search" autocomplete="off"><div class="smalldocs-search-results dropdown-menu"></div></div></div></div></div></nav></header><div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article has-margin"><div id="quarto-margin-sidebar" class="sidebar margin-sidebar"><nav id="TOC" role="doc-toc" class="toc-active"><h2 id="toc-title">On this page</h2><ul><li><a href="#terms" id="toc-terms" class="nav-link" data-scroll-target="#terms">Terms</a></li><li><a href="#one-record-for-each-project" id="toc-one-record-for-each-project" class="nav-link" data-scroll-target="#one-record-for-each-project">One record for each project</a></li><li><a href="#the-files-at-a-glance" id="toc-the-files-at-a-glance" class="nav-link" data-scroll-target="#the-files-at-a-glance">The files at a glance</a></li><li><a href="#how-one-run-uses-the-files" id="toc-how-one-run-uses-the-files" class="nav-link" data-scroll-target="#how-one-run-uses-the-files">How one run uses the files</a></li><li><a href="#in-the-packages" id="toc-in-the-packages" class="nav-link" data-scroll-target="#in-the-packages">In the packages</a><ul><li><a href="#the-catalog-stack.json-of-jnterfaces" id="toc-the-catalog-stack.json-of-jnterfaces" class="nav-link" data-scroll-target="#the-catalog-stack.json-of-jnterfaces">The catalog: stack.json of jnterfaces</a></li><li><a href="#a-package-skill-package.json" id="toc-a-package-skill-package.json" class="nav-link" data-scroll-target="#a-package-skill-package.json">A package: skill-package.json</a></li><li><a href="#a-profile-profile.json" id="toc-a-profile-profile.json" class="nav-link" data-scroll-target="#a-profile-profile.json">A profile: profile.json</a></li><li><a href="#the-formats-scriptsformats.json" id="toc-the-formats-scriptsformats.json" class="nav-link" data-scroll-target="#the-formats-scriptsformats.json">The formats: scripts/formats.json</a></li></ul></li><li><a href="#in-the-project" id="toc-in-the-project" class="nav-link" data-scroll-target="#in-the-project">In the project</a><ul><li><a href="#the-record-.agentsstack.json" id="toc-the-record-.agentsstack.json" class="nav-link" data-scroll-target="#the-record-.agentsstack.json">The record: .agents/stack.json</a></li><li><a href="#which-file-holds-a-part" id="toc-which-file-holds-a-part" class="nav-link" data-scroll-target="#which-file-holds-a-part">Which file holds a part</a></li><li><a href="#the-layout-of-a-json-file" id="toc-the-layout-of-a-json-file" class="nav-link" data-scroll-target="#the-layout-of-a-json-file">The layout of a JSON file</a></li><li><a href="#the-package-records-.agentspackage-install.json" id="toc-the-package-records-.agentspackage-install.json" class="nav-link" data-scroll-target="#the-package-records-.agentspackage-install.json">The package records: .agents/&lt;package&gt;-install.json</a></li><li><a href="#a-run-that-stops-.agentsstack-pending.json" id="toc-a-run-that-stops-.agentsstack-pending.json" class="nav-link" data-scroll-target="#a-run-that-stops-.agentsstack-pending.json">A run that stops: .agents/stack-pending.json</a></li><li><a href="#the-history-.agentsstack-log.jsonl" id="toc-the-history-.agentsstack-log.jsonl" class="nav-link" data-scroll-target="#the-history-.agentsstack-log.jsonl">The history: .agents/stack-log.jsonl</a></li></ul></li><li><a href="#what-you-can-edit" id="toc-what-you-can-edit" class="nav-link" data-scroll-target="#what-you-can-edit">What you can edit</a></li><li><a href="#check-the-files" id="toc-check-the-files" class="nav-link" data-scroll-target="#check-the-files">Check the files</a></li></ul></nav><div class="toc-actions"><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/blob/main/docs/stack-files.md" class="toc-action"><i class="bi bi-code"></i> View source</a></div><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/issues/new" class="toc-action"><i class="bi bi-chat-right"></i> Report an issue</a></div></div></div><main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block default"><div class="quarto-title"><h1 class="title">The files of the stack</h1></div><div class="quarto-title-meta"></div></header><p>This page lists each file that the stack reads or writes, the meaning of each
 key in it, and how the files work together. <a href="stack-guide.html">How the stack fits
 together</a> tells what an install does, and this page gives the
 files behind it.</p>
@@ -171,6 +171,12 @@ declarations, then writes the project and its records.</p>
 <td>The recipes <code>just install</code> and <code>just uninstall</code>.</td>
 </tr>
 <tr>
+<td><code>.agents/log/</code></td>
+<td>the project</td>
+<td>jlog</td>
+<td>The run log of the recipes. Git ignores it, and no owner of a part may name it.</td>
+</tr>
+<tr>
 <td><code>.agents/skills/</code> and <code>.claude/skills/</code></td>
 <td>the project</td>
 <td>the installer</td>
@@ -183,10 +189,16 @@ declarations, then writes the project and its records.</p>
 <td>The hook scripts. The hook entries go in <code>.claude/settings.json</code> and <code>.codex/hooks.json</code> as parts.</td>
 </tr>
 <tr>
+<td><code>.agents/generated.txt</code> and <code>.agents/coverage-exclude.txt</code></td>
+<td>the project</td>
+<td>the installer once, then you</td>
+<td>Two empty lists, in a project that the installer starts. You or an agent add paths, and <code>test-review</code> of the tasker role judges each one. A list that you delete stays deleted.</td>
+</tr>
+<tr>
 <td><code>Justfile</code></td>
 <td>the project</td>
 <td>the installer once, then you</td>
-<td>The starter Justfile, when the project has none. It is yours from then on.</td>
+<td>The starter Justfile, when the project has none. It is yours from then on. In a Justfile of your own, the installer adds one block with the line <code>import? &#x27;.agents/install.just&#x27;</code>.</td>
 </tr>
 <tr>
 <td><code>CLAUDE.md</code></td>
@@ -227,7 +239,10 @@ needs the manifest and the project has none, it runs <code>init</code> of the
 profile.</li>
 <li>It runs the package commands of the tools, such as <code>uv add --group lint ruff</code>.</li>
 <li>It saves <code>.agents/stack-pending.json</code>, then it writes the shared files
-and the own files, and adds an entry to <code>.agents/stack-log.jsonl</code>.</li>
+and the own files, and adds an entry to <code>.agents/stack-log.jsonl</code>. A
+Justfile of your own is a line file here, and it gets the block with the
+import of <code>.agents/install.just</code>. If the Justfile then does not parse,
+the installer takes the block out again.</li>
 <li>If the project now has <code>AGENTS.md</code> and no <code>CLAUDE.md</code>, it writes a
 <code>CLAUDE.md</code> with the line <code>@AGENTS.md</code>. If your <code>CLAUDE.md</code> does not
 import <code>AGENTS.md</code>, it says so and leaves the file alone.</li>
@@ -310,6 +325,10 @@ record, never from the files.</p>
 <td>The path of the package record, when it is not <code>.agents/&lt;package&gt;-install.json</code>.</td>
 </tr>
 <tr>
+<td><code>drop_with</code></td>
+<td>The starter files that the role leaves out while another role is on, keyed by that role: <code>files</code>, and <code>why</code>, which the installer prints. The installer removes such a file when it wrote the file and you did not change it, and does not write it again while the other role is on. <code>prose</code> leaves out <code>.github/workflows/nossaifd-prose.yml</code> while <code>tasker</code> is on.</td>
+</tr>
+<tr>
 <td><code>variants</code> and <code>default_variant</code></td>
 <td>The forms of a role, for example <code>git</code> or <code>gitwt</code> for <code>tasker</code>. A variant with <code>&quot;ready&quot;: false</code> cannot be chosen yet.</td>
 </tr>
@@ -357,12 +376,24 @@ profile, for example <code>pyproject.toml</code> or <code>uv.lock</code>.</p>
 <td>A file that the role writes once, when the project has none, for example the first <code>AGENTS.md</code>. It is yours from then on.</td>
 </tr>
 <tr>
+<td><code>install_extras.programs</code></td>
+<td>The programs of a role, with the keys of the <code>programs</code> of a profile. A role that is on needs all of them. For example, tasker installs <code>pre-commit</code>, then its git hooks.</td>
+</tr>
+<tr>
+<td><code>install_extras.before_remove</code></td>
+<td><code>{git_hook, command}</code>. When the role goes and the Git hook is there, the command runs in the project before the files of the role go. For example, tasker runs <code>pre-commit uninstall</code>, because a hook without its config stops each commit. A failed command does not stop the removal.</td>
+</tr>
+<tr>
 <td><code>install_extras.merge_hooks</code> and <code>install_extras.seed</code></td>
 <td>The same hooks and starter for an installer from before the parts. A newer installer leaves these files to the parts.</td>
 </tr>
 <tr>
 <td><code>executables</code></td>
-<td>The programs that the package needs, with a command that checks each one.</td>
+<td>The tools table: the programs that the package needs, with a command that checks each one. Each entry of <code>required</code> can have the key <code>install</code>, the line that installs it, and the keys <code>version</code> and <code>expect</code> of a program of a profile. When the check of a required program fails, the installer stops before it writes anything, and prints the <code>install</code> line of the program, or else its <code>description</code>. An entry without a check needs its program on the PATH only. The installer never runs this <code>install</code> line. An entry of <code>optional</code> with the key <code>skill</code> counts as required while that skill is on, for example <code>jagt</code> for the <code>jagt-protocol</code> skill. The value of <code>skill</code> must be the name of a choice of the role, and the name of the skill is the same.</td>
+</tr>
+<tr>
+<td><code>requires</code></td>
+<td>The versions of other packages that the package needs: <code>{&quot;jnterfaces&quot;: &quot;&gt;=0.1.0&quot;}</code>. The version of a package is its <code>source_version</code>, from its clone. Before it writes anything, the installer stops when a named package is not in the run, when its clone has no tag, or when its version is below the floor.</td>
 </tr>
 </tbody>
 </table>
@@ -390,7 +421,7 @@ profile, for example <code>pyproject.toml</code> or <code>uv.lock</code>.</p>
 </tr>
 <tr>
 <td><code>manifest</code></td>
-<td>The file that lists the dependencies: <code>pyproject.toml</code> or <code>package.json</code>.</td>
+<td>The file that lists the dependencies: <code>pyproject.toml</code>, <code>package.json</code> or <code>Cargo.toml</code>.</td>
 </tr>
 <tr>
 <td><code>init</code></td>
@@ -410,7 +441,11 @@ profile, for example <code>pyproject.toml</code> or <code>uv.lock</code>.</p>
 </tr>
 <tr>
 <td><code>base</code></td>
-<td>What the profile adds with no tool: its recipe file, and its <code>lines</code>, <code>parts</code> and <code>files</code>, as for a tool.</td>
+<td>What the profile adds with no tool: its recipe file, its <code>programs</code>, and its <code>lines</code>, <code>parts</code> and <code>files</code>, as for a tool.</td>
+</tr>
+<tr>
+<td><code>programs</code></td>
+<td>The programs that the profile can need, such as <code>rustup</code>. The next section tells the keys.</td>
 </tr>
 <tr>
 <td><code>tools</code></td>
@@ -435,7 +470,7 @@ profile, for example <code>pyproject.toml</code> or <code>uv.lock</code>.</p>
 <tbody>
 <tr>
 <td><code>packages</code></td>
-<td>The packages that the tool adds, for example <code>ruff</code> and <code>pre-commit</code>.</td>
+<td>The packages that the tool adds, for example <code>ruff</code>.</td>
 </tr>
 <tr>
 <td><code>group</code></td>
@@ -467,11 +502,199 @@ profile, for example <code>pyproject.toml</code> or <code>uv.lock</code>.</p>
 </tr>
 <tr>
 <td><code>before_remove</code></td>
-<td>A command that runs before the packages go, for example <code>pre-commit uninstall</code>.</td>
+<td>A command that runs before its <code>package</code> goes, for example <code>pre-commit uninstall</code>. The package goes when the tool goes, or when no tool in that place lists it any more.</td>
+</tr>
+<tr>
+<td><code>programs</code></td>
+<td>The names of the programs that the tool needs, from the top key <code>programs</code>.</td>
 </tr>
 </tbody>
 </table>
 </div>
+<section id="the-programs-of-a-profile" class="level4">
+<h4 class="anchored" data-anchor-id="the-programs-of-a-profile">The programs of a profile</h4>
+<p>A program is a command on the machine, such as <code>rustup</code> or <code>cargo-llvm-cov</code>.
+The top key <code>programs</code> is a list of programs. Each program has these keys:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Key</th>
+<th>What it means</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>The name of the program. <code>base.programs</code> and <code>programs</code> of a tool use this name.</td>
+</tr>
+<tr>
+<td><code>check</code></td>
+<td>A command that exits with 0 when the program is there, for example <code>cargo llvm-cov --version</code>.</td>
+</tr>
+<tr>
+<td><code>expect</code></td>
+<td>Optional. A text that the output of <code>check</code> must have, for example <code>llvm-tools</code>.</td>
+</tr>
+<tr>
+<td><code>version</code></td>
+<td>Optional. The version floor, <code>&gt;=X.Y.Z</code> or <code>&gt;=X.Y</code>, for example <code>&gt;=1.50.0</code>. Without it, the check must pass, and any version counts.</td>
+</tr>
+<tr>
+<td><code>install</code></td>
+<td>The command that installs the program, for example <code>cargo +stable install --locked cargo-llvm-cov@0.9.1</code>.</td>
+</tr>
+<tr>
+<td><code>install_in</code></td>
+<td>Optional, with <code>install</code>. <code>project</code>, the default, runs <code>install</code> in the folder of the project. <code>home</code> runs it in your home folder, or in an empty folder outside the project when <code>HOME</code> is not set.</td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td>For a program without <code>install</code>: what a person does to get it. For a program with <code>install</code>: optional, what the program does.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A program needs <code>install</code> or <code>description</code>. The first word of <code>check</code> and
+of <code>install</code> is a program on <code>PATH</code>, not a path. The installer splits
+<code>check</code> and <code>install</code> into words, as a shell does. Then it runs them without a
+shell. So a command has no pipe, no <code>$VARIABLE</code> and no <code>&amp;&amp;</code>. The installer
+never downloads a script.</p>
+<p>The base of a profile names the programs that it always needs, in
+<code>base.programs</code>. A tool names the programs that only it needs, in its own
+<code>programs</code>. A program of a tool that is off is not needed. The programs that
+a run needs are those of the base and of each installed tool, in the order of
+the top key <code>programs</code>. When two profiles have a program with the same
+name, the program of the first profile counts.</p>
+<p>A role names its programs in <code>install_extras.programs</code> of its
+<code>skill-package.json</code>. They have the same keys and rules. A run needs each
+program of a role that is on, after the programs of the profiles. When a profile
+has a program with the same name, the program of the profile counts.</p>
+<p><strong>The version of a program</strong> is the first <code>X.Y.Z</code>, or <code>X.Y</code>, anywhere in
+the output of its check. The search covers the whole output, because some
+programs, such as <code>gest</code>, print a banner before the version. When the output
+has no version, the search goes on in the error output. The parts compare as
+numbers, so <code>2.101.0</code> is higher than <code>2.40</code>. A check with a floor fails when
+the program is not on the PATH, when the check fails, when the output has no
+version, or when the version is below the floor. The message names the floor,
+the version found, the path of the program and the owner.</p>
+<p><strong>One floor for each program.</strong> The programs of the profiles and their
+tools, of the project, of the roles, and of the tools tables of the packages
+and their skills can name the same program. The installer joins them in this
+order, and the highest floor counts. The first entry gives the check, but an
+entry with <code>install</code> comes before an entry without one. The record keeps the
+floor of each owner. A floor that a tools table adds to a program with
+<code>install</code> is checked at the end of the run, when the installer checks that
+program again.</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Owner</th>
+<th>Floors</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>jnterfaces, in each project</td>
+<td><code>jlog</code> &gt;=0.2.0, <code>just</code> &gt;=1.50.0, <code>uv</code> &gt;=0.12.13, <code>git</code> &gt;=2.40, <code>gh</code> &gt;=2.40</td>
+</tr>
+<tr>
+<td>the <code>jagt-protocol</code> skill</td>
+<td><code>jagt</code> &gt;=0.3.0</td>
+</tr>
+<tr>
+<td>the <code>cx</code> skill</td>
+<td><code>cx</code> &gt;=0.1.0</td>
+</tr>
+<tr>
+<td>the <code>tasker</code> role</td>
+<td><code>gest</code> &gt;=0.5.6, when agent_gest_git_skills gives it</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>The checks run through jlog.</strong> When jlog 0.2.0 or later is on the PATH,
+the installer runs each check and each install of a program as <code>jlog run COMMAND</code>, from the folder of the command. So a check sees the PATH that a
+recipe line sees, also a tool that only <code>.jlog/bin</code> of the project gives.
+Without jlog 0.2.0, the installer uses its own PATH, and it says so once.
+The commands of the tools, such as <code>uv add</code>, keep the PATH of the installer.
+No command gets the <code>VIRTUAL_ENV</code> of the installer.</p>
+<p><strong>A check never installs or downloads.</strong> A check must only read. It must
+not install a program, download a file, or change the project. The installer
+sets <code>RUSTUP_AUTO_INSTALL=0</code> and <code>UV_PYTHON_DOWNLOADS=never</code> for each check,
+so that <code>rustup</code> installs no toolchain that the project pins, and <code>uv</code>
+downloads no Python. The installer cannot stop every download, for example
+of <code>uvx</code> or <code>npx</code>, so do not start a check with them. Give such a program an
+<code>install</code>, and a check that only reads.</p>
+<p>A run uses the programs in this order:</p>
+<ol>
+<li>Before it writes anything, the installer runs the <code>check</code> of each needed
+program without <code>install</code>. If a check fails, the installer prints the
+<code>description</code> and stops. It also stops for a missing program whose
+<code>install</code> starts with a command that is not on <code>PATH</code>. A command counts as
+on <code>PATH</code> when an earlier program with that name installs in the same run,
+because its check fails. The programs of the profiles come before the
+programs of the roles.</li>
+<li>It runs the commands of the tools, such as <code>cargo add --dev</code>. Then it
+writes the files, also the whole files of the base and the tools.</li>
+<li>In the folder of the project, it runs the <code>check</code> of each needed program
+with <code>install</code>. If a check fails, it runs <code>install</code> in the folder that
+<code>install_in</code> names, and then <code>check</code> again. If the check fails again, the
+run stops with an error.</li>
+</ol>
+<p>These rules follow from the order:</p>
+<ul>
+<li><strong>The toolchain file counts.</strong> The checks of step 3 run in the project, so
+rustup reads the toolchain file of the project, if it has one.</li>
+<li><strong><code>install_in</code> picks the toolchain of an install.</strong> <code>rustup component add clippy</code> runs in the project, so the component goes on the toolchain of the
+project. The rust profile runs <code>cargo +stable install --locked cargo-llvm-cov@0.9.1</code> with <code>&quot;install_in&quot;: &quot;home&quot;</code>. In the home folder, the
+toolchain file of the project does not count, and an old toolchain that the
+project pins cannot fail the build. <code>+stable</code> picks the stable toolchain,
+also when rustup has no default toolchain. The program <code>stable</code> of the
+profile installs that toolchain first.</li>
+<li><strong>A command of a tool comes first.</strong> It runs before step 3, so it can use
+only programs without <code>install</code>.</li>
+<li><strong>A missing program stops a removal too.</strong> A missing program without
+<code>install</code> stops every run of its profile, also a run that only removes a
+tool.</li>
+<li><strong>A check that hangs fails.</strong> A check that takes more than 15 minutes
+fails. A check of <code>cargo</code> in a project with a toolchain that is not
+installed fails at once, and the program <code>toolchain</code> then installs it.</li>
+<li><strong>A dry run installs nothing.</strong> <code>just install --dry-run</code> prints each
+missing program and each install that it would run.</li>
+<li><strong><code>just install --check</code> lists the missing programs.</strong> It fails when one is
+missing or below its floor. It reads the key <code>programs</code> of the record, so
+it also checks a project without the clones of its packages. It skips the
+rest of a profile or a role that has no clone. It changes nothing in the
+project.</li>
+<li><strong>A program stays.</strong> The installer never uninstalls a program, also when a
+tool, a profile or a role goes. The <code>before_remove</code> step of a role can take
+out what its programs put in the project, such as a Git hook.</li>
+</ul>
+<p>The programs of jnterfaces itself, <code>git</code>, <code>gh</code>, <code>just</code>, <code>uv</code> and <code>jlog</code>, are
+not in a profile. They are in <code>executables.required</code> of the
+<code>skill-package.json</code> of jnterfaces.</p>
+</section>
+<section id="a-toolchain-file" class="level4">
+<h4 class="anchored" data-anchor-id="a-toolchain-file">A toolchain file</h4>
+<p>A profile could write a toolchain file with the <code>files</code> of its base. A whole
+file is written only when the project has none. The rust profile writes no
+toolchain file. It keeps the <code>rust-toolchain.toml</code> or <code>rust-toolchain</code> of
+the project, and it names the toolchain as a program:</p>
+<ul>
+<li><strong><code>toolchain</code></strong> has the check <code>rustup show active-toolchain</code> and the
+install <code>rustup toolchain install</code>. Both run in the project, so the install
+gets the toolchain that the project pins. rustup 1.28.0 does not install a
+missing toolchain by itself, and later versions do.</li>
+<li><strong>Each component</strong>, such as <code>clippy</code>, is a program with the install
+<code>rustup component add clippy</code>. It also runs in the project, so the
+component goes on that toolchain.</li>
+</ul>
+<p>With no pin and no default toolchain, rustup cannot choose a toolchain, and
+the install fails. Then run <code>rustup default stable</code>, or pin a toolchain in
+<code>rust-toolchain.toml</code>.</p>
+</section>
 </section>
 <section id="the-formats-scriptsformats.json" class="level3">
 <h3 class="anchored" data-anchor-id="the-formats-scriptsformats.json">The formats: <code>scripts/formats.json</code></h3>
@@ -556,6 +779,11 @@ profile, for example <code>pyproject.toml</code> or <code>uv.lock</code>.</p>
 <td><code>{&quot;tasker&quot;: &quot;git&quot;}</code></td>
 </tr>
 <tr>
+<td><code>answers</code></td>
+<td>The answer of each setup question. A question with an answer is not asked again. The README lists the questions.</td>
+<td><code>{&quot;integration&quot;: &quot;check&quot;, &quot;issues&quot;: &quot;top&quot;}</code></td>
+</tr>
+<tr>
 <td><code>owned_packages</code></td>
 <td>The packages that the installer added, keyed by their place in the manifest. A removal takes out only these. For Python the place is <code>profile:group</code>. For TypeScript it is the profile, because npm has no groups.</td>
 <td><code>{&quot;python:lint&quot;: [&quot;pre-commit&quot;, &quot;ruff&quot;]}</code></td>
@@ -569,6 +797,46 @@ profile, for example <code>pyproject.toml</code> or <code>uv.lock</code>.</p>
 <td><code>started</code></td>
 <td><code>true</code> when the installer wrote the starter Justfile.</td>
 <td><code>true</code></td>
+</tr>
+<tr>
+<td><code>code</code></td>
+<td>The globs of the source files of each profile, for <code>@code</code> of the gate.</td>
+<td><code>{&quot;python&quot;: [&quot;**/*.py&quot;]}</code></td>
+</tr>
+<tr>
+<td><code>tests</code></td>
+<td>The globs of the test files of each profile. <code>test-parent</code> copies only these files into the parent commit.</td>
+<td><code>{&quot;python&quot;: [&quot;tests/**&quot;]}</code></td>
+</tr>
+<tr>
+<td><code>steps</code></td>
+<td>The steps of <code>just check</code>, in their order. <code>jlog pass</code> reads them. With the answer <code>integration=verify</code>, <code>integration</code> is not in the list.</td>
+<td><code>[&quot;tools-check&quot;, &quot;release-check&quot;, &quot;fmt-check&quot;, ...]</code></td>
+</tr>
+<tr>
+<td><code>programs</code></td>
+<td>Each program without <code>install</code> that the project needs, with its check, its <code>expect</code>, its floor in <code>version</code>, and the floor of each owner in <code>owners</code>. The installer writes it at each run. <code>tools-check</code> and <code>just install --check</code> read it, so a clone can check its programs from this key alone. The floors of <code>owners</code> count, and <code>version</code> is the highest of them. A program with <code>install</code>, such as the git hooks of a role or a toolchain, is not in it: it is the state of one machine, and <code>just install</code> sets it up.</td>
+<td><code>{&quot;just&quot;: {&quot;check&quot;: &quot;just --version&quot;, &quot;version&quot;: &quot;&gt;=1.50.0&quot;, &quot;owners&quot;: {&quot;jnterfaces&quot;: &quot;&gt;=1.50.0&quot;}}}</code></td>
+</tr>
+<tr>
+<td><code>project_programs</code></td>
+<td>The programs that the project itself needs. You write it, and the installer keeps it. Each entry has <code>name</code> and <code>check</code>, and can have <code>version</code>, <code>expect</code> and <code>description</code>. The owner is the project. A program without <code>install</code> must be there before a run writes anything.</td>
+<td><code>[{&quot;name&quot;: &quot;gest&quot;, &quot;check&quot;: &quot;gest --version&quot;, &quot;version&quot;: &quot;&gt;=0.6.0&quot;}]</code></td>
+</tr>
+<tr>
+<td><code>ci</code></td>
+<td>The steps that <code>just ci</code> runs after <code>ci-gate</code>. Each one must be a step of <code>just check</code>. You edit it, and <code>just install</code> keeps it.</td>
+<td><code>[&quot;test&quot;]</code></td>
+</tr>
+<tr>
+<td><code>provided_steps</code></td>
+<td>The steps that an installed profile or role provides. <code>jlog pass</code> counts a skip only for a step that is not in this list.</td>
+<td><code>[&quot;lint&quot;, &quot;test&quot;, &quot;diff-check&quot;]</code></td>
+</tr>
+<tr>
+<td><code>justfile_clash</code></td>
+<td>The hash of your Justfile and the error of <code>just</code>, when a run took the block out again because the Justfile did not parse with it. While the Justfile keeps this hash, the installer does not add the block.</td>
+<td></td>
 </tr>
 <tr>
 <td><code>parts</code></td>
@@ -694,7 +962,7 @@ units. For example:</p>
 </tr>
 <tr>
 <td><code>hash</code></td>
-<td>For an own file or a whole file: the hash of what the installer wrote.</td>
+<td>For an own file, a whole file, a starter or a seed: the hash of what the installer wrote. A starter from an older installer has no hash. Then the file counts as the installer’s while it is as the package ships it now.</td>
 </tr>
 <tr>
 <td><code>earlier</code></td>
@@ -764,7 +1032,7 @@ units. For example:</p>
 </tr>
 <tr>
 <td><code>(starter)</code></td>
-<td>A role wrote the file from its starter.</td>
+<td>A role, or the installer, wrote the file from its starter.</td>
 </tr>
 <tr>
 <td><code>(seed)</code></td>
@@ -888,8 +1156,12 @@ keys are these:</p>
 <td>The commit of the clone that the run installed.</td>
 </tr>
 <tr>
+<td><code>source_version</code></td>
+<td>The version of the clone at <code>source_revision</code>: the release tag <code>vX.Y.Z</code> at that commit, the highest when there are several. Else the output of <code>git describe --tags</code> over the release tags, for example <code>v0.1.0-3-g1a2b3c4</code>. Else <code>null</code>.</td>
+</tr>
+<tr>
 <td><code>source_worktree_dirty</code></td>
-<td><code>true</code> when the clone had changes that are not committed.</td>
+<td><code>true</code> when the clone had changes that are not committed. A file that git does not track under <code>.claude/</code> does not count, because the worktrees of agents are there.</td>
 </tr>
 <tr>
 <td><code>source_requested_commit</code></td>
@@ -980,7 +1252,11 @@ what to do. Git ignores it.</p>
 </tr>
 <tr>
 <td><code>.agents/stack.json</code></td>
-<td>Only to resolve a Git conflict. Run <code>just install --check</code> after.</td>
+<td>Only the key <code>project_programs</code>, and a Git conflict. Run <code>just install --check</code> after.</td>
+</tr>
+<tr>
+<td><code>.agents/tools_check.py</code></td>
+<td>No. jnterfaces installs it, and <code>tools-check</code> runs it.</td>
 </tr>
 <tr>
 <td><code>.agents/*-install.json</code>, <code>.agents/stack-pending.json</code>, <code>.agents/stack-log.jsonl</code></td>
@@ -992,6 +1268,20 @@ what to do. Git ignores it.</p>
 </section>
 <section id="check-the-files" class="level2">
 <h2 class="anchored" data-anchor-id="check-the-files">Check the files</h2>
+<p><strong>The step <code>tools-check</code></strong> is the first step of <code>just check</code>. The installer
+writes it into <code>.agents/just/index.just</code>. It runs <code>.agents/tools_check.py</code>,
+which reads the keys <code>programs</code> and <code>project_programs</code> of
+<code>.agents/stack.json</code> and runs each check. It needs Python 3.9 or later,
+which <code>uv</code> finds, and it installs and downloads nothing. It runs through
+jlog, as each recipe line does, so it sees the tools of <code>.jlog/bin</code>.</p>
+<p>A Justfile with its own <code>check</code> must run each step of the record, such as
+<code>tools-check</code> and <code>release-check</code>, because <code>jlog pass</code> reads the steps from
+the record. A recipe of the project with the name of a step, such as its own
+<code>release-check</code>, is that step. <code>just check</code> runs it, and it must end with
+<code>jlog step</code>. The lint of steps names a <code>check</code> that does
+not, at each run and in <code>just install --check</code>. To check the programs in CI,
+add <code>tools-check</code> to the list <code>ci</code>. The CI then needs each program of the key
+<code>programs</code>.</p>
 <p><code>just install --check</code> compares <code>parts</code> in <code>.agents/stack.json</code> with the
 shared files, and changes nothing. It prints each difference, for example:</p>
 <ul>

@@ -1,7 +1,8 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="generator" content="smalldocs-0.5.5"><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"><title>Start a Python or TypeScript project – jnterfaces</title><link rel="icon" href="favicon.svg"><link rel="stylesheet" href="site_libs/themes/folio/folio.css" data-mode="light" class="quarto-color-scheme" id="quarto-bootstrap-light" media="not all and (prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/themes/folio/folio-dark.css" data-mode="dark" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap-dark" media="(prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/bootstrap-icons/bootstrap-icons.min.css"><link rel="stylesheet" href="site_libs/smalldocs.css"><meta name="smalldocs:offset" content="./"><script src="site_libs/bootstrap/bootstrap.bundle.min.js"></script><script src="site_libs/fuse/fuse.min.js"></script><script src="site_libs/smalldocs.js" defer></script><script>(function(){var d=document.documentElement,s=null;try{s=localStorage.getItem('smalldocs-scheme')}catch(e){}var alt=s?s==='alternate':!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);var ls=document.querySelectorAll('link.quarto-color-scheme');if(alt)d.dataset.scheme='alternate';if(s)ls.forEach(function(l){var on=l.classList.contains('quarto-color-alternate')===alt;if(on)l.setAttribute('blocking','render');l.media=on?'all':'not all'});var on=ls[alt?1:0];if(on&&on.dataset.mode==='dark')d.classList.add('quarto-dark')})();</script></head><body class="nav-fixed"><header id="quarto-header" class="headroom sticky-top"><nav class="navbar navbar-expand-lg sd-navbar-default"><div class="navbar-container container-fluid"><div class="navbar-brand-container mx-auto"><a class="navbar-brand" href="index.html"><span class="navbar-title">jnterfaces</span></a></div><button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button><div class="collapse navbar-collapse" id="navbarCollapse"><ul class="navbar-nav navbar-nav-scroll me-auto"><li class="nav-item"><a class="nav-link" href="index.html"><span class="menu-text">Home</span></a></li><li class="nav-item"><a class="nav-link active" href="new-project.html" aria-current="page"><span class="menu-text">New project</span></a></li><li class="nav-item"><a class="nav-link" href="stack-guide.html"><span class="menu-text">Stack guide</span></a></li><li class="nav-item"><a class="nav-link" href="stack-files.html"><span class="menu-text">Stack files</span></a></li></ul><ul class="navbar-nav navbar-nav-scroll ms-auto"><li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" id="nav-menu-1" role="link" data-bs-toggle="dropdown" aria-expanded="false"><span class="menu-text">Projects</span></a><ul class="dropdown-menu" aria-labelledby="nav-menu-1"><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnterfaces/"><span class="menu-text">jnterfaces</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-python/"><span class="menu-text">jnprofile-python</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-typescript/"><span class="menu-text">jnprofile-typescript</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/agent_gest_git_skills/"><span class="menu-text">agent_gest_git_skills</span></a></li></ul></li><li class="nav-item compact"><a class="nav-link" href="https://github.com/rahuldave/jnterfaces" aria-label="github"><i class="bi bi-github" role="img"></i></a></li><li class="nav-item compact"><a class="quarto-color-scheme-toggle nav-link" href="" title="Toggle dark mode" onclick="window.smalldocsToggleScheme(); return false;"><i class="bi"></i></a></li></ul><div class="quarto-navbar-tools"><div class="smalldocs-search" id="quarto-search"><i class="bi bi-search" aria-hidden="true"></i><input type="search" class="form-control form-control-sm" placeholder="Search" aria-label="Search" autocomplete="off"><div class="smalldocs-search-results dropdown-menu"></div></div></div></div></div></nav></header><div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article has-margin"><div id="quarto-margin-sidebar" class="sidebar margin-sidebar"><nav id="TOC" role="doc-toc" class="toc-active"><h2 id="toc-title">On this page</h2><ul><li><a href="#terms" id="toc-terms" class="nav-link" data-scroll-target="#terms">Terms</a></li><li><a href="#what-the-machine-needs" id="toc-what-the-machine-needs" class="nav-link" data-scroll-target="#what-the-machine-needs">What the machine needs</a></li><li><a href="#step-1-clone-jnterfaces-once" id="toc-step-1-clone-jnterfaces-once" class="nav-link" data-scroll-target="#step-1-clone-jnterfaces-once">Step 1: clone jnterfaces once</a></li><li><a href="#step-2-make-the-project-and-install" id="toc-step-2-make-the-project-and-install" class="nav-link" data-scroll-target="#step-2-make-the-project-and-install">Step 2: make the project and install</a></li><li><a href="#a-python-project" id="toc-a-python-project" class="nav-link" data-scroll-target="#a-python-project">A Python project</a><ul><li><a href="#the-tools" id="toc-the-tools" class="nav-link" data-scroll-target="#the-tools">The tools</a></li><li><a href="#the-recipes" id="toc-the-recipes" class="nav-link" data-scroll-target="#the-recipes">The recipes</a></li><li><a href="#the-code-and-the-tests" id="toc-the-code-and-the-tests" class="nav-link" data-scroll-target="#the-code-and-the-tests">The code and the tests</a></li><li><a href="#the-git-hook" id="toc-the-git-hook" class="nav-link" data-scroll-target="#the-git-hook">The Git hook</a></li><li><a href="#change-a-setting" id="toc-change-a-setting" class="nav-link" data-scroll-target="#change-a-setting">Change a setting</a></li></ul></li><li><a href="#a-typescript-project" id="toc-a-typescript-project" class="nav-link" data-scroll-target="#a-typescript-project">A TypeScript project</a><ul><li><a href="#the-tools-1" id="toc-the-tools-1" class="nav-link" data-scroll-target="#the-tools-1">The tools</a></li><li><a href="#the-recipes-1" id="toc-the-recipes-1" class="nav-link" data-scroll-target="#the-recipes-1">The recipes</a></li><li><a href="#the-code-and-the-tests-1" id="toc-the-code-and-the-tests-1" class="nav-link" data-scroll-target="#the-code-and-the-tests-1">The code and the tests</a></li><li><a href="#change-a-setting-1" id="toc-change-a-setting-1" class="nav-link" data-scroll-target="#change-a-setting-1">Change a setting</a></li></ul></li><li><a href="#the-task-tracker" id="toc-the-task-tracker" class="nav-link" data-scroll-target="#the-task-tracker">The task tracker</a></li><li><a href="#the-writing-checker" id="toc-the-writing-checker" class="nav-link" data-scroll-target="#the-writing-checker">The writing checker</a></li><li><a href="#what-to-commit" id="toc-what-to-commit" class="nav-link" data-scroll-target="#what-to-commit">What to commit</a></li><li><a href="#keep-it-up-to-date" id="toc-keep-it-up-to-date" class="nav-link" data-scroll-target="#keep-it-up-to-date">Keep it up to date</a></li><li><a href="#what-the-stack-does-not-give" id="toc-what-the-stack-does-not-give" class="nav-link" data-scroll-target="#what-the-stack-does-not-give">What the stack does not give</a></li></ul></nav><div class="toc-actions"><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/blob/main/docs/new-project.md" class="toc-action"><i class="bi bi-code"></i> View source</a></div><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/issues/new" class="toc-action"><i class="bi bi-chat-right"></i> Report an issue</a></div></div></div><main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block default"><div class="quarto-title"><h1 class="title">Start a Python or TypeScript project</h1></div><div class="quarto-title-meta"></div></header><p>This page tells how to set up a new project with every part that the stack gives. The
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="generator" content="smalldocs-0.5.12"><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"><title>Start a Python, TypeScript or Rust project – jnterfaces</title><link rel="icon" href="favicon.svg"><link rel="stylesheet" href="site_libs/themes/atelier/atelier.css" data-mode="light" class="quarto-color-scheme" id="quarto-bootstrap-light" media="not all and (prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/themes/atelier/atelier-dark.css" data-mode="dark" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap-dark" media="(prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/bootstrap-icons/bootstrap-icons.min.css"><link rel="stylesheet" href="site_libs/smalldocs.css"><meta name="smalldocs:offset" content="./"><script src="site_libs/bootstrap/bootstrap.bundle.min.js"></script><script src="site_libs/fuse/fuse.min.js"></script><script src="site_libs/smalldocs.js" defer></script><script>(function(){var d=document.documentElement,s=null;try{s=localStorage.getItem('smalldocs-scheme')}catch(e){}var alt=s?s==='alternate':!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);var ls=document.querySelectorAll('link.quarto-color-scheme');if(alt)d.dataset.scheme='alternate';if(s)ls.forEach(function(l){var on=l.classList.contains('quarto-color-alternate')===alt;if(on)l.setAttribute('blocking','render');l.media=on?'all':'not all'});var on=ls[alt?1:0];if(on&&on.dataset.mode==='dark')d.classList.add('quarto-dark')})();</script></head><body class="nav-fixed"><header id="quarto-header" class="headroom sticky-top"><nav class="navbar navbar-expand-lg sd-navbar-default"><div class="navbar-container container-fluid"><div class="navbar-brand-container mx-auto"><a class="navbar-brand" href="index.html"><span class="navbar-title">jnterfaces</span></a></div><button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button><div class="collapse navbar-collapse" id="navbarCollapse"><ul class="navbar-nav navbar-nav-scroll me-auto"><li class="nav-item"><a class="nav-link" href="index.html"><span class="menu-text">Home</span></a></li><li class="nav-item"><a class="nav-link active" href="new-project.html" aria-current="page"><span class="menu-text">New project</span></a></li><li class="nav-item"><a class="nav-link" href="stack-guide.html"><span class="menu-text">Stack guide</span></a></li><li class="nav-item"><a class="nav-link" href="stack-files.html"><span class="menu-text">Stack files</span></a></li></ul><ul class="navbar-nav navbar-nav-scroll ms-auto"><li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" id="nav-menu-1" role="link" data-bs-toggle="dropdown" aria-expanded="false"><span class="menu-text">Projects</span></a><ul class="dropdown-menu" aria-labelledby="nav-menu-1"><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnterfaces/"><span class="menu-text">jnterfaces</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-python/"><span class="menu-text">jnprofile-python</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-typescript/"><span class="menu-text">jnprofile-typescript</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/agent_gest_git_skills/"><span class="menu-text">agent_gest_git_skills</span></a></li></ul></li><li class="nav-item compact"><a class="nav-link" href="https://github.com/rahuldave/jnterfaces" aria-label="github"><i class="bi bi-github" role="img"></i></a></li><li class="nav-item compact"><a class="quarto-color-scheme-toggle nav-link" href="" title="Toggle dark mode" onclick="window.smalldocsToggleScheme(); return false;"><i class="bi"></i></a></li></ul><div class="quarto-navbar-tools"><div class="smalldocs-search" id="quarto-search"><i class="bi bi-search" aria-hidden="true"></i><input type="search" class="form-control form-control-sm" placeholder="Search" aria-label="Search" autocomplete="off"><div class="smalldocs-search-results dropdown-menu"></div></div></div></div></div></nav></header><div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article has-margin"><div id="quarto-margin-sidebar" class="sidebar margin-sidebar"><nav id="TOC" role="doc-toc" class="toc-active"><h2 id="toc-title">On this page</h2><ul><li><a href="#terms" id="toc-terms" class="nav-link" data-scroll-target="#terms">Terms</a></li><li><a href="#what-the-machine-needs" id="toc-what-the-machine-needs" class="nav-link" data-scroll-target="#what-the-machine-needs">What the machine needs</a></li><li><a href="#step-1-clone-jnterfaces-once" id="toc-step-1-clone-jnterfaces-once" class="nav-link" data-scroll-target="#step-1-clone-jnterfaces-once">Step 1: clone jnterfaces once</a></li><li><a href="#step-2-make-the-project-and-install" id="toc-step-2-make-the-project-and-install" class="nav-link" data-scroll-target="#step-2-make-the-project-and-install">Step 2: make the project and install</a></li><li><a href="#a-python-project" id="toc-a-python-project" class="nav-link" data-scroll-target="#a-python-project">A Python project</a><ul><li><a href="#the-tools" id="toc-the-tools" class="nav-link" data-scroll-target="#the-tools">The tools</a></li><li><a href="#the-recipes" id="toc-the-recipes" class="nav-link" data-scroll-target="#the-recipes">The recipes</a></li><li><a href="#the-code-and-the-tests" id="toc-the-code-and-the-tests" class="nav-link" data-scroll-target="#the-code-and-the-tests">The code and the tests</a></li><li><a href="#the-git-hooks" id="toc-the-git-hooks" class="nav-link" data-scroll-target="#the-git-hooks">The Git hooks</a></li><li><a href="#change-a-setting" id="toc-change-a-setting" class="nav-link" data-scroll-target="#change-a-setting">Change a setting</a></li></ul></li><li><a href="#a-typescript-project" id="toc-a-typescript-project" class="nav-link" data-scroll-target="#a-typescript-project">A TypeScript project</a><ul><li><a href="#the-tools-1" id="toc-the-tools-1" class="nav-link" data-scroll-target="#the-tools-1">The tools</a></li><li><a href="#the-recipes-1" id="toc-the-recipes-1" class="nav-link" data-scroll-target="#the-recipes-1">The recipes</a></li><li><a href="#the-code-and-the-tests-1" id="toc-the-code-and-the-tests-1" class="nav-link" data-scroll-target="#the-code-and-the-tests-1">The code and the tests</a></li><li><a href="#change-a-setting-1" id="toc-change-a-setting-1" class="nav-link" data-scroll-target="#change-a-setting-1">Change a setting</a></li></ul></li><li><a href="#a-rust-project" id="toc-a-rust-project" class="nav-link" data-scroll-target="#a-rust-project">A Rust project</a><ul><li><a href="#the-tools-2" id="toc-the-tools-2" class="nav-link" data-scroll-target="#the-tools-2">The tools</a></li><li><a href="#the-recipes-2" id="toc-the-recipes-2" class="nav-link" data-scroll-target="#the-recipes-2">The recipes</a></li><li><a href="#the-code-and-the-tests-2" id="toc-the-code-and-the-tests-2" class="nav-link" data-scroll-target="#the-code-and-the-tests-2">The code and the tests</a></li><li><a href="#lines-that-no-test-can-run" id="toc-lines-that-no-test-can-run" class="nav-link" data-scroll-target="#lines-that-no-test-can-run">Lines that no test can run</a></li><li><a href="#change-a-setting-2" id="toc-change-a-setting-2" class="nav-link" data-scroll-target="#change-a-setting-2">Change a setting</a></li></ul></li><li><a href="#the-task-tracker" id="toc-the-task-tracker" class="nav-link" data-scroll-target="#the-task-tracker">The task tracker</a></li><li><a href="#the-writing-checker" id="toc-the-writing-checker" class="nav-link" data-scroll-target="#the-writing-checker">The writing checker</a></li><li><a href="#what-to-commit" id="toc-what-to-commit" class="nav-link" data-scroll-target="#what-to-commit">What to commit</a></li><li><a href="#keep-it-up-to-date" id="toc-keep-it-up-to-date" class="nav-link" data-scroll-target="#keep-it-up-to-date">Keep it up to date</a></li><li><a href="#what-the-stack-does-not-give" id="toc-what-the-stack-does-not-give" class="nav-link" data-scroll-target="#what-the-stack-does-not-give">What the stack does not give</a></li></ul></nav><div class="toc-actions"><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/blob/main/docs/new-project.md" class="toc-action"><i class="bi bi-code"></i> View source</a></div><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/issues/new" class="toc-action"><i class="bi bi-chat-right"></i> Report an issue</a></div></div></div><main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block default"><div class="quarto-title"><h1 class="title">Start a Python, TypeScript or Rust project</h1></div><div class="quarto-title-meta"></div></header><p>This page tells how to set up a new project with every part that the stack gives. The
 parts are the agent skills, the task tracker, the writing checker, format,
 lint, tests, coverage, types, a Git hook and one full check. Each step and each
-example was run on 2026-10-31 in an empty folder.</p>
+example was run on 2026-10-31 in an empty folder. The Rust steps and examples
+were run on 2026-11-15.</p>
 <p><a href="stack-guide.html">How the stack fits together</a> tells how an install works.
 <a href="stack-files.html">The files of the stack</a> tells what each file holds.</p>
 <section id="terms" class="level2">
@@ -25,7 +26,7 @@ example was run on 2026-10-31 in an empty folder.</p>
 </tr>
 <tr>
 <td>profile</td>
-<td>A language setup: <code>python</code> or <code>typescript</code>.</td>
+<td>A language setup: <code>python</code>, <code>typescript</code> or <code>rust</code>.</td>
 </tr>
 <tr>
 <td>tool</td>
@@ -56,28 +57,44 @@ example was run on 2026-10-31 in an empty folder.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>git</code></td>
+<td><code>git</code> 2.40 or later</td>
 <td>Each project and each package clone</td>
 <td>The system package manager</td>
 </tr>
 <tr>
-<td><code>just</code></td>
+<td><code>gh</code> 2.40 or later</td>
+<td>The pull requests and the checks of CI</td>
+<td>https://cli.github.com</td>
+</tr>
+<tr>
+<td><code>just</code> 1.50.0 or later</td>
 <td>Every recipe</td>
 <td>https://just.systems</td>
 </tr>
 <tr>
-<td><code>uv</code></td>
+<td><code>uv</code> 0.12.13 or later</td>
 <td>The installer, Python, and Node for TypeScript</td>
 <td>https://docs.astral.sh/uv</td>
 </tr>
 <tr>
-<td><code>gest</code></td>
+<td><code>jlog</code> v0.2.0 or later</td>
+<td>The shell of each recipe that <code>just install</code> writes. It logs each line in the run log.</td>
+<td>Clone https://github.com/rahuldave/jlog, run <code>git checkout v0.2.0</code> in the clone, then run <code>just install</code> there. Its install builds with <code>cargo</code>, so it needs Rust, from https://rustup.rs/, for every profile. The installer stops when jlog is missing.</td>
+</tr>
+<tr>
+<td><code>gest</code> 0.5.6 or later</td>
 <td>The skills of the <code>tasker</code> role</td>
-<td>Install it on its own. It does not come through <code>uv</code>. The installer warns when it is missing.</td>
+<td>Install it on its own. It does not come through <code>uv</code>. The installer stops when it is missing.</td>
 </tr>
 </tbody>
 </table>
 </div>
+<p>A profile can need more programs. The rust profile needs <code>rustup</code>, from
+https://rustup.rs/. The installer checks each program of the profile. When
+<code>rustup</code> is missing, it stops before it writes anything, and it says where to
+get <code>rustup</code>. The installer installs the other programs of the profile
+itself. For example, it installs the toolchain, which brings <code>cargo</code>, with
+<code>rustup toolchain install</code>, and <code>cargo-llvm-cov</code> with <code>cargo +stable install</code>. It never removes a program.</p>
 <p>TypeScript needs no Node on the machine. <code>uv</code> runs <code>node</code> and <code>npm</code> from the
 <code>nodejs-wheel</code> package, version 24.</p>
 </section>
@@ -96,8 +113,8 @@ in that folder only.</p>
 <h2 class="anchored" data-anchor-id="step-2-make-the-project-and-install">Step 2: make the project and install</h2>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">mkdir app <span class="op">&amp;&amp;</span> <span class="bu">cd</span> app <span class="op">&amp;&amp;</span> git init
 uv run <span class="st">&quot;</span><span class="ss">${</span><span class="va">SKILL_PACKAGES_DIR</span><span class="kw">:-</span><span class="va">$HOME</span>/.local/share/skill-packages<span class="ss">}</span><span class="st">/jnterfaces/scripts/install_stack.py</span><span class="st">&quot;</span> --profile python</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<p>Use <code>--profile typescript</code> for TypeScript, or <code>--profile python,typescript</code>
-for both. At a terminal, the installer asks about each role. Add
+<p>Use <code>--profile typescript</code> for TypeScript, <code>--profile rust</code> for Rust, or
+<code>--profile python,typescript</code> for two languages. At a terminal, the installer asks about each role. Add
 <code>--defaults</code> to take the defaults with no questions:</p>
 <div class="sd-table">
 <table class="caption-top table">
@@ -117,7 +134,7 @@ for both. At a terminal, the installer asks about each role. Add
 <tr>
 <td><code>prose</code></td>
 <td>yes</td>
-<td>The nossaifd writing guide, its checker, <code>just prose</code>, the declaude skill, from the declauding skill by Oskar Austegard, and the <a href="https://rahuldave.github.io/nossaifd/">writing flow</a>: an instruction, two hooks and a GitHub workflow</td>
+<td>The nossaifd writing guide, its checker, <code>just prose-check</code>, the declaude skill, from the declauding skill by Oskar Austegard, and the <a href="https://rahuldave.github.io/nossaifd/">writing flow</a>: an instruction, two hooks and a GitHub workflow</td>
 </tr>
 <tr>
 <td><code>cx</code></td>
@@ -128,6 +145,11 @@ for both. At a terminal, the installer asks about each role. Add
 <td><code>jagt-protocol</code></td>
 <td>no</td>
 <td>The <code>jagt-protocol</code> skill: the packets of agentic recipes. It needs the <code>jagt</code> program.</td>
+</tr>
+<tr>
+<td><code>docs</code></td>
+<td>no</td>
+<td>A docs site in <code>docs/</code> with smalldocs: <code>docs-check</code> in <code>just check</code>, and <code>docs-publish</code> with a CI workflow that publishes a public repository</td>
 </tr>
 <tr>
 <td><code>reporter</code></td>
@@ -142,16 +164,59 @@ later, for example <code>just install cx</code>.</p>
 <p>The installer then does these steps:</p>
 <ol>
 <li>If the project has no manifest, it makes one. The manifest is
-<code>pyproject.toml</code>, from <code>uv init --bare</code>, or <code>package.json</code>, from <code>npm init --yes</code>.</li>
-<li>It adds the default tools of the profile, with <code>uv add --group</code> or <code>npm install --save-dev</code>.</li>
+<code>pyproject.toml</code>, from <code>uv init --bare</code>, <code>package.json</code>, from <code>npm init --yes</code>, or <code>Cargo.toml</code>, from <code>cargo init --vcs none</code>.</li>
+<li>It adds the default tools of the profile, with <code>uv add --group</code> or <code>npm install --save-dev</code>. The Rust tools add no crate.</li>
 <li>It writes the starter <code>Justfile</code>, the starter <code>AGENTS.md</code>, and a
-<code>CLAUDE.md</code> that imports <code>AGENTS.md</code>. With the <code>prose</code> role, it also writes
-the workflow <code>.github/workflows/nossaifd-prose.yml</code>. Each of these files is
-yours from then on.</li>
+<code>CLAUDE.md</code> that imports <code>AGENTS.md</code>. With the <code>prose</code> role and without the
+<code>tasker</code> role, it also writes the workflow
+<code>.github/workflows/nossaifd-prose.yml</code>. With the <code>tasker</code> role, it writes
+<code>.github/workflows/check.yml</code>, which runs <code>just ci</code> on each pull request.
+Each of these files is yours from then on.</li>
+<li>It writes two empty lists, <code>.agents/generated.txt</code> and
+<code>.agents/coverage-exclude.txt</code>. You or an agent add paths to them later.</li>
 <li>It saves the choices in <code>.agents/stack.json</code>.</li>
 </ol>
 <p>Run <code>just</code> alone to list the recipes. Then run <code>just verify</code>, which passes in a
-project with no code yet.</p>
+project with no code yet. A Rust project always has code, so first read
+<a href="#a-rust-project">A Rust project</a>.</p>
+<p><code>just check</code> runs the steps of the commit gates, in this order:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode text code-with-copy"><code class="sourceCode text">tools-check release-check fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>A step fails when the change breaks a rule. The <code>prose</code> role gives
+<code>prose-check</code>, and the tasker role (agent_gest_git_skills) gives
+<code>release-check</code>. The installer gives <code>tools-check</code> and <code>diff-check</code>. A step that nothing gives
+logs a skip. Each profile gives the steps of its installed tools, and the
+<code>test-paths</code> recipe:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Profile</th>
+<th>Steps</th>
+<th><code>test-paths</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>python</code></td>
+<td><code>lint</code>, <code>test</code>, <code>typecheck</code></td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>typescript</code></td>
+<td><code>fmt-check</code>, <code>lint</code>, <code>typecheck</code>, <code>test</code>, <code>coverage-check</code>, <code>docstring-check</code></td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>rust</code></td>
+<td><code>fmt-check</code>, <code>lint</code>, <code>typecheck</code>, <code>test</code>, <code>coverage-check</code>, <code>docstring-check</code></td>
+<td>yes</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code>test-paths</code> runs only the tests of some test files. The <code>test-parent</code> recipe
+of the <code>tasker</code> role runs it with the added and changed test files, on the
+parent commit. The agent of <code>test-review</code> reads the result.</p>
 </section>
 <section id="a-python-project" class="level2">
 <h2 class="anchored" data-anchor-id="a-python-project">A Python project</h2>
@@ -172,9 +237,9 @@ project with no code yet.</p>
 <tr>
 <td><code>lint</code></td>
 <td>yes</td>
-<td>ruff, pre-commit, in the group <code>lint</code></td>
-<td><code>ruff.toml</code>, <code>.pre-commit-config.yaml</code></td>
-<td><code>fmt</code>, <code>lint</code>, <code>hook</code></td>
+<td>ruff, in the group <code>lint</code></td>
+<td><code>ruff.toml</code></td>
+<td><code>fmt</code>, <code>lint</code></td>
 </tr>
 <tr>
 <td><code>test</code></td>
@@ -194,7 +259,7 @@ project with no code yet.</p>
 </table>
 </div>
 <p>Add the type check:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install typecheck</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install typecheck</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p><code>pyproject.toml</code> gets <code>default-groups = &quot;all&quot;</code> under <code>[tool.uv]</code>, so that
 <code>uv run</code> has every tool. The project uses the Python that <code>uv</code> picks, and <code>uv init</code> writes that version as <code>requires-python</code>.</p>
 </section>
@@ -226,11 +291,6 @@ project with no code yet.</p>
 <td><code>just lint --fix</code> fixes what it can.</td>
 </tr>
 <tr>
-<td><code>just hook</code></td>
-<td><code>pre-commit install</code></td>
-<td>Run it once in each clone.</td>
-</tr>
-<tr>
 <td><code>just test</code></td>
 <td><code>pytest</code></td>
 <td>Extra words go to pytest: <code>just test tests/test_app.py</code>. With no tests yet, it passes. A selection that runs no test fails.</td>
@@ -239,6 +299,11 @@ project with no code yet.</p>
 <td><code>just cov</code></td>
 <td><code>pytest --cov --cov-report=term-missing</code></td>
 <td>Shows the lines that no test ran.</td>
+</tr>
+<tr>
+<td><code>just test-paths FILE...</code></td>
+<td><code>pytest</code></td>
+<td>Runs only the test files that you name. With no file, it runs nothing and exits with 5.</td>
 </tr>
 <tr>
 <td><code>just typecheck</code></td>
@@ -261,33 +326,26 @@ only.</p>
 <h3 class="anchored" data-anchor-id="the-code-and-the-tests">The code and the tests</h3>
 <p>Put modules at the top of the project, such as <code>app.py</code>, or put a package
 folder there. Put the tests in <code>tests/</code>, in files named <code>test_NAME.py</code>:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span class="co"># app.py</span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span class="co"># app.py</span>
 <span class="kw">def</span> <span class="fu">add</span>(a: <span class="bu">int</span>, b: <span class="bu">int</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="bu">int</span>:
     <span class="cf">return</span> a <span class="op">+</span> b</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span class="co"># tests/test_app.py</span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span class="co"># tests/test_app.py</span>
 <span class="im">from</span> app <span class="im">import</span> add
 
 
 <span class="kw">def</span> <span class="fu">test_add</span>():
     <span class="kw">assert</span> add(<span class="dv">1</span>, <span class="dv">2</span>) <span class="op">==</span> <span class="dv">3</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>pytest finds <code>app</code> because the <code>test</code> tool adds <code>&quot;.&quot;</code> to <code>pythonpath</code>. Then:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just fmt
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just fmt
 just verify
 just cov</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
-<section id="the-git-hook" class="level3">
-<h3 class="anchored" data-anchor-id="the-git-hook">The Git hook</h3>
-<p><code>just hook</code> writes <code>.git/hooks/pre-commit</code>. Before each commit, it runs the
-checks of <code>.pre-commit-config.yaml</code> on the staged files:</p>
-<ul>
-<li>spaces at the end of a line, and the newline at the end of each file</li>
-<li>the syntax of YAML and JSON files</li>
-<li>files larger than 1000 KB</li>
-<li>merge conflict markers and private keys</li>
-<li><code>ruff check</code> and <code>ruff format</code></li>
-</ul>
-<p>A check that changes a file stops the commit. Add the change and commit again.
-<code>uv run pre-commit run --all-files</code> runs the checks on every file.</p>
+<section id="the-git-hooks" class="level3">
+<h3 class="anchored" data-anchor-id="the-git-hooks">The Git hooks</h3>
+<p>The Python profile installs no Git hook. The <code>tasker</code> role installs the
+pre-commit framework and its hooks, for each language. Before each commit,
+they run the commit gate and the checks of <code>.pre-commit-config.yaml</code> that
+change no file. <code>just install</code> installs the hooks in each clone.</p>
 </section>
 <section id="change-a-setting" class="level3">
 <h3 class="anchored" data-anchor-id="change-a-setting">Change a setting</h3>
@@ -335,16 +393,37 @@ add <code>pythonpath</code>. Add <code>pythonpath = [&quot;.&quot;]</code> to th
 </tr>
 <tr>
 <td><code>test</code></td>
-<td>no</td>
-<td><code>typescript@7</code>, <code>@types/node@24</code></td>
+<td>yes</td>
+<td><code>typescript@7</code>, <code>@types/node@24</code>, <code>c8@12</code></td>
 <td><code>tsconfig.json</code></td>
-<td><code>build</code>, <code>test</code></td>
+<td><code>build</code>, <code>test</code>, <code>coverage-check</code>, <code>cov</code></td>
+</tr>
+<tr>
+<td><code>docstring</code></td>
+<td>yes</td>
+<td>none in <code>package.json</code></td>
+<td>none</td>
+<td><code>docstring-check</code></td>
+</tr>
+<tr>
+<td><code>api</code></td>
+<td>yes</td>
+<td>none</td>
+<td>none</td>
+<td><code>api-check</code>, <code>api-prose-check</code></td>
+</tr>
+<tr>
+<td><code>integration</code></td>
+<td>no</td>
+<td><code>typescript@7</code>, <code>@types/node@24</code>, <code>c8@12</code></td>
+<td><code>tsconfig.json</code></td>
+<td><code>integration</code></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>Add the tests:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install <span class="bu">test</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The install turns on the default tools. Add the integration tests, which run from <code>tests/integration</code>:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install integration</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>The packages go into <code>devDependencies</code> of <code>package.json</code>. The npm cache is in
 <code>.local/npm-cache</code>, which Git ignores.</p>
 </section>
@@ -387,13 +466,18 @@ add <code>pythonpath</code>. Add <code>pythonpath = [&quot;.&quot;]</code> to th
 </tr>
 <tr>
 <td><code>just test</code></td>
-<td><code>tsc</code>, then <code>node --test &#x27;dist/**/*.test.js&#x27;</code></td>
+<td><code>tsc</code>, then <code>node --test</code> under c8</td>
 <td>Extra words go to <code>node --test</code>. With no <code>.ts</code> file in <code>src</code> yet, it passes.</td>
 </tr>
 <tr>
+<td><code>just cov</code></td>
+<td><code>tsc</code>, then the tests under c8</td>
+<td>Shows the lines that the tests ran.</td>
+</tr>
+<tr>
 <td><code>just verify</code></td>
-<td><code>lint</code>, <code>typecheck</code>, <code>test</code>, then <code>git diff --check</code></td>
-<td>Runs the checks of the installed tools only.</td>
+<td>The steps of the installed tools, then <code>git diff --check</code></td>
+<td>Runs the checks of the installed tools only, for example <code>lint</code>, <code>typecheck</code>, <code>test</code> and <code>docstring-check</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -404,11 +488,11 @@ add <code>pythonpath</code>. Add <code>pythonpath = [&quot;.&quot;]</code> to th
 <p>Put the code and the tests in <code>src/</code>. Name each test file <code>NAME.test.ts</code>.
 <code>tsconfig.json</code> compiles all of <code>src</code>, so the build writes the tests to
 <code>dist</code> too. Import the code with the <code>.js</code> name that the build writes:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode typescript code-with-copy"><code class="sourceCode typescript"><span class="co">// src/app.ts</span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode typescript code-with-copy"><code class="sourceCode typescript"><span class="co">// src/app.ts</span>
 <span class="kw">export</span> <span class="kw">function</span> add(a<span class="op">:</span> <span class="dt">number</span>, b<span class="op">:</span> <span class="dt">number</span>)<span class="op">:</span> <span class="dt">number</span> {
   <span class="cf">return</span> a <span class="op">+</span> b;
 }</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode typescript code-with-copy"><code class="sourceCode typescript"><span class="co">// src/app.test.ts</span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode typescript code-with-copy"><code class="sourceCode typescript"><span class="co">// src/app.test.ts</span>
 <span class="kw">import</span> assert <span class="kw">from</span> <span class="st">&quot;node:assert/strict&quot;</span>;
 <span class="kw">import</span> { test } <span class="kw">from</span> <span class="st">&quot;node:test&quot;</span>;
 <span class="kw">import</span> { add } <span class="kw">from</span> <span class="st">&quot;./app.js&quot;</span>;
@@ -417,7 +501,7 @@ test(<span class="st">&quot;add&quot;</span>, () =&gt; {
   assert.equal(add(<span class="fl">1</span>, <span class="fl">2</span>), <span class="fl">3</span>);
 });</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>The tests use <code>node:test</code> and <code>node:assert</code>, which come with Node. Then:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just fmt
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just fmt
 just verify</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 <section id="change-a-setting-1" class="level3">
@@ -428,12 +512,215 @@ the profile. For example, the profile
 sets a line width of 120 for Biome.</p>
 </section>
 </section>
+<section id="a-rust-project" class="level2">
+<h2 class="anchored" data-anchor-id="a-rust-project">A Rust project</h2>
+<section id="the-tools-2" class="level3">
+<h3 class="anchored" data-anchor-id="the-tools-2">The tools</h3>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Tool</th>
+<th>Default</th>
+<th>Programs</th>
+<th>Recipes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>lint</code></td>
+<td>yes</td>
+<td>rustfmt, clippy</td>
+<td><code>fmt</code>, <code>fmt-check</code>, <code>lint</code></td>
+</tr>
+<tr>
+<td><code>typecheck</code></td>
+<td>yes</td>
+<td>cargo, from the toolchain</td>
+<td><code>typecheck</code></td>
+</tr>
+<tr>
+<td><code>test</code></td>
+<td>yes</td>
+<td>stable, llvm-tools-preview, cargo-llvm-cov</td>
+<td><code>test</code>, <code>coverage-check</code>, <code>test-paths</code></td>
+</tr>
+<tr>
+<td><code>docstring</code></td>
+<td>yes</td>
+<td>clippy</td>
+<td><code>docstring-check</code></td>
+</tr>
+<tr>
+<td><code>toml</code></td>
+<td>no</td>
+<td>stable, taplo, cargo-sort</td>
+<td><code>toml-fmt</code>, <code>toml-check</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Add the format of the TOML files:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install toml</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>No tool adds a crate to <code>Cargo.toml</code> or writes a config file. The installer
+installs the programs of each tool, with <code>rustup component add</code> or <code>cargo +stable install --locked</code>. The skill <code>rust-profile</code> tells an agent which tool
+gives which recipe. The rules in <code>.agents/targets/rust/</code> add to the agentic
+targets <code>review</code>, <code>test-review</code>, <code>docs</code> and <code>prose</code>.</p>
+</section>
+<section id="the-recipes-2" class="level3">
+<h3 class="anchored" data-anchor-id="the-recipes-2">The recipes</h3>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Recipe</th>
+<th>What it runs</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>just setup</code></td>
+<td><code>cargo fetch</code></td>
+<td>Downloads each dependency, and makes or updates <code>Cargo.lock</code>. Run it in a new clone.</td>
+</tr>
+<tr>
+<td><code>just build</code></td>
+<td><code>cargo build --workspace</code></td>
+<td>Extra words go to cargo: <code>just build --release</code>.</td>
+</tr>
+<tr>
+<td><code>just fmt</code></td>
+<td><code>cargo fmt --all</code></td>
+<td>Changes the files.</td>
+</tr>
+<tr>
+<td><code>just fmt-check</code></td>
+<td><code>cargo fmt --all --check</code></td>
+<td>Changes no file.</td>
+</tr>
+<tr>
+<td><code>just lint</code></td>
+<td><code>cargo clippy</code></td>
+<td>Each warning fails.</td>
+</tr>
+<tr>
+<td><code>just typecheck</code></td>
+<td><code>cargo check</code></td>
+<td>Checks the code and the tests.</td>
+</tr>
+<tr>
+<td><code>just test</code></td>
+<td><code>cargo llvm-cov test</code></td>
+<td>Writes the coverage to <code>target/llvm-cov/lcov.info</code>. <code>just test parse</code> runs the tests whose names hold <code>parse</code>.</td>
+</tr>
+<tr>
+<td><code>just coverage-check</code></td>
+<td><code>diff-cover</code></td>
+<td>Fails on each changed line of code that no test runs. On the first commit, each line of code must run.</td>
+</tr>
+<tr>
+<td><code>just docstring-check</code></td>
+<td><code>cargo clippy</code> with the lints of missing docs</td>
+<td>Fails on each item with no doc comment, public or private.</td>
+</tr>
+<tr>
+<td><code>just test-paths PATH...</code></td>
+<td><code>cargo test</code></td>
+<td>Runs the tests of some files in <code>tests/</code>, without coverage.</td>
+</tr>
+<tr>
+<td><code>just toml-fmt</code></td>
+<td><code>cargo sort</code>, then <code>taplo fmt</code></td>
+<td>Changes the files.</td>
+</tr>
+<tr>
+<td><code>just toml-check</code></td>
+<td><code>cargo sort --check</code>, then <code>taplo fmt --check</code></td>
+<td><code>just verify</code> runs it, and <code>just check</code> does not.</td>
+</tr>
+<tr>
+<td><code>just verify</code></td>
+<td><code>fmt-check</code>, <code>lint</code>, <code>typecheck</code>, <code>test</code>, <code>coverage-check</code>, <code>docstring-check</code>, then <code>git diff --check</code></td>
+<td>Runs the checks of the installed tools only.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The steps run cargo with <code>--locked</code>, so a step never makes or changes
+<code>Cargo.lock</code>. Run <code>just setup</code> first, and commit <code>Cargo.lock</code>.</p>
+</section>
+<section id="the-code-and-the-tests-2" class="level3">
+<h3 class="anchored" data-anchor-id="the-code-and-the-tests-2">The code and the tests</h3>
+<p><code>cargo init</code> writes a <code>src/main.rs</code> with no test. On the first commit,
+<code>coverage-check</code> fails on each line of it. So write a test in <code>tests/</code> that
+runs the binary, from <code>env!(&quot;CARGO_BIN_EXE_NAME&quot;)</code>, where <code>NAME</code> is the name of
+the binary. For a library, run <code>cargo init --lib --vcs none</code> before the
+install. <code>cargo init</code> names the package after
+the folder. For a folder name that is not a valid crate name, such as a name
+that starts with a digit, add <code>--name NAME</code>.</p>
+<p>Put a unit test in a <code>#[cfg(test)] mod tests</code> in the file of its code. Put
+an integration test in <code>tests/</code>. Write a doc comment for each item. The
+example is a library, so it starts from <code>cargo init --lib --vcs none</code> before
+the install, and has no <code>src/main.rs</code>:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode rust code-with-copy"><code class="sourceCode rust"><span class="co">// src/lib.rs
+</span><span class="st">//! The arithmetic of the app.
+</span>
+<span class="st">/// Returns the sum of `a` and `b`.
+</span><span class="kw">pub</span> <span class="kw">fn</span> <span class="fu">add</span>(a: <span class="dt">i64</span>, b: <span class="dt">i64</span>) -&gt; <span class="dt">i64</span> {
+    a <span class="op">+</span> b
+}
+
+<span class="pp">#[</span><span class="pp">cfg(test)</span><span class="pp">]</span>
+<span class="kw">mod</span> tests {
+    <span class="kw">use</span> <span class="kw">super</span>::<span class="op">*</span>;
+
+    <span class="pp">#[</span><span class="pp">test</span><span class="pp">]</span>
+    <span class="kw">fn</span> <span class="fu">adds</span>() {
+        <span class="fu">assert_eq!</span>(add(<span class="dv">1</span>, <span class="dv">2</span>), <span class="dv">3</span>);
+    }
+}</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode rust code-with-copy"><code class="sourceCode rust"><span class="co">// tests/add.rs
+</span><span class="st">//! The tests of the public API.
+</span>
+<span class="pp">#[</span><span class="pp">test</span><span class="pp">]</span>
+<span class="kw">fn</span> <span class="fu">adds_negative_numbers</span>() {
+    <span class="fu">assert_eq!</span>(app::add(<span class="op">-</span><span class="dv">1</span>, <span class="op">-</span><span class="dv">2</span>), <span class="op">-</span><span class="dv">3</span>);
+}</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The integration test names the crate <code>app</code>, the name of the folder. Then:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just setup
+just fmt
+just verify</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="lines-that-no-test-can-run" class="level3">
+<h3 class="anchored" data-anchor-id="lines-that-no-test-can-run">Lines that no test can run</h3>
+<p>Stable Rust has no comment that leaves one line out of the coverage. So the
+steps read two lists:</p>
+<ul>
+<li><strong><code>.agents/coverage-exclude.txt</code></strong> lists the files that <code>coverage-check</code>
+leaves out.</li>
+<li><strong><code>.agents/generated.txt</code></strong> lists the generated files. <code>coverage-check</code>
+and <code>docstring-check</code> leave them out.</li>
+</ul>
+<p>The steps read both lists from the parent commit. So a new entry counts only
+after it is in a commit of its own. Write the reason for each entry in a
+comment line, which starts with <code>#</code>, above it.</p>
+</section>
+<section id="change-a-setting-2" class="level3">
+<h3 class="anchored" data-anchor-id="change-a-setting-2">Change a setting</h3>
+<p>The profile writes no config file. cargo reads your own <code>rustfmt.toml</code>,
+<code>clippy.toml</code> and the table <code>[lints]</code> of <code>Cargo.toml</code>. The profile keeps the
+toolchain that your <code>rust-toolchain.toml</code> pins.
+<a href="https://github.com/rahuldave/jnprofile-rust/blob/main/docs/tools.md">The tools of jnprofile-rust</a>
+gives each recipe and each rule of the steps.</p>
+</section>
+</section>
 <section id="the-task-tracker" class="level2">
 <h2 class="anchored" data-anchor-id="the-task-tracker">The task tracker</h2>
 <p>The <code>tasker</code> role works on a branch in the main checkout. A Git worktree is a
 second checkout of the same repository, in another folder. To work on each
 task in its own worktree, and keep the main checkout on <code>main</code>, run:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install <span class="va">tasker</span><span class="op">=</span>gitwt
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install <span class="va">tasker</span><span class="op">=</span>gitwt
 just tasker-mode</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>These recipes manage the worktrees:</p>
 <div class="sd-table">
@@ -469,10 +756,12 @@ source folder, the docs and the branches.</p>
 </section>
 <section id="the-writing-checker" class="level2">
 <h2 class="anchored" data-anchor-id="the-writing-checker">The writing checker</h2>
-<p><code>just prose</code> checks each Markdown file that Git tracks against the writing
-guide. It leaves out <code>AGENTS.md</code>, <code>CLAUDE.md</code> and the folders of the
-installer. Name pages to check only them, and add <code>-v</code> to see the soft notes:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just prose -v README.md</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p><code>just prose-check</code> checks each Markdown page that changed since the last
+commit against the writing guide. It leaves out <code>AGENTS.md</code>, <code>CLAUDE.md</code> and
+the folders of the installer. Name pages to check only them, and add <code>-v</code> to
+see the soft notes:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just prose-check -v README.md</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>It is the step <code>prose-check</code> of <code>just check</code>.</p>
 </section>
 <section id="what-to-commit" class="level2">
 <h2 class="anchored" data-anchor-id="what-to-commit">What to commit</h2>
@@ -481,18 +770,23 @@ installer. Name pages to check only them, and add <code>-v</code> to see the sof
 <li><code>.agents/</code>, <code>.claude/</code> and <code>.codex/</code>, which hold the skills, the records and
 the hooks</li>
 <li><code>AGENTS.md</code>, <code>CLAUDE.md</code> and the <code>Justfile</code></li>
-<li><code>.github/workflows/nossaifd-prose.yml</code>, if the <code>prose</code> role is on</li>
-<li><code>pyproject.toml</code> and <code>uv.lock</code>, or <code>package.json</code> and <code>package-lock.json</code></li>
-<li>the config files <code>ruff.toml</code>, <code>.pre-commit-config.yaml</code>, <code>ty.toml</code>,
+<li><code>.github/workflows/nossaifd-prose.yml</code>, if the <code>prose</code> role is on and the
+<code>tasker</code> role is off</li>
+<li><code>.github/workflows/check.yml</code>, if the <code>tasker</code> role is on</li>
+<li><code>.agents/generated.txt</code> and <code>.agents/coverage-exclude.txt</code></li>
+<li><code>pyproject.toml</code> and <code>uv.lock</code>, <code>package.json</code> and <code>package-lock.json</code>, or
+<code>Cargo.toml</code> and <code>Cargo.lock</code></li>
+<li>the config files <code>ruff.toml</code>, <code>.pre-commit-config.yaml</code> of the <code>tasker</code>
+role, <code>ty.toml</code>,
 <code>biome.json</code> and <code>tsconfig.json</code></li>
 <li><code>.gitignore</code> and <code>.worktreedisposable</code></li>
 </ul>
 <p><code>.gitignore</code> already leaves out what a command makes again, such as <code>.venv/</code>,
-<code>node_modules/</code>, <code>dist/</code>, the caches and the logs of the installer.</p>
-<p>A person who clones the project runs these commands. <code>just hook</code> is for Python
-only:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just setup
-just hook</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<code>node_modules/</code>, <code>dist/</code>, <code>target/</code>, the caches and the logs of the installer.</p>
+<p>A person who clones the project runs these commands. <code>just install</code> also
+installs the Git hooks of the <code>tasker</code> role:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just setup
+just install</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 <section id="keep-it-up-to-date" class="level2">
 <h2 class="anchored" data-anchor-id="keep-it-up-to-date">Keep it up to date</h2>
@@ -539,14 +833,16 @@ the file and installs the rest.</p>
 <h2 class="anchored" data-anchor-id="what-the-stack-does-not-give">What the stack does not give</h2>
 <p>Add these parts yourself:</p>
 <ul>
-<li><strong>CI.</strong> No profile writes a GitHub Actions workflow. The <code>prose</code> role writes
-only one that checks the prose of a pull request. A workflow can run <code>just setup</code> and <code>just verify</code>.</li>
+<li><strong>CI.</strong> No profile writes a GitHub Actions workflow. Without the <code>tasker</code>
+role, the <code>prose</code> role writes only one that checks the prose of a pull
+request. The <code>check.yml</code> of the <code>tasker</code> role runs no step of your languages
+until you add the step to the list <code>ci</code> of <code>.agents/stack.json</code>. Then add
+the setup that the step needs, as its comments say.</li>
 <li><strong>A locked setup.</strong> <code>just setup</code> runs <code>uv sync</code>, not <code>uv sync --locked</code>.</li>
 <li><strong><code>testpaths</code>.</strong> pytest searches the whole project for tests. Set
 <code>testpaths = [&quot;tests&quot;]</code> under <code>[tool.pytest.ini_options]</code> to search one
 folder.</li>
 <li><strong>A Git hook for TypeScript.</strong> Run <code>just verify</code> before each commit.</li>
-<li><strong>Coverage for TypeScript.</strong> There is no <code>just cov</code>.</li>
 <li><strong>Async tests, a server, and Docker.</strong> No tool adds pytest-asyncio, a
 <code>just serve</code> recipe or a <code>Dockerfile</code>.</li>
 <li><strong>A <code>biome.jsonc</code> with comments.</strong> The installer leaves a file with

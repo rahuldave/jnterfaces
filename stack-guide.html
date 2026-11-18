@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="generator" content="smalldocs-0.5.5"><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"><title>How the stack fits together – jnterfaces</title><link rel="icon" href="favicon.svg"><link rel="stylesheet" href="site_libs/themes/folio/folio.css" data-mode="light" class="quarto-color-scheme" id="quarto-bootstrap-light" media="not all and (prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/themes/folio/folio-dark.css" data-mode="dark" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap-dark" media="(prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/bootstrap-icons/bootstrap-icons.min.css"><link rel="stylesheet" href="site_libs/smalldocs.css"><meta name="smalldocs:offset" content="./"><script src="site_libs/bootstrap/bootstrap.bundle.min.js"></script><script src="site_libs/fuse/fuse.min.js"></script><script src="site_libs/smalldocs.js" defer></script><script>(function(){var d=document.documentElement,s=null;try{s=localStorage.getItem('smalldocs-scheme')}catch(e){}var alt=s?s==='alternate':!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);var ls=document.querySelectorAll('link.quarto-color-scheme');if(alt)d.dataset.scheme='alternate';if(s)ls.forEach(function(l){var on=l.classList.contains('quarto-color-alternate')===alt;if(on)l.setAttribute('blocking','render');l.media=on?'all':'not all'});var on=ls[alt?1:0];if(on&&on.dataset.mode==='dark')d.classList.add('quarto-dark')})();</script></head><body class="nav-fixed"><header id="quarto-header" class="headroom sticky-top"><nav class="navbar navbar-expand-lg sd-navbar-default"><div class="navbar-container container-fluid"><div class="navbar-brand-container mx-auto"><a class="navbar-brand" href="index.html"><span class="navbar-title">jnterfaces</span></a></div><button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button><div class="collapse navbar-collapse" id="navbarCollapse"><ul class="navbar-nav navbar-nav-scroll me-auto"><li class="nav-item"><a class="nav-link" href="index.html"><span class="menu-text">Home</span></a></li><li class="nav-item"><a class="nav-link" href="new-project.html"><span class="menu-text">New project</span></a></li><li class="nav-item"><a class="nav-link active" href="stack-guide.html" aria-current="page"><span class="menu-text">Stack guide</span></a></li><li class="nav-item"><a class="nav-link" href="stack-files.html"><span class="menu-text">Stack files</span></a></li></ul><ul class="navbar-nav navbar-nav-scroll ms-auto"><li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" id="nav-menu-1" role="link" data-bs-toggle="dropdown" aria-expanded="false"><span class="menu-text">Projects</span></a><ul class="dropdown-menu" aria-labelledby="nav-menu-1"><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnterfaces/"><span class="menu-text">jnterfaces</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-python/"><span class="menu-text">jnprofile-python</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-typescript/"><span class="menu-text">jnprofile-typescript</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/agent_gest_git_skills/"><span class="menu-text">agent_gest_git_skills</span></a></li></ul></li><li class="nav-item compact"><a class="nav-link" href="https://github.com/rahuldave/jnterfaces" aria-label="github"><i class="bi bi-github" role="img"></i></a></li><li class="nav-item compact"><a class="quarto-color-scheme-toggle nav-link" href="" title="Toggle dark mode" onclick="window.smalldocsToggleScheme(); return false;"><i class="bi"></i></a></li></ul><div class="quarto-navbar-tools"><div class="smalldocs-search" id="quarto-search"><i class="bi bi-search" aria-hidden="true"></i><input type="search" class="form-control form-control-sm" placeholder="Search" aria-label="Search" autocomplete="off"><div class="smalldocs-search-results dropdown-menu"></div></div></div></div></div></nav></header><div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article has-margin"><div id="quarto-margin-sidebar" class="sidebar margin-sidebar"><nav id="TOC" role="doc-toc" class="toc-active"><h2 id="toc-title">On this page</h2><ul><li><a href="#terms" id="toc-terms" class="nav-link" data-scroll-target="#terms">Terms</a></li><li><a href="#where-each-part-lives" id="toc-where-each-part-lives" class="nav-link" data-scroll-target="#where-each-part-lives">Where each part lives</a></li><li><a href="#what-a-machine-needs" id="toc-what-a-machine-needs" class="nav-link" data-scroll-target="#what-a-machine-needs">What a machine needs</a></li><li><a href="#how-an-install-works" id="toc-how-an-install-works" class="nav-link" data-scroll-target="#how-an-install-works">How an install works</a></li><li><a href="#how-the-recipes-arrive" id="toc-how-the-recipes-arrive" class="nav-link" data-scroll-target="#how-the-recipes-arrive">How the recipes arrive</a></li><li><a href="#build-a-project-in-layers" id="toc-build-a-project-in-layers" class="nav-link" data-scroll-target="#build-a-project-in-layers">Build a project in layers</a><ul><li><a href="#layer-0-an-empty-git-repository" id="toc-layer-0-an-empty-git-repository" class="nav-link" data-scroll-target="#layer-0-an-empty-git-repository">Layer 0: an empty Git repository</a></li><li><a href="#layer-1-the-writing-skills" id="toc-layer-1-the-writing-skills" class="nav-link" data-scroll-target="#layer-1-the-writing-skills">Layer 1: the writing skills</a></li><li><a href="#layer-2-the-task-tracker" id="toc-layer-2-the-task-tracker" class="nav-link" data-scroll-target="#layer-2-the-task-tracker">Layer 2: the task tracker</a></li><li><a href="#layer-3-a-language-profile" id="toc-layer-3-a-language-profile" class="nav-link" data-scroll-target="#layer-3-a-language-profile">Layer 3: a language profile</a></li><li><a href="#layer-4-lint-and-format" id="toc-layer-4-lint-and-format" class="nav-link" data-scroll-target="#layer-4-lint-and-format">Layer 4: lint and format</a></li><li><a href="#layer-5-tests" id="toc-layer-5-tests" class="nav-link" data-scroll-target="#layer-5-tests">Layer 5: tests</a></li><li><a href="#layer-6-types" id="toc-layer-6-types" class="nav-link" data-scroll-target="#layer-6-types">Layer 6: types</a></li><li><a href="#layer-7-one-check-before-a-commit" id="toc-layer-7-one-check-before-a-commit" class="nav-link" data-scroll-target="#layer-7-one-check-before-a-commit">Layer 7: one check before a commit</a></li><li><a href="#layers-that-the-stack-does-not-have-yet" id="toc-layers-that-the-stack-does-not-have-yet" class="nav-link" data-scroll-target="#layers-that-the-stack-does-not-have-yet">Layers that the stack does not have yet</a></li></ul></li><li><a href="#how-the-mixins-behave" id="toc-how-the-mixins-behave" class="nav-link" data-scroll-target="#how-the-mixins-behave">How the mixins behave</a></li><li><a href="#shared-files-and-the-record" id="toc-shared-files-and-the-record" class="nav-link" data-scroll-target="#shared-files-and-the-record">Shared files and the record</a></li><li><a href="#what-works-now" id="toc-what-works-now" class="nav-link" data-scroll-target="#what-works-now">What works now</a></li><li><a href="#gaps-to-close" id="toc-gaps-to-close" class="nav-link" data-scroll-target="#gaps-to-close">Gaps to close</a></li></ul></nav><div class="toc-actions"><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/blob/main/docs/stack-guide.md" class="toc-action"><i class="bi bi-code"></i> View source</a></div><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/issues/new" class="toc-action"><i class="bi bi-chat-right"></i> Report an issue</a></div></div></div><main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block default"><div class="quarto-title"><h1 class="title">How the stack fits together</h1></div><div class="quarto-title-meta"></div></header><p>This guide describes the skill stack on the <code>main</code> branch of jnterfaces. It
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="generator" content="smalldocs-0.5.12"><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"><title>How the stack fits together – jnterfaces</title><link rel="icon" href="favicon.svg"><link rel="stylesheet" href="site_libs/themes/atelier/atelier.css" data-mode="light" class="quarto-color-scheme" id="quarto-bootstrap-light" media="not all and (prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/themes/atelier/atelier-dark.css" data-mode="dark" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap-dark" media="(prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/bootstrap-icons/bootstrap-icons.min.css"><link rel="stylesheet" href="site_libs/smalldocs.css"><meta name="smalldocs:offset" content="./"><script src="site_libs/bootstrap/bootstrap.bundle.min.js"></script><script src="site_libs/fuse/fuse.min.js"></script><script src="site_libs/smalldocs.js" defer></script><script>(function(){var d=document.documentElement,s=null;try{s=localStorage.getItem('smalldocs-scheme')}catch(e){}var alt=s?s==='alternate':!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);var ls=document.querySelectorAll('link.quarto-color-scheme');if(alt)d.dataset.scheme='alternate';if(s)ls.forEach(function(l){var on=l.classList.contains('quarto-color-alternate')===alt;if(on)l.setAttribute('blocking','render');l.media=on?'all':'not all'});var on=ls[alt?1:0];if(on&&on.dataset.mode==='dark')d.classList.add('quarto-dark')})();</script></head><body class="nav-fixed"><header id="quarto-header" class="headroom sticky-top"><nav class="navbar navbar-expand-lg sd-navbar-default"><div class="navbar-container container-fluid"><div class="navbar-brand-container mx-auto"><a class="navbar-brand" href="index.html"><span class="navbar-title">jnterfaces</span></a></div><button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button><div class="collapse navbar-collapse" id="navbarCollapse"><ul class="navbar-nav navbar-nav-scroll me-auto"><li class="nav-item"><a class="nav-link" href="index.html"><span class="menu-text">Home</span></a></li><li class="nav-item"><a class="nav-link" href="new-project.html"><span class="menu-text">New project</span></a></li><li class="nav-item"><a class="nav-link active" href="stack-guide.html" aria-current="page"><span class="menu-text">Stack guide</span></a></li><li class="nav-item"><a class="nav-link" href="stack-files.html"><span class="menu-text">Stack files</span></a></li></ul><ul class="navbar-nav navbar-nav-scroll ms-auto"><li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" id="nav-menu-1" role="link" data-bs-toggle="dropdown" aria-expanded="false"><span class="menu-text">Projects</span></a><ul class="dropdown-menu" aria-labelledby="nav-menu-1"><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnterfaces/"><span class="menu-text">jnterfaces</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-python/"><span class="menu-text">jnprofile-python</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-typescript/"><span class="menu-text">jnprofile-typescript</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/agent_gest_git_skills/"><span class="menu-text">agent_gest_git_skills</span></a></li></ul></li><li class="nav-item compact"><a class="nav-link" href="https://github.com/rahuldave/jnterfaces" aria-label="github"><i class="bi bi-github" role="img"></i></a></li><li class="nav-item compact"><a class="quarto-color-scheme-toggle nav-link" href="" title="Toggle dark mode" onclick="window.smalldocsToggleScheme(); return false;"><i class="bi"></i></a></li></ul><div class="quarto-navbar-tools"><div class="smalldocs-search" id="quarto-search"><i class="bi bi-search" aria-hidden="true"></i><input type="search" class="form-control form-control-sm" placeholder="Search" aria-label="Search" autocomplete="off"><div class="smalldocs-search-results dropdown-menu"></div></div></div></div></div></nav></header><div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article has-margin"><div id="quarto-margin-sidebar" class="sidebar margin-sidebar"><nav id="TOC" role="doc-toc" class="toc-active"><h2 id="toc-title">On this page</h2><ul><li><a href="#terms" id="toc-terms" class="nav-link" data-scroll-target="#terms">Terms</a></li><li><a href="#where-each-part-lives" id="toc-where-each-part-lives" class="nav-link" data-scroll-target="#where-each-part-lives">Where each part lives</a></li><li><a href="#what-a-machine-needs" id="toc-what-a-machine-needs" class="nav-link" data-scroll-target="#what-a-machine-needs">What a machine needs</a></li><li><a href="#how-an-install-works" id="toc-how-an-install-works" class="nav-link" data-scroll-target="#how-an-install-works">How an install works</a></li><li><a href="#how-the-recipes-arrive" id="toc-how-the-recipes-arrive" class="nav-link" data-scroll-target="#how-the-recipes-arrive">How the recipes arrive</a></li><li><a href="#build-a-project-in-layers" id="toc-build-a-project-in-layers" class="nav-link" data-scroll-target="#build-a-project-in-layers">Build a project in layers</a><ul><li><a href="#layer-0-an-empty-git-repository" id="toc-layer-0-an-empty-git-repository" class="nav-link" data-scroll-target="#layer-0-an-empty-git-repository">Layer 0: an empty Git repository</a></li><li><a href="#layer-1-the-writing-skills" id="toc-layer-1-the-writing-skills" class="nav-link" data-scroll-target="#layer-1-the-writing-skills">Layer 1: the writing skills</a></li><li><a href="#layer-2-the-task-tracker" id="toc-layer-2-the-task-tracker" class="nav-link" data-scroll-target="#layer-2-the-task-tracker">Layer 2: the task tracker</a></li><li><a href="#layer-3-a-language-profile" id="toc-layer-3-a-language-profile" class="nav-link" data-scroll-target="#layer-3-a-language-profile">Layer 3: a language profile</a></li><li><a href="#layer-4-lint-and-format" id="toc-layer-4-lint-and-format" class="nav-link" data-scroll-target="#layer-4-lint-and-format">Layer 4: lint and format</a></li><li><a href="#layer-5-tests" id="toc-layer-5-tests" class="nav-link" data-scroll-target="#layer-5-tests">Layer 5: tests</a></li><li><a href="#layer-6-types" id="toc-layer-6-types" class="nav-link" data-scroll-target="#layer-6-types">Layer 6: types</a></li><li><a href="#layer-7-one-check-before-a-commit" id="toc-layer-7-one-check-before-a-commit" class="nav-link" data-scroll-target="#layer-7-one-check-before-a-commit">Layer 7: one check before a commit</a></li><li><a href="#layers-that-the-stack-does-not-have-yet" id="toc-layers-that-the-stack-does-not-have-yet" class="nav-link" data-scroll-target="#layers-that-the-stack-does-not-have-yet">Layers that the stack does not have yet</a></li></ul></li><li><a href="#how-the-mixins-behave" id="toc-how-the-mixins-behave" class="nav-link" data-scroll-target="#how-the-mixins-behave">How the mixins behave</a></li><li><a href="#shared-files-and-the-record" id="toc-shared-files-and-the-record" class="nav-link" data-scroll-target="#shared-files-and-the-record">Shared files and the record</a></li><li><a href="#what-works-now" id="toc-what-works-now" class="nav-link" data-scroll-target="#what-works-now">What works now</a></li><li><a href="#gaps-to-close" id="toc-gaps-to-close" class="nav-link" data-scroll-target="#gaps-to-close">Gaps to close</a></li></ul></nav><div class="toc-actions"><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/blob/main/docs/stack-guide.md" class="toc-action"><i class="bi bi-code"></i> View source</a></div><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/issues/new" class="toc-action"><i class="bi bi-chat-right"></i> Report an issue</a></div></div></div><main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block default"><div class="quarto-title"><h1 class="title">How the stack fits together</h1></div><div class="quarto-title-meta"></div></header><p>This guide describes the skill stack on the <code>main</code> branch of jnterfaces. It
 says where each part lives, what a machine needs, and how an install works.
 Then it builds a project in layers, from a project with no code to a project
 with lint, tests and types. Each layer lists the parts that work now and the
@@ -40,7 +40,7 @@ close” says which gaps a later change closed.</p>
 </tr>
 <tr>
 <td>manifest</td>
-<td>The file that lists the dependencies of the project: <code>pyproject.toml</code> or <code>package.json</code>.</td>
+<td>The file that lists the dependencies of the project: <code>pyproject.toml</code>, <code>package.json</code> or <code>Cargo.toml</code>.</td>
 </tr>
 <tr>
 <td>record</td>
@@ -68,7 +68,7 @@ close” says which gaps a later change closed.</p>
 <tbody>
 <tr>
 <td>GitHub, <code>rahuldave/...</code></td>
-<td>The source of each package: jnterfaces, agent_gest_git_skills, nossaifd, sklanes, and the profile packages jnprofile-python and jnprofile-typescript.</td>
+<td>The source of each package: jnterfaces, agent_gest_git_skills, nossaifd, sklanes, and the profile packages jnprofile-python, jnprofile-typescript and jnprofile-rust.</td>
 </tr>
 <tr>
 <td>The clone folder</td>
@@ -152,13 +152,19 @@ that ran the commands of this page. If you set none, <code>just install</code> c
 </section>
 <section id="what-a-machine-needs" class="level2">
 <h2 class="anchored" data-anchor-id="what-a-machine-needs">What a machine needs</h2>
-<p>A machine needs <code>git</code>, <code>just</code> and <code>uv</code>. The installer, Python, the Python
-tools and Node all come through <code>uv</code>. The roles need more programs:</p>
+<p>A machine needs <code>git</code> 2.40, <code>gh</code> 2.40, <code>just</code> 1.50.0, <code>uv</code> 0.12.13 and
+<code>jlog</code> 0.2.0, or later versions. The installer, Python, the Python tools and
+Node all come through <code>uv</code>. jlog is the shell of each recipe in
+<code>.agents/just</code>, and it logs each line in the run log. When a program is
+missing, or older than its version floor, the installer stops and writes
+nothing. To install jlog, clone https://github.com/rahuldave/jlog, run
+<code>git checkout v0.2.0</code> in the clone, then run <code>just install</code>. The roles and
+skills need more programs:</p>
 <div class="sd-table">
 <table class="caption-top table">
 <thead>
 <tr>
-<th>Role or tool</th>
+<th>Role or skill</th>
 <th>Program</th>
 <th>How the stack handles a missing program</th>
 </tr>
@@ -166,23 +172,18 @@ tools and Node all come through <code>uv</code>. The roles need more programs:</
 <tbody>
 <tr>
 <td><code>tasker</code></td>
-<td><code>gest</code></td>
-<td>The installer prints a warning and installs the skills.</td>
-</tr>
-<tr>
-<td><code>tasker</code> hooks</td>
-<td><code>but</code> (GitButler)</td>
-<td>The hooks check for it, and they work without it.</td>
+<td><code>gest</code> 0.5.6</td>
+<td>The installer stops, once agent_gest_git_skills gives the floor. Before that, it runs <code>gest --version</code>, and any version counts.</td>
 </tr>
 <tr>
 <td><code>cx</code></td>
-<td><code>cx</code></td>
-<td>The skill describes a fallback.</td>
+<td><code>cx</code> 0.1.0</td>
+<td>The installer stops while the skill is on.</td>
 </tr>
 <tr>
 <td><code>jagt-protocol</code></td>
-<td><code>jagt</code></td>
-<td>The skill describes a fallback.</td>
+<td><code>jagt</code> 0.3.0</td>
+<td>The installer stops while the skill is on.</td>
 </tr>
 <tr>
 <td><code>reporter</code></td>
@@ -192,6 +193,48 @@ tools and Node all come through <code>uv</code>. The roles need more programs:</
 </tbody>
 </table>
 </div>
+<p><strong>Version floors.</strong> A floor is the lowest version that an owner of a program
+accepts, for example <code>&gt;=1.50.0</code> for <code>just</code>. The installer joins the floors of
+jnterfaces, the skills, the profiles, the roles and the project, and the
+highest floor counts. It saves each floor in the key <code>programs</code> of
+<code>.agents/stack.json</code>, and the step <code>tools-check</code> of <code>just check</code> checks them
+in each clone. <a href="stack-files.html#the-programs-of-a-profile">The programs of a profile</a>
+gives the rules.</p>
+<p><strong>The programs of a profile.</strong> A profile names the programs that it needs in
+the key <code>programs</code> of its <code>profile.json</code>. For example, the rust profile needs
+<code>rustup</code>, the toolchain, which brings <code>cargo</code>, and <code>cargo-llvm-cov</code>. Each
+program has a check command.</p>
+<p>A program that a person must install has a description. For <code>rustup</code>, it
+gives the address https://rustup.rs/, where a person gets it. A program that
+the installer can install has an install command, such as
+<code>cargo +stable install --locked cargo-llvm-cov@0.9.1</code>. In the rust profile,
+<code>rustup</code> is the only program without an install command. The installer
+installs the toolchain, the stable toolchain and then <code>cargo-llvm-cov</code>, in
+that order.</p>
+<p>The base of the profile and each tool name the programs that they need. So a
+tool that is off does not need its programs.</p>
+<ul>
+<li><strong>A program without an install command.</strong> When its check fails, the
+installer prints the description and stops. It writes nothing. This also
+stops a run that only removes a tool.</li>
+<li><strong>A program with an install command.</strong> When its check fails, the installer
+runs the install command, and then the check again. It does this at the
+end of the run, after the files of the profile, in the folder of the
+project. So rustup reads the <code>rust-toolchain.toml</code> of the project, if it
+has one. The rust profile writes no toolchain file, and it keeps the pin of
+the project. An install with <code>&quot;install_in&quot;: &quot;home&quot;</code> runs in the home folder,
+such as <code>cargo +stable install</code>. If the check fails again, the run stops
+with an error.</li>
+</ul>
+<p>The installer runs each command without a shell, and it never downloads a
+script. It runs each check and install of a program through <code>jlog run</code>, so
+it sees the PATH that the recipes see. A check installs and downloads
+nothing.</p>
+<p>The installer never uninstalls a program, also when a tool or a profile goes.
+<code>just install --dry-run</code> lists the missing programs and the installs, and it
+installs nothing. <code>just install --check</code> lists the missing programs.
+<a href="stack-files.html#the-programs-of-a-profile">The programs of a profile</a> gives
+the keys.</p>
 </section>
 <section id="how-an-install-works" class="level2">
 <h2 class="anchored" data-anchor-id="how-an-install-works">How an install works</h2>
@@ -200,19 +243,22 @@ tools and Node all come through <code>uv</code>. The roles need more programs:</
 <li>It reads the roles, profiles and tools from the command line and from
 <code>.agents/stack.json</code>. If neither names a profile, it looks at the files of
 the project. For example, <code>pyproject.toml</code> turns on the <code>python</code> profile.</li>
-<li>It checks each package. If a check fails, it writes nothing.</li>
+<li>It checks each package, and each program of a profile that has no install
+command. If a check fails, it writes nothing.</li>
 <li>It copies the skills and other files of each role and profile into the
 project, and it writes one record for each package.</li>
 <li>It saves the choices in <code>.agents/stack.json</code>.</li>
 <li>If the project has no Justfile, it writes the starter Justfile.</li>
 <li>If the run adds a tool of a profile and the project has no manifest, it
-makes one, with <code>uv init --bare</code> or <code>npm init --yes</code>.</li>
-<li>It adds the packages of each tool, with <code>uv add --group</code> or <code>npm install --save-dev</code>.</li>
+makes one, with <code>uv init --bare</code>, <code>npm init --yes</code> or <code>cargo init --vcs none</code>.</li>
+<li>It adds the packages of each tool, with <code>uv add --group</code> or <code>npm install --save-dev</code>. The Rust tools add no crate.</li>
 <li>After the package commands succeed, it writes the shared files, such as
 <code>.gitignore</code>, and the config files of the tools.
 <a href="#shared-files-and-the-record">Shared files and the record</a> tells how.</li>
 <li>It writes the recipes of the installed tools in <code>.agents/just</code>. After each
 step, it saves the record and writes the recipes again.</li>
+<li>It checks each program of a profile that has an install command. It
+installs each missing one, and then checks it again.</li>
 </ol>
 <p>A later <code>just install</code> with no names installs the same set again, from the
 clones as they are. To get new commits of the packages, run <code>just install --update</code>. It pulls the jnterfaces clone and the clone of each package that
@@ -233,7 +279,8 @@ that case the install stops, and the installer writes nothing.</p>
 named profile or tool and no named role, a terminal asks about each role.</p>
 <p>After that, the project has <code>.agents/install.just</code>. A Justfile that has the
 line <code>import? &#x27;.agents/install.just&#x27;</code> gets the recipes <code>just install</code> and
-<code>just uninstall</code>.</p>
+<code>just uninstall</code>. If the project has a Justfile of its own, the installer adds
+this line to it, as the next section tells.</p>
 <p><strong>The agents.</strong> Codex reads skills from <code>.agents/skills</code>. Claude Code reads
 skills from <code>.claude/skills</code>. So for each installed skill, the installer makes
 the link <code>.claude/skills/NAME</code>, which points to <code>../../.agents/skills/NAME</code>.
@@ -255,13 +302,106 @@ recipe can use <code>{{jn_copier}} copy TEMPLATE FOLDER</code> with no install.<
 <ul>
 <li><strong><code>python.just</code></strong>, a module for each profile. It imports the recipe files
 of the installed tools only, and its <code>verify</code> runs their checks. Its
-recipes run in the folder of the project. <code>just python lint</code> runs one.</li>
-<li><strong><code>index.just</code></strong>, which <code>.agents/install.just</code> imports. It has a <code>mod</code> line
-for each profile. In a project that jnterfaces started, it also has a
-combined recipe for each recipe name. So <code>just lint</code> runs the <code>lint</code> of
-each language. Its <code>verify</code> runs the <code>verify</code> of each language, then
-<code>git diff --check</code>.</li>
+recipes run in the folder of the project. <code>just python lint</code> runs one. A
+module has settings of its own, so it sets jlog as its shell.</li>
+<li><strong><code>index.just</code></strong>, which <code>.agents/install.just</code> imports. It sets jlog as the
+shell of the Justfile, with <code>set shell := [&quot;jlog&quot;, &quot;sh&quot;, &quot;-cu&quot;]</code>. It has a
+<code>mod</code> line for each profile, and a combined recipe for each recipe name. So
+<code>just lint</code> runs the <code>lint</code> of each language. Its <code>verify</code> runs the <code>verify</code>
+of each language, then <code>git diff --check</code>. It also has the steps of <code>just check</code>.</li>
 </ul>
+<p><strong>The steps of just check.</strong> <code>just check</code> runs these steps in every project:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode text code-with-copy"><code class="sourceCode text">tools-check release-check fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<ul>
+<li><strong>A combined step</strong> ends with the line <code>jlog step NAME</code>, so the run log
+shows that the step passed.</li>
+<li><strong>A no-op step</strong> is a step that no profile, role or recipe of the Justfile
+has. Its one line is <code>jlog skip NAME &quot;REASON&quot;</code>. In a new project with no
+language, each step is a no-op step, and <code>just check</code> passes.</li>
+<li><strong>A step of a profile</strong> comes from the installed tools. The python and
+typescript profiles give <code>lint</code>, <code>typecheck</code> and <code>test</code>. The rust profile
+gives <code>fmt-check</code>, <code>lint</code>, <code>typecheck</code>, <code>test</code>, <code>coverage-check</code> and
+<code>docstring-check</code>. <code>coverage-check</code> fails on each changed line of code that
+no test runs. <code>docstring-check</code> fails on each item with no doc comment.</li>
+<li><strong><code>test-paths</code></strong> is a recipe of the python and rust profiles, not a step. It
+runs only the tests of some test files. The <code>test-parent</code> recipe of the
+<code>tasker</code> role runs it with the added and changed test files, on the parent
+commit.</li>
+<li><strong><code>diff-check</code></strong> runs <code>git diff --check</code> against the last commit, when the
+project has a profile.</li>
+<li><strong><code>check</code></strong> depends on each step, and its last line is <code>jlog pass</code>.</li>
+<li><strong><code>.agents/stack.json</code></strong> lists the steps under <code>steps</code>, and the steps that
+a profile or a role provides under <code>provided_steps</code>. jlog counts a skip only
+for a step that is not in <code>provided_steps</code>.</li>
+</ul>
+<p><strong>What CI checks.</strong> <code>just ci</code> runs <code>ci-gate</code>, then the steps in the list
+<code>ci</code> of <code>.agents/stack.json</code>:</p>
+<ul>
+<li><strong><code>ci-gate</code></strong> comes from a role with a commit gate, such as <code>tasker</code>. It
+checks that each commit of the pull request passed the gate. Without such
+a role, <code>ci-gate</code> only says that there is no gate.</li>
+<li><strong>The list <code>ci</code></strong> is yours to edit. Run <code>just install</code> after a change. Each
+name must be a step of <code>just check</code>, so CI never fails on a step that the
+gate did not see. The installer leaves out any other name, and says so.</li>
+<li><strong>What to put in it.</strong> The gate saw a pass of <code>just check</code> for each commit,
+so CI need not run it again. Add a step only when a clean machine tells you
+more than your own, for example a test on Linux. The list is empty at
+first.</li>
+<li><strong>No agent runs in CI.</strong> An agent costs money on each run and needs a key.</li>
+</ul>
+<p><strong>Where the shell is set.</strong> just stops with “Setting <code>shell</code> is redefined”
+when two files of one Justfile set the shell. A test with just 1.50.0 showed
+this for two imported files too. So the index sets the shell, and
+<code>.agents/install.just</code> does not. A Justfile that sets its own shell gets an
+index without the setting. Then the installer asks you to put jlog in front of
+the shell, for example <code>set shell := [&quot;jlog&quot;, &quot;bash&quot;, &quot;-c&quot;]</code>.</p>
+<p><strong>The run ID.</strong> The root Justfile has the line <code>export JLOG_RUN := env(&quot;JLOG_RUN&quot;, uuid())</code>. So all the lines of one <code>just check</code> share one run
+in the run log, also the lines of the inner <code>just</code> calls. A module or an
+imported file must not have the line, because it would make a second ID.</p>
+<p><strong>How the installer reads the names of the project.</strong> It reads names with
+<code>just --dump</code>. It runs these steps:</p>
+<ol>
+<li>It keeps a copy of the old index. Then it writes the index with the <code>mod</code>
+lines, and with a placeholder recipe for each name of the old index. So a
+recipe of the Justfile can still depend on <code>check</code>, for example <code>ci: check</code>.</li>
+<li>It reads the names of the Justfile. If the Justfile does not parse, it
+tries again with no <code>mod</code> line, because a module can meet a name of the
+project. If the Justfile still does not parse, it stops with the error of
+just.</li>
+<li>It reads the names of each role file and each module. A role file must
+parse alone.</li>
+<li>It writes the whole index without each name of the project. It writes a
+no-op step only for a step that no role file and no combined recipe has.</li>
+<li>When it stops before the end, it puts the old index back. If the old index
+does not parse now, for example because a module is gone, it writes an
+index with no recipe.</li>
+</ol>
+<p>The installer stops, and names the recipe and the file, in these cases:</p>
+<ul>
+<li>A recipe of the Justfile and a recipe of a role file have the same name.
+just would stop with “Recipe redefined”.</li>
+<li>A recipe of a role file has the name of a step of a profile, such as
+<code>lint</code>. The step of the profile would not run in <code>just check</code>.</li>
+</ul>
+<p><strong>When a later edit breaks the Justfile.</strong> The index leaves out the names that
+the Justfile has when you run <code>just install</code>. Two later edits make the
+Justfile stop parsing:</p>
+<ul>
+<li>You add <code>set shell</code> to the Justfile. The index sets the shell too.</li>
+<li>You add a recipe with the name of a recipe of the index, such as <code>lint</code>,
+and the Justfile does not have <code>set allow-duplicate-recipes</code>.</li>
+</ul>
+<p>Then <code>just install</code> cannot run, because just cannot read the Justfile, and
+<code>just install --check</code> fails. Run the installer itself in the folder of the
+project. It writes the index again without the new names. The command finds
+the clone of jnterfaces as <code>.agents/install.just</code> does:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">uv run --script <span class="st">&quot;</span><span class="ss">${</span><span class="va">JNTERFACES_DIR</span><span class="kw">:-</span><span class="ss">${</span><span class="va">SKILL_PACKAGES_DIR</span><span class="kw">:-</span><span class="va">$HOME</span>/.local/share/skill-packages<span class="ss">}</span>/jnterfaces<span class="ss">}</span><span class="st">/scripts/install_stack.py</span><span class="st">&quot;</span> --target .</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The shell that you set must start with jlog, for example <code>set shell := [&quot;jlog&quot;, &quot;bash&quot;, &quot;-c&quot;]</code>. <code>jlog step</code>, <code>jlog skip</code> and <code>jlog pass</code> work only in
+a recipe that runs through jlog, so with another shell <code>just check</code> fails.</p>
+<p>Commit these files. <code>.agents/install.just</code> imports the index with <code>import?</code>,
+so a clone without it does not have the recipes, and just gives no error.
+<code>just install</code> names each file that git does not track, and
+<code>just install --check</code> fails when one is gone.</p>
 <p><strong>A project that jnterfaces started.</strong> When the project has no Justfile, the
 installer writes the starter Justfile, and <code>.agents/stack.json</code> records
 <code>&quot;started&quot;: true</code>. The starter Justfile has <code>set allow-duplicate-recipes</code>. So
@@ -269,15 +409,48 @@ a recipe in the Justfile itself with the name of a recipe of the index, such
 as <code>lint</code>, takes its place. It does not take the place of the recipe of a
 language, so <code>just python verify</code> still runs the <code>lint</code> of the profile. A
 recipe of yours can also depend on a recipe of the index, for example <code>ci: verify</code>.</p>
-<p><strong>A project that jnterfaces did not start</strong>, such as one with its own
-Justfile, gets the modules only, for example <code>just python lint</code>.</p>
-<p><strong>A name that meets a name of the index.</strong> An alias, a module, or a recipe
-in a project without <code>set allow-duplicate-recipes</code> can have the name of a
-recipe or a module of the index. Then the Justfile does not parse.</p>
-<p>The installer checks the Justfile after it writes the index. If it does not
-parse, the installer writes the index with the modules only, then with none,
-and it names the clash. So <code>just install</code> keeps working. To get the recipes
-back, rename the alias, module or recipe of the project.</p>
+<p><strong>A project that jnterfaces did not start</strong> has a Justfile of its own. The
+installer adds one block of lines at the start of that Justfile:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode just code-with-copy"><code class="sourceCode just"># begin lines of jnterfaces, the installer, from jnterfaces at 1a2b3c4.
+# Last written to Justfile by `just install prose`. The record is parts.&quot;Justfile&quot; in .agents/stack.json.
+import? &#x27;.agents/install.just&#x27;
+export JLOG_RUN := env(&quot;JLOG_RUN&quot;, uuid())
+# end lines of jnterfaces. They stay while the project keeps .agents/stack.json.</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The block is a part, as in <code>.gitignore</code>. The installer changes only the
+block, and your lines stay as they are. The block has no line of <code>JLOG_RUN</code>
+when the Justfile sets <code>JLOG_RUN</code> itself. The index leaves out each name of
+the Justfile, so a <code>lint</code> or <code>test</code> of your own stays, and the index gives the
+other steps.</p>
+<p>The installer adds no block in these cases:</p>
+<ul>
+<li>The Justfile already imports <code>.agents/install.just</code>, with <code>import</code> or
+<code>import?</code>, in single or double quotes, and sets <code>JLOG_RUN</code>. If the Justfile
+has the block and a line of yours too, the line goes from the block.</li>
+<li>The Justfile starts with a <code>#!</code> line, or it is a symlink. Add the lines
+yourself.</li>
+<li>The Justfile does not parse before the run. Fix it, then run <code>just install</code> again.</li>
+<li>You deleted the block. The installer records the lines as declined, and it
+does not add them again. To have them back, add the lines after the blocks.</li>
+</ul>
+<p><strong>A clash with the block.</strong> The block imports <code>.agents/install.just</code>, which
+has the recipes <code>install</code> and <code>uninstall</code> and the variable <code>jn_copier</code>. A
+recipe of yours with one of these names makes the Justfile fail to parse.
+Then the installer takes the block out again. It names the clash, and it
+prints the lines to add by hand.</p>
+<p>The record keeps the hash of your Justfile, so the next run does not try
+again until you change the Justfile.</p>
+<p><strong>The lint of steps.</strong> A step that hides its lines from the run log can make
+a gate wrong. <code>just install</code> and <code>just install --check</code> name each step that
+has one of these:</p>
+<ul>
+<li>A shebang line or the attribute <code>[script]</code>.</li>
+<li>A line with the prefix <code>-</code>, so just goes on when the line fails.</li>
+<li>The attribute <code>[no-cd]</code> or <code>[working-directory]</code>. The setting <code>set working-directory</code> that the installer writes into each module is allowed.</li>
+<li>No <code>jlog step NAME</code> or <code>jlog skip NAME</code> as its last line, or, for <code>check</code>,
+no <code>jlog pass</code>.</li>
+</ul>
+<p>The lint also reads the dependencies of each step. <code>just install --check</code>
+exits with 1 when the lint finds a step.</p>
 <p><strong>The record.</strong> <code>.agents/stack.json</code> holds the hash of each file that <code>just install</code> wrote in <code>.agents/just</code>, under <code>generated</code>. The installer changes or
 removes a file only while its hash is the recorded one. It keeps any other
 file, and it names that file. Put your own recipes in the Justfile.</p>
@@ -289,15 +462,15 @@ each language. To give arguments to one language, run <code>just python test x</
 <p>Each layer adds one mixin. Start at layer 0, and add the layers that the
 project needs. Each command after layer 1 is a recipe of the project.</p>
 <p>For the shortest path to a full project, with each tool and recipe, read
-<a href="new-project.html">Start a Python or TypeScript project</a>.</p>
+<a href="new-project.html">Start a Python, TypeScript or Rust project</a>.</p>
 <section id="layer-0-an-empty-git-repository" class="level3">
 <h3 class="anchored" data-anchor-id="layer-0-an-empty-git-repository">Layer 0: an empty Git repository</h3>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">mkdir notes <span class="op">&amp;&amp;</span> <span class="bu">cd</span> notes <span class="op">&amp;&amp;</span> git init</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">mkdir notes <span class="op">&amp;&amp;</span> <span class="bu">cd</span> notes <span class="op">&amp;&amp;</span> git init</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>The project has no code, no manifest and no Justfile.</p>
 </section>
 <section id="layer-1-the-writing-skills" class="level3">
 <h3 class="anchored" data-anchor-id="layer-1-the-writing-skills">Layer 1: the writing skills</h3>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">uv run ~/Projects/jnterfaces/scripts/install_stack.py --target . prose</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">uv run ~/Projects/jnterfaces/scripts/install_stack.py --target . prose</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p><strong>What you get:</strong></p>
 <ul>
 <li><code>.agents/skills/just</code> and <code>.agents/skills/nossaifd</code>, with <code>check.py</code>, and
@@ -315,7 +488,8 @@ in <code>AGENTS.md</code> that points to it</li>
 <li>a UserPromptSubmit hook and a Stop hook, in <code>.claude/settings.json</code> and in
 <code>.codex/hooks.json</code></li>
 <li>the workflow <code>.github/workflows/nossaifd-prose.yml</code>, which checks the
-prose of each pull request.</li>
+prose of each pull request. The installer does not write it while the
+<code>tasker</code> role is on. Layer 2 tells why.</li>
 </ul>
 </li>
 <li><code>CLAUDE.md</code>, with the line <code>@AGENTS.md</code>, when the project has none. Claude
@@ -323,13 +497,18 @@ Code reads <code>CLAUDE.md</code> and not <code>AGENTS.md</code>, so the line gi
 instruction.</li>
 <li><code>.agents/install.just</code>, the records, and <code>.agents/stack.json</code>.</li>
 <li>The starter Justfile, which imports <code>.agents/install.just</code>. So <code>just install</code>, <code>just uninstall</code> and <code>just install --help</code> work.</li>
+<li>Two empty lists, <code>.agents/generated.txt</code> and
+<code>.agents/coverage-exclude.txt</code>, in a project that the installer starts.
+The lists are yours. The installer never writes them again, and a list that
+you delete stays deleted.</li>
 </ul>
-<p><code>just prose</code> runs the checker on the Markdown files that Git tracks, or on the
-pages that you name. With no names, it leaves out <code>AGENTS.md</code> and <code>CLAUDE.md</code>,
-which are instructions for agents:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just prose
-just prose -v README.md</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<p><code>just prose</code> runs only the nossaifd checker. The declaude skill has its own
+<p><code>just prose-check</code> runs the checker on the Markdown pages that changed since
+the last commit, or on the pages that you name. With no names, it leaves out
+<code>AGENTS.md</code> and <code>CLAUDE.md</code>, which are instructions for agents. It is the step
+<code>prose-check</code> of <code>just check</code>:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just prose-check
+just prose-check -v README.md</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p><code>just prose-check</code> runs only the nossaifd checker. The declaude skill has its own
 scripts, which an agent runs when it revises a draft.</p>
 <p>An agent finds the nossaifd and declaude skills by their descriptions,
 through the links in <code>.claude/skills</code> or the copies in <code>.agents/skills</code>. The
@@ -368,7 +547,7 @@ profile.</li>
 </section>
 <section id="layer-2-the-task-tracker" class="level3">
 <h3 class="anchored" data-anchor-id="layer-2-the-task-tracker">Layer 2: the task tracker</h3>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install tasker</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install tasker</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p><strong>What you get:</strong></p>
 <ul>
 <li>The <code>g*</code> skills, which track work with Gest.</li>
@@ -380,6 +559,23 @@ the rest of the file stays.</li>
 <li><code>CLAUDE.md</code>, with the line <code>@AGENTS.md</code>, if the project has none. Layer 1
 tells why.</li>
 </ul>
+<p><strong>The prose workflow goes.</strong> With the <code>tasker</code> role, the gate needs a pass of
+<code>prose-check</code> for each commit, and CI checks the trailer of the gate. So the
+workflow <code>.github/workflows/nossaifd-prose.yml</code> of the <code>prose</code> role would check
+the prose twice:</p>
+<ul>
+<li>The installer removes the workflow when the installer wrote it and you did
+not change it.</li>
+<li>If you changed the workflow, the installer keeps it and says so. Delete it
+yourself if you do not want it.</li>
+<li>While the <code>tasker</code> role is on, no install writes the workflow again.</li>
+<li><code>just uninstall tasker</code> writes the workflow again, while the <code>prose</code> role
+is on.</li>
+<li>If you delete the workflow, it stays deleted.</li>
+<li>When the <code>prose</code> role is off, the rule does not hold. A workflow that
+<code>prose</code> left stays.</li>
+</ul>
+<p><code>drop_with</code> in <code>stack.json</code> of jnterfaces holds this rule.</p>
 <p><strong>Variants.</strong> <code>just install tasker=gitwt</code> works on each task in its own Git
 worktree, and keeps the main checkout on <code>main</code>. The default, <code>tasker=git</code>,
 works on a branch in the main checkout. The record saves the variant, and
@@ -425,13 +621,11 @@ caches. <code>just worktrees-prune</code> keeps a worktree with ignored files, s
 it never deletes an output. A third file, <code>.worktreedisposable</code>, has gitignore
 patterns for the ignored files that a command can make again. Those files do
 not keep a worktree. Each profile adds its lines to this file, in a block of
-its own. The Python profile names <code>.venv/</code> and the caches, and the
-TypeScript profile names <code>node_modules/</code>.</p>
+its own. The Python profile names <code>.venv/</code> and the caches, the TypeScript
+profile names <code>node_modules/</code>, and the Rust profile names <code>/target/</code>.</p>
 <p><strong>What works.</strong> The install, the variant and the worktree recipes work. The
-GitButler text of the hooks appears only when <code>but</code> is installed and GitButler
-owns the checkout. The session-start hook reports worktrees that are ready to
-prune, and removes nothing. In <code>gitwt</code>, a <code>git commit</code> in the main checkout
-gets a warning.</p>
+session-start hook reports worktrees that are ready to prune, and removes
+nothing. In <code>gitwt</code>, a <code>git commit</code> in the main checkout gets a warning.</p>
 <p><strong>What does not work:</strong></p>
 <ul>
 <li><strong>The worktree recipes are missing in a project that jnterfaces did not
@@ -443,9 +637,9 @@ prints a warning when it is missing.</li>
 </section>
 <section id="layer-3-a-language-profile" class="level3">
 <h3 class="anchored" data-anchor-id="layer-3-a-language-profile">Layer 3: a language profile</h3>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install --profile python</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<p>Use <code>--profile typescript</code> for TypeScript. Name a profile once, because the
-installer saves it.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install --profile python</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Use <code>--profile typescript</code> for TypeScript, or <code>--profile rust</code> for Rust. Name
+a profile once, because the installer saves it.</p>
 <p><strong>What you get with <code>python</code>:</strong></p>
 <ul>
 <li>The package jnprofile-python, with its recipe files and its skill
@@ -465,12 +659,28 @@ own at the start of each file.</li>
 <code>.worktreedisposable</code>.</li>
 <li>The default tools <code>lint</code> and <code>typecheck</code>.</li>
 </ul>
+<p><strong>What you get with <code>rust</code>:</strong></p>
+<ul>
+<li>The package jnprofile-rust, with its recipe files and its skill
+<code>rust-profile</code>. The skill tells an agent which tool gives which recipe, and
+what each step checks.</li>
+<li>The Rust rules of the agentic targets <code>review</code>, <code>test-review</code>, <code>docs</code> and
+<code>prose</code>, in <code>.agents/targets/rust/</code>. <code>jagt render</code> adds them to the packet
+of each target.</li>
+<li><code>Cargo.toml</code> and <code>src/main.rs</code> from <code>cargo init --vcs none</code>.</li>
+<li>Its lines in <code>.gitignore</code> and <code>.worktreedisposable</code>, such as <code>/target/</code>.</li>
+<li>The recipes <code>just setup</code> and <code>just build</code>.</li>
+<li>The default tools <code>lint</code>, <code>typecheck</code>, <code>test</code> and <code>docstring</code>. The tool
+<code>toml</code> is not a default tool.</li>
+<li>The programs of each tool. The machine needs <code>rustup</code> first, from
+https://rustup.rs/.</li>
+</ul>
 <p>A profile also turns on its default roles, <code>tasker</code> and <code>prose</code>, but only in a
 project with no saved roles.</p>
 </section>
 <section id="layer-4-lint-and-format" class="level3">
 <h3 class="anchored" data-anchor-id="layer-4-lint-and-format">Layer 4: lint and format</h3>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install lint</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install lint</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="sd-table">
 <table class="caption-top table">
 <thead>
@@ -478,57 +688,76 @@ project with no saved roles.</p>
 <th></th>
 <th>Python</th>
 <th>TypeScript</th>
+<th>Rust</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>Packages</td>
-<td>ruff, pre-commit, in the group <code>lint</code></td>
+<td>ruff, in the group <code>lint</code></td>
 <td><code>@biomejs/biome@2</code></td>
+<td>none: the rustup components rustfmt and clippy</td>
 </tr>
 <tr>
 <td>Config files</td>
-<td><code>ruff.toml</code>, <code>.pre-commit-config.yaml</code></td>
+<td><code>ruff.toml</code></td>
 <td><code>biome.json</code></td>
+<td>none</td>
 </tr>
 <tr>
 <td>Recipes</td>
-<td><code>just fmt</code>, <code>just lint</code>, <code>just hook</code></td>
 <td><code>just fmt</code>, <code>just lint</code></td>
+<td><code>just fmt</code>, <code>just lint</code></td>
+<td><code>just fmt</code>, <code>just fmt-check</code>, <code>just lint</code></td>
 </tr>
 <tr>
 <td>In <code>just verify</code></td>
 <td><code>fmt --check</code>, <code>lint</code></td>
 <td><code>lint</code></td>
+<td><code>fmt-check</code>, <code>lint</code></td>
 </tr>
 </tbody>
 </table>
 </div>
 <p><code>ruff.toml</code> and <code>biome.json</code> leave out <code>.agents</code>, <code>.claude</code> and <code>.codex</code>,
 because these folders hold copies from other packages.</p>
-<p><strong>What does not work.</strong> The TypeScript profile has no <code>just hook</code>.</p>
+<p>No profile installs a Git hook. The <code>tasker</code> role installs the hooks for
+each language.</p>
 </section>
 <section id="layer-5-tests" class="level3">
 <h3 class="anchored" data-anchor-id="layer-5-tests">Layer 5: tests</h3>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install <span class="bu">test</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install <span class="bu">test</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p><strong>Python.</strong> The tool adds pytest and pytest-cov to the group <code>test</code>. <code>just test</code> and <code>just cov</code> run pytest. With no arguments, a project with no tests
 yet passes. A selection that runs no test fails.</p>
-<p><strong>TypeScript.</strong> The tool adds TypeScript and the Node types. <code>just test</code>
-compiles <code>src</code> into <code>dist</code>, and it runs the tests with <code>node --test</code>. With no
-<code>.ts</code> file in <code>src</code> yet, it passes.</p>
+<p><strong>TypeScript.</strong> The tool is on by default. It adds TypeScript, the Node
+types and c8, which records the lines that the tests run. <code>just test</code>
+compiles the code into <code>.jnprofile-typescript/build/</code>, and it runs the tests
+there with <code>node --test</code> under c8. With no <code>.ts</code> file in <code>src</code> yet, it
+passes. <code>just cov</code> shows the lines that the tests ran.</p>
+<p><strong>Rust.</strong> The tool installs <code>llvm-tools-preview</code> and <code>cargo-llvm-cov</code>. <code>just test</code> runs the tests with <code>cargo llvm-cov test</code>, and writes the coverage.
+<code>just coverage-check</code> fails on each changed line of code that no test runs.
+On the first commit, each line of code must run. <code>just test-paths</code> runs the
+tests of some files in <code>tests/</code>.</p>
+<p>The default tool <code>docstring</code> of Rust gives <code>just docstring-check</code>, which
+fails on each item with no doc comment.</p>
 </section>
 <section id="layer-6-types" class="level3">
 <h3 class="anchored" data-anchor-id="layer-6-types">Layer 6: types</h3>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install typecheck</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install typecheck</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p><strong>Python.</strong> The tool adds ty to the group <code>lint</code>, and a <code>ty.toml</code> that leaves
 out <code>.agents</code>, <code>.claude</code> and <code>.codex</code>. <code>just typecheck</code> runs <code>ty check</code>.</p>
 <p><strong>TypeScript.</strong> The tool adds TypeScript and <code>tsconfig.json</code>. <code>just typecheck</code> runs <code>tsc --noEmit</code>. With no <code>.ts</code> file in <code>src</code> yet, it passes.</p>
+<p><strong>Rust.</strong> The tool adds no program. <code>just typecheck</code> runs <code>cargo check</code> on
+the code and the tests.</p>
 </section>
 <section id="layer-7-one-check-before-a-commit" class="level3">
 <h3 class="anchored" data-anchor-id="layer-7-one-check-before-a-commit">Layer 7: one check before a commit</h3>
 <p><code>just verify</code> runs the checks of each installed tool of each language, then
 <code>git diff --check</code>, which finds whitespace errors. On a new project with the
-default tools, <code>just verify</code> passes, for Python and for TypeScript.</p>
+default tools, <code>just verify</code> passes, for Python and for TypeScript. A Rust
+project always has code, and <code>just verify</code> passes once each item has a doc
+comment and the tests run each line.
+<a href="new-project.html#a-rust-project">A Rust project</a> gives an example.</p>
 </section>
 <section id="layers-that-the-stack-does-not-have-yet" class="level3">
 <h3 class="anchored" data-anchor-id="layers-that-the-stack-does-not-have-yet">Layers that the stack does not have yet</h3>
@@ -565,7 +794,7 @@ adds them. The rows describe the Python profile:</p>
 </tr>
 <tr>
 <td>Coverage of one package</td>
-<td><code>just cov</code> does not name a package. The TypeScript profile has no <code>just cov</code>.</td>
+<td><code>just cov</code> does not name a package.</td>
 </tr>
 <tr>
 <td>Test paths</td>
@@ -573,7 +802,7 @@ adds them. The rows describe the Python profile:</p>
 </tr>
 <tr>
 <td>CI</td>
-<td>No profile writes a GitHub Actions workflow for the code. The <code>prose</code> role writes only a workflow that checks prose.</td>
+<td>No profile writes a GitHub Actions workflow for the code. The <code>tasker</code> role writes <code>.github/workflows/check.yml</code> once, when the project has none. It runs <code>just ci</code> on each pull request: the trailers of the commit gate, then the list <code>ci</code> of <code>.agents/stack.json</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -645,7 +874,7 @@ settings of the own file. For example, <code>line-length = 99</code> in your
 <code>ruff.toml</code> wins over the <code>line-length = 120</code> of
 <code>.agents/config/python/ruff.toml</code>.</p>
 <p>A block of lines looks like this:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode gitignore code-with-copy"><code class="sourceCode gitignore"># begin lines of python:lint, the lint tool of the python profile, from jnprofile-python at c299beb.
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode gitignore code-with-copy"><code class="sourceCode gitignore"># begin lines of python:lint, the lint tool of the python profile, from jnprofile-python at c299beb.
 # Last written to .gitignore by `just install lint`. The record is parts.&quot;.gitignore&quot; in .agents/stack.json.
 .ruff_cache/
 # end lines of python:lint. `just uninstall lint` removes them.</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
@@ -777,11 +1006,14 @@ prints the rules.</li>
 <p>If an older installer on another branch adds an entry to the log after the
 move, the run stops. Run the new installer on that branch first. Each person
 on a project moves to the new installer at the same time.</p>
-<p><strong><code>just uninstall lint</code> takes out the Git hook.</strong> Before <code>just uninstall lint</code>
-removes pre-commit, it runs <code>uv run --group lint pre-commit uninstall</code>. It
-runs only when the <code>pre-commit</code> Git hook runs the Python of the project. If
-the command fails, the removal stops, and the next <code>just install</code> tries it
-again.</p>
+<p><strong>A package that a profile drops goes, with its Git hook.</strong> A package that
+<code>just install</code> added for a tool, and that no tool in that place lists now,
+goes at the next <code>just install</code>. An example is pre-commit, which the Python
+profile once installed for <code>lint</code>. The <code>before_remove</code> of the tool still
+names it, so the installer first runs <code>uv run --group lint pre-commit uninstall</code>. It runs only when the <code>pre-commit</code> Git hook runs the Python of
+the project. If the command fails, the removal stops, and the next
+<code>just install</code> tries it again.</p>
+<p><code>just uninstall lint</code> runs the same command before pre-commit goes.</p>
 </section>
 <section id="what-works-now" class="level2">
 <h2 class="anchored" data-anchor-id="what-works-now">What works now</h2>
@@ -799,7 +1031,7 @@ again.</p>
 <tr>
 <td>Writing skills</td>
 <td><code>install_stack.py prose</code></td>
-<td>The nossaifd and declaude skills, the writing flow, <code>CLAUDE.md</code>, the starter Justfile and <code>just prose</code></td>
+<td>The nossaifd and declaude skills, the writing flow, <code>CLAUDE.md</code>, the starter Justfile and <code>just prose-check</code></td>
 <td>none</td>
 </tr>
 <tr>
@@ -821,21 +1053,27 @@ again.</p>
 <td>none</td>
 </tr>
 <tr>
+<td>Rust profile</td>
+<td><code>just install --profile rust</code></td>
+<td>The package, the manifest, <code>.gitignore</code>, the defaults, the programs</td>
+<td>Needs <code>rustup</code> on the machine</td>
+</tr>
+<tr>
 <td>Lint</td>
 <td><code>just install lint</code></td>
-<td>ruff and pre-commit, or biome</td>
-<td>No <code>just hook</code> for TypeScript</td>
+<td>ruff, biome, or rustfmt and clippy</td>
+<td>none</td>
 </tr>
 <tr>
 <td>Tests</td>
 <td><code>just install test</code></td>
-<td>pytest, or <code>node --test</code></td>
+<td>pytest, <code>node --test</code>, or <code>cargo llvm-cov</code> with <code>coverage-check</code></td>
 <td>none</td>
 </tr>
 <tr>
 <td>Types</td>
 <td><code>just install typecheck</code></td>
-<td>ty with <code>ty.toml</code>, or tsc</td>
+<td>ty with <code>ty.toml</code>, tsc, or <code>cargo check</code></td>
 <td>none</td>
 </tr>
 <tr>
@@ -896,7 +1134,7 @@ the folder.</li>
 </ul>
 <p>The role recipes closed these gaps:</p>
 <ul>
-<li><strong><code>just prose</code></strong> checks the Markdown of the project.</li>
+<li><strong><code>just prose-check</code></strong> checks the Markdown of the project.</li>
 <li><strong><code>just uninstall tasker</code></strong> takes the lines of the role out of <code>AGENTS.md</code>.</li>
 <li><strong>jnprofile-typescript</strong> is on GitHub.</li>
 </ul>
