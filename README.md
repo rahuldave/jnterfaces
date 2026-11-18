@@ -127,7 +127,7 @@ file stays.
    on PATH.
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/main/scripts/install.sh | sh -s -- --tag v0.3.0
+   curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.3.0/scripts/install.sh | sh -s -- --tag v0.3.0
    ```
 
    To build jlog from source instead, clone
@@ -446,12 +446,12 @@ The skills use these executables:
 - **`jagt`** renders and checks packets, from https://github.com/rahuldave/jagt.
   The skill needs jagt 0.3.0 or later, which gives each packet a nonce.
   Install the release binary with
-  `curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/main/scripts/install.sh | sh -s -- --tag v0.6.3`.
+  `curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/7ea80a99492fe5eed5d7fa9b9a4e1ba08599463a/scripts/install.sh | sh -s -- --tag v0.6.3`.
   To build it from source instead, run
   `cargo install --locked --git https://github.com/rahuldave/jagt --tag v0.6.3 jagt`.
 - **`cx`** runs incremental stages, from https://github.com/rahuldave/cx.
   Install the release binary with
-  `curl -fsSL https://raw.githubusercontent.com/rahuldave/cx/main/scripts/install.sh | sh -s -- --tag v0.2.2`.
+  `curl -fsSL https://raw.githubusercontent.com/rahuldave/cx/v0.2.2/scripts/install.sh | sh -s -- --tag v0.2.2`.
   To build it from source instead, run
   `cargo install --locked --git https://github.com/rahuldave/cx --tag v0.2.2 cx`.
 

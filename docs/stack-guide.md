@@ -77,7 +77,7 @@ To install the release binary of jlog, run this line. It puts jlog in
 `~/.local/bin`, so put that folder on PATH.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/main/scripts/install.sh | sh -s -- --tag v0.3.0
+curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.3.0/scripts/install.sh | sh -s -- --tag v0.3.0
 ```
 
 To build jlog from source instead, clone https://github.com/rahuldave/jlog,
@@ -88,6 +88,7 @@ The roles and skills need more programs:
 | Role or skill | Program | How the stack handles a missing program |
 |---|---|---|
 | `tasker` | `gest` 0.6.0, whose `gest --version` prints `(rahuldave)` | The installer stops. The gest of crates.io does not print `(rahuldave)`, so it fails the check. |
+| `tasker` | `jagt` 0.6.3 | The installer stops. The review packets of the role need it. |
 | `cx` | `cx` 0.1.0 | The installer stops while the skill is on. |
 | `jagt-protocol` | `jagt` 0.3.0 | The installer stops while the skill is on. |
 | `reporter` | `node` 22 or later | The package says to run node with `uvx --from 'nodejs-wheel==24.*' node`. |

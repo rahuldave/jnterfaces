@@ -243,7 +243,7 @@ program again.
 | jnterfaces, in each project | `jlog` >=0.2.0, `just` >=1.50.0, `uv` >=0.12.13, `git` >=2.40, `gh` >=2.40 |
 | the `jagt-protocol` skill | `jagt` >=0.3.0 |
 | the `cx` skill | `cx` >=0.1.0 |
-| the `tasker` role | `gest` >=0.6.0, when agent_gest_git_skills gives it |
+| the `tasker` role | `gest` >=0.6.0 and `jagt` >=0.6.3, when agent_gest_git_skills gives it |
 
 **The checks run through jlog.** When jlog 0.2.0 or later is on the PATH,
 the installer runs each check and each install of a program as `jlog run

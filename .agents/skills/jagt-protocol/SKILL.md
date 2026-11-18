@@ -80,7 +80,7 @@ than the nonce. Then install the release binary of jagt with this line. It
 puts jagt in `~/.local/bin`, so put that folder on PATH.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/main/scripts/install.sh | sh -s -- --tag v0.6.3
+curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/7ea80a99492fe5eed5d7fa9b9a4e1ba08599463a/scripts/install.sh | sh -s -- --tag v0.6.3
 ```
 
 To build `jagt` from source instead, run `cargo install --locked --git
