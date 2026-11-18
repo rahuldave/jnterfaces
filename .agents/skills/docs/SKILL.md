@@ -26,8 +26,9 @@ smalldocs builds the site. `just install docs` turns the role on, and
 - **Two lines in `.gitattributes`**, for the theme files of the site and for
   the copy in this skill. Some theme files end their lines with a carriage
   return, and the lines tell `git diff --check` to accept them.
-  `just uninstall docs` removes the lines and keeps the theme files. If you
-  keep the theme, add the line for the folder `_extensions` of `docs` again.
+  `just uninstall docs` keeps the theme files. While a theme file stays,
+  the installer keeps the line for the folder `_extensions` of `docs`. The
+  line for the copy in the skill goes with the skill.
 - **`.github/workflows/docs-publish.yml`**, once. After a push to `main`, it
   runs `just docs-publish`. `just uninstall docs` removes it while you have
   not changed it.

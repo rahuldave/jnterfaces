@@ -813,10 +813,9 @@ class StackTests(unittest.TestCase):
         self.assertIn('jlog skip docs-check', index)
         self.assertEqual((self.target / 'docs/index.md').read_text(), '# My site\n')
         self.assertFalse((self.target / '.github/workflows/docs-publish.yml').exists())
-        # The theme is yours, like the config, so it stays. Its line in .gitattributes goes.
+        # The theme is yours, like the config, so it stays, and so does its line in .gitattributes.
         self.assertTrue((self.target / 'docs/_extensions/atelier/atelier.css').is_file())
-        self.assertNotIn('docs/_extensions/** -whitespace',
-                         attributes.read_text().splitlines() if attributes.exists() else [])
+        self.assertIn('docs/_extensions/** -whitespace', attributes.read_text().splitlines())
 
     def test_the_files_of_the_docs_role_pass_git_diff_check(self):
         # The theme files and the copy in the skill end some lines with a carriage return. The lines of the role in
@@ -829,6 +828,46 @@ class StackTests(unittest.TestCase):
                                  text=True)
         self.assertEqual(checked.returncode, 0, checked.stdout)
         self.assertTrue((self.target / '.agents/skills/docs/assets/_extensions/atelier/fonts/dmsans-OFL.txt').is_file())
+
+    def diff_check(self):
+        """Stage every file of the target and run git diff --cached --check. Returns the run."""
+        subprocess.run(['git', 'add', '-A'], cwd=self.target, check=True)
+        return subprocess.run(['git', 'diff', '--cached', '--check'], cwd=self.target, capture_output=True, text=True)
+
+    def test_the_theme_files_that_stay_after_the_docs_role_goes_pass_git_diff_check(self):
+        # The theme stays when the role goes, so its line in .gitattributes stays too, in the block of the
+        # installer. The line for the copy in the skill goes with the skill.
+        self.assertEqual(self.stack('--defaults', 'docs').returncode, 0)
+        self.assertEqual(self.diff_check().returncode, 0)
+        gone = self.stack('--without', 'docs')
+        self.assertEqual(gone.returncode, 0, gone.stderr)
+        self.assertTrue((self.target / 'docs/_extensions/atelier/fonts/dmsans-OFL.txt').is_file())
+        lines = (self.target / '.gitattributes').read_text().splitlines()
+        self.assertIn('docs/_extensions/** -whitespace', lines)
+        self.assertNotIn('.agents/skills/docs/assets/_extensions/** -whitespace', lines)
+        # The block of the installer says when the line goes, because its footer says its lines stay.
+        self.assertIn('# The theme Atelier of the site stayed when the docs role went. The installer removes the '
+                      'next line when the theme files go.', lines)
+        checked = self.diff_check()
+        self.assertEqual(checked.returncode, 0, checked.stdout)
+        # Another run keeps the line, and the role can come back and go again.
+        for args in ((), ('docs',), ('--without', 'docs')):
+            run = self.stack('--defaults', *args)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(
+                (self.target / '.gitattributes').read_text().splitlines().count('docs/_extensions/** -whitespace'), 1)
+            # The comment of the installer comes and goes with its line, and is never left behind.
+            self.assertEqual((self.target / '.gitattributes').read_text().count('The theme Atelier of the site'),
+                             0 if args == ('docs',) else 1)
+            checked = self.diff_check()
+            self.assertEqual(checked.returncode, 0, checked.stdout)
+        # With the theme gone, the line goes on the next run.
+        shutil.rmtree(self.target / 'docs/_extensions')
+        self.assertEqual(self.stack('--defaults').returncode, 0)
+        attributes = self.target / '.gitattributes'
+        left = attributes.read_text() if attributes.exists() else ''
+        self.assertNotIn('docs/_extensions/** -whitespace', left.splitlines())
+        self.assertNotIn('The theme Atelier', left)
 
     def test_a_site_with_its_own_config_and_theme_gets_no_atelier(self):
         (self.target / 'docs').mkdir()
