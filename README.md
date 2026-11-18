@@ -450,6 +450,10 @@ The skills use these executables:
   To build it from source instead, run
   `cargo install --locked --git https://github.com/rahuldave/jagt --tag v0.6.3 jagt`.
 - **`cx`** runs incremental stages, from https://github.com/rahuldave/cx.
+  Install the release binary with
+  `curl -fsSL https://raw.githubusercontent.com/rahuldave/cx/main/scripts/install.sh | sh -s -- --tag v0.2.2`.
+  To build it from source instead, run
+  `cargo install --locked --git https://github.com/rahuldave/cx --tag v0.2.2 cx`.
 
 ## How the packages stay apart
 

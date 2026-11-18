@@ -17,6 +17,8 @@ import install_stack  # noqa: E402
 WORKFLOWS = [REPO / '.github/workflows/verify.yml', REPO / '.agents/skills/docs/assets/docs-publish.yml']
 # The release of each program that CI installs.
 TAGS = {'jlog': 'v0.3.0', 'jagt': 'v0.6.3'}
+# The release that each install hint names. CI does not install cx.
+HINT_TAGS = dict(TAGS, cx='v0.2.2')
 # The tag v0.6.3 of jagt has no install.sh, so CI takes install.sh from the commit of jagt that adds it.
 JAGT_INSTALLER = '7ea80a99492fe5eed5d7fa9b9a4e1ba08599463a'
 CARGO = re.compile(r'\bcargo\s+(b?install)\b.*\b(jlog|jagt)\b')
@@ -69,7 +71,7 @@ class InstallHintTests(unittest.TestCase):
     """Each hint gives the install line of the release binary first, and the build from source second."""
 
     def assert_binary_then_source(self, text, name):
-        line = HINT.format(name=name, tag=TAGS[name])
+        line = HINT.format(name=name, tag=HINT_TAGS[name])
         self.assertIn(line, text)
         self.assertIn('from source', text)
         self.assertLess(text.index(line), text.index('from source'))
@@ -80,38 +82,60 @@ class InstallHintTests(unittest.TestCase):
         self.assertTrue(commands, text)
         for command in commands:
             argv = shlex.split(command)
-            self.assertEqual(argv[-2:], ['--tag', TAGS[argv[2].split('/')[4]]], command)
+            self.assertEqual(argv[-2:], ['--tag', HINT_TAGS[argv[2].split('/')[4]]], command)
+
+    def assert_each_build_names_its_tag(self, text):
+        # A build of jagt or cx from source names the release of the hint and the crate.
+        for command in re.findall(r'`(cargo install [^`]*)`', text):
+            argv = shlex.split(command)
+            self.assertIn(argv[-1], HINT_TAGS, command)
+            self.assertEqual(argv[-3:], ['--tag', HINT_TAGS[argv[-1]], argv[-1]], command)
+
+    def source_of(self, text, name):
+        """Where the build of name from source starts in text, or -1."""
+        marks = {'jlog': 'git checkout v0.3.0'}
+        mark = marks.get(name, f'--git https://github.com/rahuldave/{name} --tag')
+        return text.find(mark) if name == 'jlog' else max(text.find(mark), text.find(mark.replace(' ', '\n', 1)))
 
     def test_the_manifest_hints(self):
         executables = json.loads((REPO / 'skill-package.json').read_text())['executables']
         entries = {entry['name']: entry for kind in ('required', 'optional') for entry in executables[kind]}
-        for name in TAGS:
+        for name in HINT_TAGS:
             with self.subTest(name=name):
                 self.assert_binary_then_source(entries[name]['install'], name)
                 self.assert_each_command_ends_at_its_tag(entries[name]['install'])
+                self.assert_each_build_names_its_tag(entries[name]['install'])
         # The floors stay as they were.
         self.assertEqual(entries['jlog']['version'], '>=0.2.0')
         self.assertEqual(entries['jagt']['version'], '>=0.3.0')
+        self.assertEqual(entries['cx']['version'], '>=0.1.0')
 
     def test_the_installer_hint(self):
         self.assert_binary_then_source(install_stack.JLOG_INSTALL, 'jlog')
         self.assert_each_command_ends_at_its_tag(install_stack.JLOG_INSTALL)
 
     def test_the_docs(self):
-        pages = {'README.md': ['jlog', 'jagt'], 'docs/new-project.md': ['jlog'], 'docs/stack-guide.md': ['jlog'],
-                 '.agents/skills/just/SKILL.md': ['jlog'], '.agents/skills/jagt-protocol/SKILL.md': ['jagt']}
+        pages = {'README.md': ['jlog', 'jagt', 'cx'], '.agents/skills/cx/SKILL.md': ['cx'], 'docs/new-project.md': ['jlog'],
+                 'docs/stack-guide.md': ['jlog'], '.agents/skills/just/SKILL.md': ['jlog'], '.agents/skills/jagt-protocol/SKILL.md': ['jagt']}
         for page, names in pages.items():
             text = (REPO / page).read_text()
             for name in names:
                 with self.subTest(page=page, name=name):
-                    self.assertIn(HINT.format(name=name, tag=TAGS[name]), text)
+                    line = HINT.format(name=name, tag=HINT_TAGS[name])
+                    self.assertIn(line, text)
+                    # The release binary first, the build from source second.
+                    self.assertLess(text.index(line), self.source_of(text, name))
                     self.assertNotIn('git checkout v0.2.0', text)
+            self.assert_each_build_names_its_tag(text)
             # A build of jagt from source names its tag, so it cannot build a jagt under the floor.
-            self.assertNotRegex(text, r'cargo install --locked --git https://github\.com/rahuldave/jagt jagt')
+            self.assertNotRegex(text, r'cargo install --locked --git https://github\.com/rahuldave/(jagt jagt|cx cx)')
+
+    def test_the_cx_skill_still_asks_before_an_install(self):
+        self.assertIn('ask the user before you install it', (REPO / '.agents/skills/cx/SKILL.md').read_text())
 
     @unittest.skipUnless(os.environ.get('NOSSAIFD_CHECK'), 'needs NOSSAIFD_CHECK, the path of nossaifd check.py')
     def test_the_changed_docs_pass_the_writing_checker(self):
-        for page in ('docs/stack-guide.md', 'docs/new-project.md'):
+        for page in ('docs/stack-guide.md', 'docs/new-project.md', 'README.md', '.agents/skills/cx/SKILL.md'):
             run = subprocess.run(['uv', 'run', '--no-project', '--quiet', 'python', os.environ['NOSSAIFD_CHECK'],
                                   str(REPO / page)], capture_output=True, text=True)
             self.assertEqual(run.returncode, 0, run.stdout + run.stderr)

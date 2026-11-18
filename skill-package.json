@@ -82,7 +82,7 @@
         "version": ">=0.1.0",
         "skill": "cx",
         "description": "Runs incremental file stages for the cx skill. The skill needs cx 0.1.0 or later. The check is cx --help, which prints the version on each build of 0.1.0; cx --version came later in 0.1.0.",
-        "install": "cargo install --locked --git https://github.com/rahuldave/cx cx"
+        "install": "Run `curl -fsSL https://raw.githubusercontent.com/rahuldave/cx/main/scripts/install.sh | sh -s -- --tag v0.2.2`, then put ~/.local/bin on PATH. To build it from source instead, run `cargo install --locked --git https://github.com/rahuldave/cx --tag v0.2.2 cx`."
       }
     ]
   },
