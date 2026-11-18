@@ -76,8 +76,16 @@ The main checkout is the first worktree of the repository.
 
 Run `jagt --version`. The skill needs jagt 0.3.0 or later. If
 `jagt render --help` does not list `--no-save`, the installed `jagt` is older
-than the nonce. Then build `jagt` from its repository,
-https://github.com/rahuldave/jagt, or set `JAGT_BIN` to a newer binary.
+than the nonce. Then install the release binary of jagt with this line. It
+puts jagt in `~/.local/bin`, so put that folder on PATH.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/main/scripts/install.sh | sh -s -- --tag v0.6.3
+```
+
+To build `jagt` from source instead, run `cargo install --locked --git
+https://github.com/rahuldave/jagt --tag v0.6.3 jagt`. Or set `JAGT_BIN` to a
+newer binary.
 
 The link checks of `jagt result lint --check-files` need jagt 0.6.0 or later. Older
 versions pass a symbolic link that leads out of the base folder, and a file

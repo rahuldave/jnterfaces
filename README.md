@@ -122,8 +122,16 @@ file stays.
 ### Start a new project
 
 1. Install `git`, `just`, `uv` and `jlog`. jlog logs each line of the
-   recipes that `just install` writes. To install it, clone
-   https://github.com/rahuldave/jlog, run `git checkout v0.2.0` in the
+   recipes that `just install` writes. To install the release binary of
+   jlog, run this line. It puts jlog in `~/.local/bin`, so put that folder
+   on PATH.
+
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/main/scripts/install.sh | sh -s -- --tag v0.3.0
+   ```
+
+   To build jlog from source instead, clone
+   https://github.com/rahuldave/jlog, run `git checkout v0.3.0` in the
    clone, then run `just install`.
 2. Choose the folder of the package clones. The default is
    `~/.local/share/skill-packages`. To use another folder, export
@@ -437,6 +445,10 @@ The skills use these executables:
 - **`just`** runs the recipes, and **`uv`** runs the installer and the tools.
 - **`jagt`** renders and checks packets, from https://github.com/rahuldave/jagt.
   The skill needs jagt 0.3.0 or later, which gives each packet a nonce.
+  Install the release binary with
+  `curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/main/scripts/install.sh | sh -s -- --tag v0.6.3`.
+  To build it from source instead, run
+  `cargo install --locked --git https://github.com/rahuldave/jagt --tag v0.6.3 jagt`.
 - **`cx`** runs incremental stages, from https://github.com/rahuldave/cx.
 
 ## How the packages stay apart

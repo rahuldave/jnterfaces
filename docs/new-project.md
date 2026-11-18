@@ -30,8 +30,15 @@ were run on 2026-11-15.
 | `gh` 2.40 or later | The pull requests and the checks of CI | https://cli.github.com |
 | `just` 1.50.0 or later | Every recipe | https://just.systems |
 | `uv` 0.12.13 or later | The installer, Python, and Node for TypeScript | https://docs.astral.sh/uv |
-| `jlog` v0.2.0 or later | The shell of each recipe that `just install` writes. It logs each line in the run log. | Clone https://github.com/rahuldave/jlog, run `git checkout v0.2.0` in the clone, then run `just install` there. Its install builds with `cargo`, so it needs Rust, from https://rustup.rs/, for every profile. The installer stops when jlog is missing. |
+| `jlog` v0.2.0 or later | The shell of each recipe that `just install` writes. It logs each line in the run log. | Run the install line of jlog under this table. It needs no Rust. To build jlog from source instead, clone https://github.com/rahuldave/jlog, run `git checkout v0.3.0` in the clone, then run `just install` there. That build needs Rust, from https://rustup.rs/. The installer stops when jlog is missing. |
 | `gest` 0.5.6 or later | The skills of the `tasker` role | Install it on its own. It does not come through `uv`. The installer stops when it is missing. |
+
+The install line of jlog downloads the release binary, checks its SHA-256,
+and puts jlog in `~/.local/bin`. Put that folder on PATH.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/main/scripts/install.sh | sh -s -- --tag v0.3.0
+```
 
 A profile can need more programs. The rust profile needs `rustup`, from
 https://rustup.rs/. The installer checks each program of the profile. When

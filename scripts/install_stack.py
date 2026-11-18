@@ -77,7 +77,9 @@ QUESTIONS = {
                      'answers': {'strongest': 'the strongest model of the harness'}, 'default': 'strongest',
                      'free': True},
 }
-JLOG_INSTALL = 'clone https://github.com/rahuldave/jlog, run git checkout v0.2.0 in the clone, then run just install'
+# The install of jlog: the release binary first, the build from source second.
+JLOG_INSTALL = ('run `curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/main/scripts/install.sh | sh -s -- --tag v0.3.0`, then put ~/.local/bin on PATH. To build it from source instead, clone '
+                'https://github.com/rahuldave/jlog, run git checkout v0.3.0 in the clone, then run just install')
 
 
 class StackError(Exception):

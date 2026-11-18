@@ -63,8 +63,8 @@
         "name": "jlog",
         "check": "jlog --version",
         "version": ">=0.2.0",
-        "description": "The shell of each recipe that just install writes. It logs each line in .agents/log, and it sets the PATH from the .jlog folders. Install it with git clone https://github.com/rahuldave/jlog, git checkout v0.2.0, then just install in the clone.",
-        "install": "git clone https://github.com/rahuldave/jlog, run git checkout v0.2.0 in the clone, then run just install in the clone."
+        "description": "The shell of each recipe that just install writes. It logs each line in .agents/log, and it sets the PATH from the .jlog folders. Install the release binary with `curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/main/scripts/install.sh | sh -s -- --tag v0.3.0`, which puts jlog in ~/.local/bin. To build it from source, git clone https://github.com/rahuldave/jlog, git checkout v0.3.0, then just install in the clone.",
+        "install": "Run `curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/main/scripts/install.sh | sh -s -- --tag v0.3.0`, then put ~/.local/bin on PATH. To build it from source instead, git clone https://github.com/rahuldave/jlog, run git checkout v0.3.0 in the clone, then run just install in the clone."
       }
     ],
     "optional": [
@@ -74,7 +74,7 @@
         "version": ">=0.3.0",
         "skill": "jagt-protocol",
         "description": "Renders and checks agentic Just packets for the jagt-protocol skill. The skill needs jagt 0.3.0 or later, which gives each packet a nonce.",
-        "install": "cargo install --locked --git https://github.com/rahuldave/jagt jagt"
+        "install": "Run `curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/main/scripts/install.sh | sh -s -- --tag v0.6.3`, then put ~/.local/bin on PATH. To build it from source instead, run `cargo install --locked --git https://github.com/rahuldave/jagt --tag v0.6.3 jagt`."
       },
       {
         "name": "cx",
