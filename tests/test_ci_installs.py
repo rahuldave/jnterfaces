@@ -86,7 +86,7 @@ class InstallHintTests(unittest.TestCase):
 
     def assert_each_build_names_its_tag(self, text):
         # A build of jagt or cx from source names the release of the hint and the crate.
-        for command in re.findall(r'`(cargo install [^`]*)`', text):
+        for command in re.findall(r'`(cargo install [^`]*--git [^`]*)`', text):
             argv = shlex.split(command)
             self.assertIn(argv[-1], HINT_TAGS, command)
             self.assertEqual(argv[-3:], ['--tag', HINT_TAGS[argv[-1]], argv[-1]], command)
@@ -129,6 +129,16 @@ class InstallHintTests(unittest.TestCase):
             self.assert_each_build_names_its_tag(text)
             # A build of jagt from source names its tag, so it cannot build a jagt under the floor.
             self.assertNotRegex(text, r'cargo install --locked --git https://github\.com/rahuldave/(jagt jagt|cx cx)')
+
+    def test_the_gest_hint(self):
+        # gest takes install.sh from its tag, the binary first and the build from source second.
+        text = (REPO / 'docs/new-project.md').read_text()
+        line = 'curl -fsSL https://raw.githubusercontent.com/rahuldave/gest/v0.6.0/scripts/install.sh | sh -s -- --tag v0.6.0'
+        self.assertIn(line, text)
+        self.assertLess(text.index(line), text.index('git checkout v0.6.0'))
+        self.assertIn('| `gest` 0.6.0 or later |', text)
+        self.assertIn('| `tasker` | `gest` 0.6.0, whose `gest --version` prints `(rahuldave)` |', (REPO / 'docs/stack-guide.md').read_text())
+        self.assertNotIn('0.5.6', text + (REPO / 'docs/stack-guide.md').read_text() + (REPO / 'docs/stack-files.md').read_text())
 
     def test_the_cx_skill_still_asks_before_an_install(self):
         self.assertIn('ask the user before you install it', (REPO / '.agents/skills/cx/SKILL.md').read_text())

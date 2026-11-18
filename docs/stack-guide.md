@@ -87,7 +87,7 @@ The roles and skills need more programs:
 
 | Role or skill | Program | How the stack handles a missing program |
 |---|---|---|
-| `tasker` | `gest` 0.5.6 | The installer stops, once agent_gest_git_skills gives the floor. Before that, it runs `gest --version`, and any version counts. |
+| `tasker` | `gest` 0.6.0, whose `gest --version` prints `(rahuldave)` | The installer stops. The gest of crates.io does not print `(rahuldave)`, so it fails the check. |
 | `cx` | `cx` 0.1.0 | The installer stops while the skill is on. |
 | `jagt-protocol` | `jagt` 0.3.0 | The installer stops while the skill is on. |
 | `reporter` | `node` 22 or later | The package says to run node with `uvx --from 'nodejs-wheel==24.*' node`. |

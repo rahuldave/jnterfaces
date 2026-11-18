@@ -31,7 +31,7 @@ were run on 2026-11-15.
 | `just` 1.50.0 or later | Every recipe | https://just.systems |
 | `uv` 0.12.13 or later | The installer, Python, and Node for TypeScript | https://docs.astral.sh/uv |
 | `jlog` v0.2.0 or later | The shell of each recipe that `just install` writes. It logs each line in the run log. | Run the install line of jlog under this table. It needs no Rust. The installer stops when jlog is missing. |
-| `gest` 0.5.6 or later | The skills of the `tasker` role | Install it on its own. It does not come through `uv`. The installer stops when it is missing. |
+| `gest` 0.6.0 or later | The skills of the `tasker` role | Run the install line of gest under this table. It does not come through `uv`. The installer stops when it is missing. |
 
 The install line of jlog downloads the release binary, checks its SHA-256,
 and puts jlog in `~/.local/bin`. Put that folder on PATH.
@@ -43,6 +43,17 @@ curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/main/scripts/install
 To build jlog from source instead, clone https://github.com/rahuldave/jlog,
 run `git checkout v0.3.0` in the clone, then run `just install` there. That
 build needs Rust, from https://rustup.rs/.
+
+The install line of gest works the same way. It installs the fork of
+rahuldave, whose `gest --version` prints `(rahuldave)`.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rahuldave/gest/v0.6.0/scripts/install.sh | sh -s -- --tag v0.6.0
+```
+
+To build gest from source instead, clone https://github.com/rahuldave/gest,
+run `git checkout v0.6.0` in the clone, then run
+`cargo install --locked --path .` there.
 
 A profile can need more programs. The rust profile needs `rustup`, from
 https://rustup.rs/. The installer checks each program of the profile. When
