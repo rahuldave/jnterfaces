@@ -88,7 +88,7 @@ in `.agents/install.just`, and the Justfile imports it with the line
 run this line. It puts jlog in `~/.local/bin`, so put that folder on PATH.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/main/scripts/install.sh | sh -s -- --tag v0.3.0
+curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.3.0/scripts/install.sh | sh -s -- --tag v0.3.0
 ```
 
 To build jlog from source instead, clone https://github.com/rahuldave/jlog,
