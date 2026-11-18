@@ -652,9 +652,11 @@ just install test
 test` and `just cov` run pytest. With no arguments, a project with no tests
 yet passes. A selection that runs no test fails.
 
-**TypeScript.** The tool adds TypeScript and the Node types. `just test`
-compiles `src` into `dist`, and it runs the tests with `node --test`. With no
-`.ts` file in `src` yet, it passes.
+**TypeScript.** The tool is on by default. It adds TypeScript, the Node
+types and c8, which records the lines that the tests run. `just test`
+compiles the code into `.jnprofile-typescript/build/`, and it runs the tests
+there with `node --test` under c8. With no `.ts` file in `src` yet, it
+passes. `just cov` shows the lines that the tests ran.
 
 **Rust.** The tool installs `llvm-tools-preview` and `cargo-llvm-cov`. `just
 test` runs the tests with `cargo llvm-cov test`, and writes the coverage.
@@ -701,7 +703,7 @@ adds them. The rows describe the Python profile:
 | System tests | No recipe runs tests against a running server. |
 | Docker | No recipe builds or runs a Docker image, and no tool writes a `.dockerignore`. |
 | Async tests | The group `test` does not have pytest-asyncio or an HTTP client. |
-| Coverage of one package | `just cov` does not name a package. The TypeScript profile has no `just cov`. |
+| Coverage of one package | `just cov` does not name a package. |
 | Test paths | The `test` tool sets `pythonpath` for pytest, but not `testpaths`. |
 | CI | No profile writes a GitHub Actions workflow for the code. The `tasker` role writes `.github/workflows/check.yml` once, when the project has none. It runs `just ci` on each pull request: the trailers of the commit gate, then the list `ci` of `.agents/stack.json`. |
 

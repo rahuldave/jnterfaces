@@ -96,6 +96,11 @@ any language:
 - **It writes once** `docs/_smalldocs.yml`, `docs/index.md` and the workflow
   `.github/workflows/docs-publish.yml`. It adds `docs/_site/` to
   `.gitignore`.
+- **The theme is Atelier**, with a light mode and a dark mode. The role
+  writes the theme into `docs/_extensions/atelier/`, and the config sets
+  `theme: atelier`. It adds two lines to `.gitattributes`, so that
+  `git diff --check` accepts the line ends of the theme files and of their
+  copy in the docs skill.
 - **`just docs-check`** is a step of `just check`. It runs
   `smalldocs check docs`, then the `api-check` of each language that has one.
   `just docs` previews the site, and `just docs-build` builds it.
@@ -158,7 +163,7 @@ file stays.
    | Profile | Code | Tests |
    |---|---|---|
    | `python` | Modules at the top of the project, such as `app.py`, or a package folder | `tests/test_NAME.py`. pytest finds the modules at the top, because the `test` tool sets `pythonpath`. |
-   | `typescript` | `src/`, for example `src/app.ts` | `src/NAME.test.ts`, which imports the code as `./app.js`. Turn on the tool with `just install test`. |
+   | `typescript` | `src/`, for example `src/app.ts` | `src/NAME.test.ts`, which imports the code as `./app.js`. |
    | `rust` | `src/`, as `cargo init` makes it | Unit tests in the module, and the files in `tests/` |
 
 7. Run `just fmt` to format the code, then `just verify` again.
@@ -231,7 +236,7 @@ Each profile gives the steps of its installed tools:
 | Profile | Steps | `test-paths` |
 |---|---|---|
 | `python` | `lint`, `test`, `typecheck` | yes |
-| `typescript` | `lint`, `typecheck`, `test` | no |
+| `typescript` | `fmt-check`, `lint`, `typecheck`, `test`, `coverage-check`, `docstring-check` | yes |
 | `rust` | `fmt-check`, `lint`, `typecheck`, `test`, `coverage-check`, `docstring-check` | yes |
 
 `coverage-check` fails on each changed line of code that no test runs, and
