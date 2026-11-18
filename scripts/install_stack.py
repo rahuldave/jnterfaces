@@ -1036,6 +1036,22 @@ def docs_wants_theme(target):
         return False
 
 
+# The line in .gitattributes for the theme files of the site, which end some lines with a carriage return.
+DOCS_THEME_ATTRIBUTES = ['docs/_extensions/** -whitespace']
+DOCS_THEME_COMMENT = ('# The theme Atelier of the site stayed when the docs role went. The installer removes the next '
+                      'line when the theme files go.')
+
+
+def docs_theme_stayed(target, parts):
+    """True when a theme file that the docs role wrote is still in the project: the record holds its starter, and the
+    file is there. The theme is yours, so it stays when the role goes, and the installer keeps the line of
+    DOCS_THEME_ATTRIBUTES for it, so that git diff --check still accepts its line ends."""
+    if not isinstance(parts, dict):
+        return False
+    return any(isinstance(parts.get(path), dict) and shared_files.STARTER in parts[path]
+               and (target / path).is_file() for path in docs_theme_files())
+
+
 def docs_owner(target=None):
     """The owner of the shared files of the docs role: the line of the built site in .gitignore, the lines in
     .gitattributes that keep the line ends of the theme files, and the starter files of the site, of its theme and of
@@ -1046,7 +1062,7 @@ def docs_owner(target=None):
         'docs', 'the docs role', 'jnterfaces', commit_of(ROOT), '`just uninstall docs` removes them.',
         # The theme files of the site, and the copy in the skill, have files with a carriage return at each line end.
         lines={'.gitignore': ['docs/_site/'],
-               '.gitattributes': ['docs/_extensions/** -whitespace',
+               '.gitattributes': [*DOCS_THEME_ATTRIBUTES,
                                   '.agents/skills/docs/assets/_extensions/** -whitespace']},
         starter={'docs/_smalldocs.yml': DOCS_SKILL / 'assets/_smalldocs.yml',
                  'docs/index.md': DOCS_SKILL / 'assets/index.md',
@@ -1094,9 +1110,15 @@ def sync_files(target, profiles, kept, kept_tools, every, dry_run, parts, roles=
     known += list(roles) + list(gone_roles)
     # The installer always has its lines: each project has the index, whose recipes write the run log of jlog. In a
     # project that the installer started, it also has its starter files.
+    # The footer of the block says that its lines stay with .agents/stack.json, so a comment says when the line of
+    # the theme goes. The comment is always among the lines, so that a run without the line knows it and takes it out
+    # with the block. A block with no line is not written.
+    lines = dict(copy.deepcopy(shared_files.JNTERFACES_LINES), **(justfile or {}))
+    lines['.gitattributes'] = [DOCS_THEME_COMMENT]
+    if not any(owner.key == 'docs' for owner in roles) and docs_theme_stayed(target, parts):
+        lines['.gitattributes'] += DOCS_THEME_ATTRIBUTES
     installer = shared_files.Owner('jnterfaces', 'the installer', 'jnterfaces', commit_of(ROOT),
-                                   'They stay while the project keeps .agents/stack.json.',
-                                   dict(copy.deepcopy(shared_files.JNTERFACES_LINES), **(justfile or {})),
+                                   'They stay while the project keeps .agents/stack.json.', lines,
                                    starter=dict(INSTALLER_STARTERS) if started else None)
     active, known = [installer] + active, [installer] + known
     command = os.environ.get('JNTERFACES_COMMAND') or shlex.join(['install_stack.py', *sys.argv[1:]])
