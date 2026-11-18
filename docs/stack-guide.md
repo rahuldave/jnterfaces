@@ -71,13 +71,23 @@ A machine needs `git` 2.40, `gh` 2.40, `just` 1.50.0, `uv` 0.12.13 and
 Node all come through `uv`. jlog is the shell of each recipe in
 `.agents/just`, and it logs each line in the run log. When a program is
 missing, or older than its version floor, the installer stops and writes
-nothing. To install jlog, clone https://github.com/rahuldave/jlog, run
-`git checkout v0.2.0` in the clone, then run `just install`. The roles and
-skills need more programs:
+nothing.
+
+To install the release binary of jlog, run this line. It puts jlog in
+`~/.local/bin`, so put that folder on PATH.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/main/scripts/install.sh | sh -s -- --tag v0.3.0
+```
+
+To build jlog from source instead, clone https://github.com/rahuldave/jlog,
+run `git checkout v0.3.0` in the clone, then run `just install`.
+
+The roles and skills need more programs:
 
 | Role or skill | Program | How the stack handles a missing program |
 |---|---|---|
-| `tasker` | `gest` 0.5.6 | The installer stops, once agent_gest_git_skills gives the floor. Before that, it runs `gest --version`, and any version counts. |
+| `tasker` | `gest` 0.6.0, whose `gest --version` prints `(rahuldave)` | The installer stops. The gest of crates.io does not print `(rahuldave)`, so it fails the check. |
 | `cx` | `cx` 0.1.0 | The installer stops while the skill is on. |
 | `jagt-protocol` | `jagt` 0.3.0 | The installer stops while the skill is on. |
 | `reporter` | `node` 22 or later | The package says to run node with `uvx --from 'nodejs-wheel==24.*' node`. |

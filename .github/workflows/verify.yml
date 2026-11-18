@@ -24,11 +24,21 @@ jobs:
         run: just release-check
       - name: Check syntax
         run: just lint
-      - name: Build jlog, the shell of the recipes that the installer writes
-        # The tag v0.2.0 of jlog is the commit 8febdf1. The installer runs the checks of the programs through its jlog run.
-        run: cargo install --locked --git https://github.com/rahuldave/jlog --tag v0.2.0 jlog
-      - name: Build jagt for the protocol demo test
-        run: cargo install --locked --git https://github.com/rahuldave/jagt jagt
+      # Each install.sh downloads a release binary and checks its SHA-256. It puts the binary in ~/.local/bin.
+      # The step shell bash has pipefail, so a failed download of install.sh fails the step.
+      - name: Install jlog, the shell of the recipes that the installer writes
+        # The tag v0.3.0 of jlog is the commit d4b712b. install.sh comes from the tag. The installer runs the checks
+        # of the programs through its jlog run. setup-uv comes first, so install.sh makes the environments of the plugins.
+        shell: bash
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.3.0/scripts/install.sh | sh -s -- --tag v0.3.0
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Install jagt for the protocol demo test
+        # The tag v0.6.3 of jagt has no install.sh, so install.sh comes from the commit 7ea80a9 of jagt, which adds it.
+        shell: bash
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/7ea80a99492fe5eed5d7fa9b9a4e1ba08599463a/scripts/install.sh | sh -s -- --tag v0.6.3
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Check the programs that jnterfaces needs, at their version floors
         run: just tools-check
       - name: Get the nossaifd writing checker
