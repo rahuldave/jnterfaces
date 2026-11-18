@@ -122,7 +122,7 @@ logs a skip. Each profile gives the steps of its installed tools, and the
 | Profile | Steps | `test-paths` |
 |---|---|---|
 | `python` | `lint`, `test`, `typecheck` | yes |
-| `typescript` | `lint`, `typecheck`, `test` | no |
+| `typescript` | `fmt-check`, `lint`, `typecheck`, `test`, `coverage-check`, `docstring-check` | yes |
 | `rust` | `fmt-check`, `lint`, `typecheck`, `test`, `coverage-check`, `docstring-check` | yes |
 
 `test-paths` runs only the tests of some test files. The `test-parent` recipe
@@ -220,12 +220,15 @@ change no file. `just install` installs the hooks in each clone.
 |---|---|---|---|---|
 | `lint` | yes | `@biomejs/biome@2` | `biome.json` | `fmt`, `lint` |
 | `typecheck` | yes | `typescript@7`, `@types/node@24` | `tsconfig.json` | `typecheck` |
-| `test` | no | `typescript@7`, `@types/node@24` | `tsconfig.json` | `build`, `test` |
+| `test` | yes | `typescript@7`, `@types/node@24`, `c8@12` | `tsconfig.json` | `build`, `test`, `coverage-check`, `cov` |
+| `docstring` | yes | none in `package.json` | none | `docstring-check` |
+| `api` | yes | none | none | `api-check`, `api-prose-check` |
+| `integration` | no | `typescript@7`, `@types/node@24`, `c8@12` | `tsconfig.json` | `integration` |
 
-Add the tests:
+The install turns on the default tools. Add the integration tests, which run from `tests/integration`:
 
 ```bash
-just install test
+just install integration
 ```
 
 The packages go into `devDependencies` of `package.json`. The npm cache is in
@@ -240,8 +243,9 @@ The packages go into `devDependencies` of `package.json`. The npm cache is in
 | `just lint` | `biome check` | Checks the lint rules, the format and the order of imports. `just lint --write` fixes what it can. |
 | `just typecheck` | `tsc --noEmit` | With no `.ts` file in `src` yet, it passes. |
 | `just build` | `tsc` | Compiles `src` into `dist`, with source maps. |
-| `just test` | `tsc`, then `node --test 'dist/**/*.test.js'` | Extra words go to `node --test`. With no `.ts` file in `src` yet, it passes. |
-| `just verify` | `lint`, `typecheck`, `test`, then `git diff --check` | Runs the checks of the installed tools only. |
+| `just test` | `tsc`, then `node --test` under c8 | Extra words go to `node --test`. With no `.ts` file in `src` yet, it passes. |
+| `just cov` | `tsc`, then the tests under c8 | Shows the lines that the tests ran. |
+| `just verify` | The steps of the installed tools, then `git diff --check` | Runs the checks of the installed tools only, for example `lint`, `typecheck`, `test` and `docstring-check`. |
 
 ### The code and the tests
 
@@ -494,7 +498,6 @@ Add these parts yourself:
   `testpaths = ["tests"]` under `[tool.pytest.ini_options]` to search one
   folder.
 - **A Git hook for TypeScript.** Run `just verify` before each commit.
-- **Coverage for TypeScript.** There is no `just cov`.
 - **Async tests, a server, and Docker.** No tool adds pytest-asyncio, a
   `just serve` recipe or a `Dockerfile`.
 - **A `biome.jsonc` with comments.** The installer leaves a file with

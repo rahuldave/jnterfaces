@@ -787,6 +787,13 @@ class StackTests(unittest.TestCase):
         for path in ('docs/_smalldocs.yml', 'docs/index.md', '.github/workflows/docs-publish.yml'):
             self.assertTrue((self.target / path).is_file(), path)
         self.assertIn('docs/_site/', (self.target / '.gitignore').read_text().splitlines())
+        # The theme Atelier, its line in .gitattributes, and the config that names it.
+        self.assertIn('theme: atelier', (self.target / 'docs/_smalldocs.yml').read_text().splitlines())
+        for path in ('smalldocs.yml', 'atelier.css', 'atelier-dark.css', 'fonts/dmsans-OFL.txt'):
+            self.assertEqual((self.target / 'docs/_extensions/atelier' / path).read_bytes(),
+                             (install_stack.DOCS_SKILL / 'assets/_extensions/atelier' / path).read_bytes(), path)
+        attributes = self.target / '.gitattributes'
+        self.assertIn('docs/_extensions/** -whitespace', attributes.read_text().splitlines())
         index = (self.target / '.agents/just/index.just').read_text()
         self.assertIn("import? '../skills/docs/docs.just'", index)
         self.assertIn('docs-check', next(line for line in index.splitlines() if line.startswith('check:')).split())
@@ -806,6 +813,55 @@ class StackTests(unittest.TestCase):
         self.assertIn('jlog skip docs-check', index)
         self.assertEqual((self.target / 'docs/index.md').read_text(), '# My site\n')
         self.assertFalse((self.target / '.github/workflows/docs-publish.yml').exists())
+        # The theme is yours, like the config, so it stays. Its line in .gitattributes goes.
+        self.assertTrue((self.target / 'docs/_extensions/atelier/atelier.css').is_file())
+        self.assertNotIn('docs/_extensions/** -whitespace',
+                         attributes.read_text().splitlines() if attributes.exists() else [])
+
+    def test_the_files_of_the_docs_role_pass_git_diff_check(self):
+        # The theme files and the copy in the skill end some lines with a carriage return. The lines of the role in
+        # .gitattributes keep git diff --check of a new project quiet about them.
+        self.assertEqual(self.stack('--defaults', 'docs').returncode, 0)
+        if not (self.target / '.git').exists():
+            subprocess.run(['git', 'init', '-q'], cwd=self.target, check=True)
+        subprocess.run(['git', 'add', '-A'], cwd=self.target, check=True)
+        checked = subprocess.run(['git', 'diff', '--cached', '--check'], cwd=self.target, capture_output=True,
+                                 text=True)
+        self.assertEqual(checked.returncode, 0, checked.stdout)
+        self.assertTrue((self.target / '.agents/skills/docs/assets/_extensions/atelier/fonts/dmsans-OFL.txt').is_file())
+
+    def test_a_site_with_its_own_config_and_theme_gets_no_atelier(self):
+        (self.target / 'docs').mkdir()
+        (self.target / 'docs/_smalldocs.yml').write_text('project:\n  type: website\ntheme: folio\n')
+        run = self.stack('--defaults', 'docs')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual((self.target / 'docs/_smalldocs.yml').read_text(), 'project:\n  type: website\ntheme: folio\n')
+        self.assertFalse((self.target / 'docs/_extensions/atelier').exists())
+        # A config that names atelier gets the theme.
+        (self.target / 'docs/_smalldocs.yml').write_text('theme: atelier\n')
+        self.assertEqual(self.stack('--defaults', 'docs').returncode, 0)
+        self.assertTrue((self.target / 'docs/_extensions/atelier/atelier.css').is_file())
+
+    def test_a_site_that_moved_to_another_theme_gets_no_atelier_when_the_role_comes_back(self):
+        self.assertEqual(self.stack('--defaults', 'docs').returncode, 0)
+        record = self.saved()['parts']['docs/_extensions/atelier/atelier.css']['(starter)']
+        self.assertIn('docs', record['needs'])
+        config = self.target / 'docs/_smalldocs.yml'
+        config.write_text(config.read_text().replace('theme: atelier', 'theme: folio'))
+        self.assertEqual(self.stack('--without', 'docs').returncode, 0)
+        shutil.rmtree(self.target / 'docs/_extensions/atelier')
+        again = self.stack('--defaults', 'docs')
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertFalse((self.target / 'docs/_extensions/atelier').exists())
+
+    def test_the_theme_of_a_config_reads_quotes_and_comments(self):
+        read = install_stack.docs_config_theme
+        self.assertEqual(read('theme: atelier\n'), 'atelier')
+        self.assertEqual(read('theme: "atelier"\n'), 'atelier')
+        self.assertEqual(read("theme: 'atelier'  # mine\n"), 'atelier')
+        self.assertEqual(read('website:\n  theme: atelier\ntheme: folio\n'), 'folio')
+        self.assertIsNone(read('theme:\n  light: atelier\n'))
+        self.assertIsNone(read('toc: true\n'))
 
     def test_a_workflow_that_an_older_release_wrote_goes_with_the_docs_role(self):
         self.assertEqual(self.stack('--defaults', 'docs').returncode, 0)

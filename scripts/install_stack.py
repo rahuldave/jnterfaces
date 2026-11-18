@@ -991,15 +991,67 @@ def docs_workflow_is_ours(target, written):
     return data == (DOCS_SKILL / 'assets/docs-publish.yml').read_bytes() or shared_files.digest(data) == written
 
 
-def docs_owner():
-    """The owner of the shared files of the docs role: the line of the built site in .gitignore, and the starter
-    files of the site and of its CI workflow."""
+def docs_theme_files():
+    """The starter files of the default theme of the site, Atelier: {path in the project: source file}. The role
+    writes the theme extension as smalldocs add writes it, into docs/_extensions."""
+    themes = DOCS_SKILL / 'assets/_extensions'
+    return {f'docs/_extensions/{source.relative_to(themes).as_posix()}': source
+            for source in sorted(themes.rglob('*')) if source.is_file()}
+
+
+def docs_theme_is_held(target):
+    """True when the record holds a theme file for the docs role while the role is on: its starter needs docs. A role
+    that went leaves its starters with no needs, and they do not count."""
+    try:
+        parts = json.loads((target / '.agents/stack.json').read_text()).get('parts', {})
+        return any('docs' in (parts.get(path, {}).get(shared_files.STARTER) or {}).get('needs', [])
+                   for path in docs_theme_files())
+    except (OSError, ValueError, AttributeError, TypeError):
+        return False
+
+
+def docs_config_theme(text):
+    """The value of the top-level key theme of a _smalldocs.yml, without quotes and a comment. None when the key has no
+    value on its line, as a theme with a light and a dark mode has."""
+    for line in text.splitlines():
+        found = re.match(r'theme:\s*(.*)$', line)
+        if found:
+            value = re.sub(r'\s+#.*$', '', found.group(1)).strip().strip('"\'')
+            return value or None
+    return None
+
+
+def docs_wants_theme(target):
+    """True when the role writes the theme Atelier into the project: the project has no docs/_smalldocs.yml yet, its
+    config names the theme atelier, or the record holds a theme file of the role. A site with a config of its own
+    and another theme gets no theme files that it does not use."""
+    config = target / 'docs/_smalldocs.yml'
+    if not config.is_file():
+        return True
+    if docs_theme_is_held(target):
+        return True
+    try:
+        return docs_config_theme(config.read_text(errors='replace')) == 'atelier'
+    except OSError:
+        return False
+
+
+def docs_owner(target=None):
+    """The owner of the shared files of the docs role: the line of the built site in .gitignore, the lines in
+    .gitattributes that keep the line ends of the theme files, and the starter files of the site, of its theme and of
+    its CI workflow. With a target, the theme files are there only when docs_wants_theme says so. Without one, the
+    owner knows every file, for a role that goes."""
+    theme = docs_theme_files() if target is None or docs_wants_theme(target) else {}
     return shared_files.Owner(
         'docs', 'the docs role', 'jnterfaces', commit_of(ROOT), '`just uninstall docs` removes them.',
-        lines={'.gitignore': ['docs/_site/']},
+        # The theme files of the site, and the copy in the skill, have files with a carriage return at each line end.
+        lines={'.gitignore': ['docs/_site/'],
+               '.gitattributes': ['docs/_extensions/** -whitespace',
+                                  '.agents/skills/docs/assets/_extensions/** -whitespace']},
         starter={'docs/_smalldocs.yml': DOCS_SKILL / 'assets/_smalldocs.yml',
                  'docs/index.md': DOCS_SKILL / 'assets/index.md',
-                 '.github/workflows/docs-publish.yml': DOCS_SKILL / 'assets/docs-publish.yml'})
+                 '.github/workflows/docs-publish.yml': DOCS_SKILL / 'assets/docs-publish.yml',
+                 **theme})
 
 
 # The starter files of the installer in a project that it starts: the lists of generated files and of the files
@@ -2991,7 +3043,7 @@ def main(argv=None):
             raise StackError(f'The dry run of the removal of {package["name"]} failed; nothing was written')
     # The move from the old log is worked out here, and saved only after the dry pass below found no problem.
     parts, unsure, migrating = move_from_log(target, record, packages, clones, True)
-    roles = role_owners([p for p, _ in steps], clones) + ([docs_owner()] if chosen.get('docs') else [])
+    roles = role_owners([p for p, _ in steps], clones) + ([docs_owner(target)] if chosen.get('docs') else [])
     gone_roles = role_owners(removals, clones) + (
         [docs_owner()] if not chosen.get('docs') and (record or {}).get('choices', {}).get('docs') else [])
     dropped = dropped_files(packages, chosen, clones)

@@ -130,5 +130,27 @@ class PinTests(unittest.TestCase):
         self.assertGreaterEqual(tuple(map(int, versions.pop().split('.'))), (0, 5, 10))
 
 
+class ThemeTests(unittest.TestCase):
+    ROLE = REPO / '.agents/skills/docs/assets'
+
+    def test_the_starter_config_names_atelier_and_the_role_has_its_files(self):
+        self.assertIn('theme: atelier', (self.ROLE / '_smalldocs.yml').read_text().splitlines())
+        theme = self.ROLE / '_extensions/atelier'
+        config = (theme / 'smalldocs.yml').read_text()
+        for name in ('atelier.css', 'atelier-dark.css'):
+            self.assertIn(name, config)
+            self.assertTrue((theme / name).is_file(), name)
+
+    def test_the_skill_names_no_path_of_the_repository_root(self):
+        # package-lint stops on a SKILL.md that names a folder of the root of jnterfaces, such as docs/_extensions.
+        self.assertNotIn('docs/_extensions', (REPO / '.agents/skills/docs/SKILL.md').read_text())
+
+    def test_the_role_ships_the_same_atelier_as_the_site_of_jnterfaces(self):
+        # An update of the theme with smalldocs add changes docs/_extensions/atelier. Copy it to the role too.
+        def files(root):
+            return {path.relative_to(root).as_posix(): path.read_bytes() for path in root.rglob('*') if path.is_file()}
+        self.assertEqual(files(self.ROLE / '_extensions/atelier'), files(REPO / 'docs/_extensions/atelier'))
+
+
 if __name__ == '__main__':
     unittest.main()
