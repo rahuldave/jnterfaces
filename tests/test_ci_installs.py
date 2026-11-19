@@ -16,13 +16,11 @@ import install_stack  # noqa: E402
 
 WORKFLOWS = [REPO / '.github/workflows/verify.yml', REPO / '.agents/skills/docs/assets/docs-publish.yml']
 # The release of each program that CI installs.
-TAGS = {'jlog': 'v0.3.0', 'jagt': 'v0.6.3'}
+TAGS = {'jlog': 'v0.3.0', 'jagt': 'v0.6.4'}
 # The release that each install hint names. CI does not install cx.
-HINT_TAGS = dict(TAGS, cx='v0.2.2')
-# The tag v0.6.3 of jagt has no install.sh, so CI and the hints take install.sh from the commit of jagt that adds it.
-JAGT_INSTALLER = '7ea80a99492fe5eed5d7fa9b9a4e1ba08599463a'
-# The ref of install.sh for each program: the tag of its release, or for jagt the commit that adds install.sh.
-REFS = {'jlog': 'v0.3.0', 'jagt': JAGT_INSTALLER, 'cx': 'v0.2.2', 'gest': 'v0.6.0'}
+HINT_TAGS = dict(TAGS, cx='v0.2.3')
+# The ref of install.sh for each program: the tag of its release.
+REFS = {'jlog': 'v0.3.0', 'jagt': 'v0.6.4', 'cx': 'v0.2.3', 'gest': 'v0.6.0'}
 CARGO = re.compile(r'\bcargo\s+(b?install)\b.*\b(jlog|jagt)\b')
 INSTALLER = re.compile(r'curl -fsSL https://raw\.githubusercontent\.com/rahuldave/(jlog|jagt)/([^/\s]+)/scripts/install\.sh'
                        r' \| sh -s -- --tag (\S+)$')
@@ -170,7 +168,7 @@ class InstallHintTests(unittest.TestCase):
         self.assert_each_command_ends_at_its_tag(install_stack.JLOG_INSTALL)
 
     def test_the_docs(self):
-        pages = {'README.md': ['jlog', 'jagt', 'cx'], '.agents/skills/cx/SKILL.md': ['cx'], 'docs/new-project.md': ['jlog'],
+        pages = {'README.md': ['jlog', 'jagt', 'cx'], '.agents/skills/cx/SKILL.md': ['cx'], 'docs/new-project.md': ['jlog', 'jagt'],
                  'docs/stack-guide.md': ['jlog'], '.agents/skills/just/SKILL.md': ['jlog'], '.agents/skills/jagt-protocol/SKILL.md': ['jagt']}
         for page, names in pages.items():
             text = (REPO / page).read_text()

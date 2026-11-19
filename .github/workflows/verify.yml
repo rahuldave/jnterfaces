@@ -34,10 +34,10 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.3.0/scripts/install.sh | sh -s -- --tag v0.3.0
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Install jagt for the protocol demo test
-        # The tag v0.6.3 of jagt has no install.sh, so install.sh comes from the commit 7ea80a9 of jagt, which adds it.
+        # install.sh comes from the tag v0.6.4 of jagt.
         shell: bash
         run: |
-          curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/7ea80a99492fe5eed5d7fa9b9a4e1ba08599463a/scripts/install.sh | sh -s -- --tag v0.6.3
+          curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/v0.6.4/scripts/install.sh | sh -s -- --tag v0.6.4
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Check the programs that jnterfaces needs, at their version floors
         run: just tools-check

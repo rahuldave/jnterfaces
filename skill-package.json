@@ -74,7 +74,7 @@
         "version": ">=0.3.0",
         "skill": "jagt-protocol",
         "description": "Renders and checks agentic Just packets for the jagt-protocol skill. The skill needs jagt 0.3.0 or later, which gives each packet a nonce.",
-        "install": "Run `curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/7ea80a99492fe5eed5d7fa9b9a4e1ba08599463a/scripts/install.sh | sh -s -- --tag v0.6.3`, then put ~/.local/bin on PATH. To build it from source instead, run `cargo install --locked --git https://github.com/rahuldave/jagt --tag v0.6.3 jagt`."
+        "install": "Run `curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/v0.6.4/scripts/install.sh | sh -s -- --tag v0.6.4`, then put ~/.local/bin on PATH. To build it from source instead, run `cargo install --locked --git https://github.com/rahuldave/jagt --tag v0.6.4 jagt`."
       },
       {
         "name": "cx",
@@ -82,7 +82,7 @@
         "version": ">=0.1.0",
         "skill": "cx",
         "description": "Runs incremental file stages for the cx skill. The skill needs cx 0.1.0 or later. The check is cx --help, which prints the version on each build of 0.1.0; cx --version came later in 0.1.0.",
-        "install": "Run `curl -fsSL https://raw.githubusercontent.com/rahuldave/cx/v0.2.2/scripts/install.sh | sh -s -- --tag v0.2.2`, then put ~/.local/bin on PATH. To build it from source instead, run `cargo install --locked --git https://github.com/rahuldave/cx --tag v0.2.2 cx`."
+        "install": "Run `curl -fsSL https://raw.githubusercontent.com/rahuldave/cx/v0.2.3/scripts/install.sh | sh -s -- --tag v0.2.3`, then put ~/.local/bin on PATH. To build it from source instead, run `cargo install --locked --git https://github.com/rahuldave/cx --tag v0.2.3 cx`."
       }
     ]
   },

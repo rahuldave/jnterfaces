@@ -56,15 +56,15 @@ To build gest from source instead, clone https://github.com/rahuldave/gest,
 run `git checkout v0.6.0` in the clone, then run
 `cargo install --locked --path .` there.
 
-The install line of jagt works the same way. The tag v0.6.3 of jagt has no
-`install.sh`, so the line takes `install.sh` from the commit of jagt that adds it.
+The install line of jagt works the same way. It takes `install.sh` from the tag
+v0.6.4 of jagt.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/7ea80a99492fe5eed5d7fa9b9a4e1ba08599463a/scripts/install.sh | sh -s -- --tag v0.6.3
+curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/v0.6.4/scripts/install.sh | sh -s -- --tag v0.6.4
 ```
 
 To build jagt from source instead, run
-`cargo install --locked --git https://github.com/rahuldave/jagt --tag v0.6.3 jagt`.
+`cargo install --locked --git https://github.com/rahuldave/jagt --tag v0.6.4 jagt`.
 
 A profile can need more programs. The rust profile needs `rustup`, from
 https://rustup.rs/. The installer checks each program of the profile. When
