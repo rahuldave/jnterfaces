@@ -79,16 +79,38 @@ were run on 2026-11-15.</p>
 <tr>
 <td><code>jlog</code> v0.2.0 or later</td>
 <td>The shell of each recipe that <code>just install</code> writes. It logs each line in the run log.</td>
-<td>Clone https://github.com/rahuldave/jlog, run <code>git checkout v0.2.0</code> in the clone, then run <code>just install</code> there. Its install builds with <code>cargo</code>, so it needs Rust, from https://rustup.rs/, for every profile. The installer stops when jlog is missing.</td>
+<td>Run the install line of jlog under this table. It needs no Rust. The installer stops when jlog is missing.</td>
 </tr>
 <tr>
-<td><code>gest</code> 0.5.6 or later</td>
+<td><code>gest</code> 0.6.0 or later</td>
 <td>The skills of the <code>tasker</code> role</td>
-<td>Install it on its own. It does not come through <code>uv</code>. The installer stops when it is missing.</td>
+<td>Run the install line of gest under this table. It does not come through <code>uv</code>. The installer stops when it is missing, older or not the fork.</td>
+</tr>
+<tr>
+<td><code>jagt</code> 0.6.3 or later</td>
+<td>The review packets of the <code>tasker</code> role</td>
+<td>Run the install line of jagt under this table. The installer stops when it is missing or older.</td>
 </tr>
 </tbody>
 </table>
 </div>
+<p>The install line of jlog downloads the release binary, checks its SHA-256,
+and puts jlog in <code>~/.local/bin</code>. Put that folder on PATH.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.3.0/scripts/install.sh | sh -s -- --tag v0.3.0</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>To build jlog from source instead, clone https://github.com/rahuldave/jlog,
+run <code>git checkout v0.3.0</code> in the clone, then run <code>just install</code> there. That
+build needs Rust, from https://rustup.rs/.</p>
+<p>The install line of gest works the same way. It installs the fork of
+rahuldave, whose <code>gest --version</code> prints <code>(rahuldave)</code>.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">curl -fsSL https://raw.githubusercontent.com/rahuldave/gest/v0.6.0/scripts/install.sh | sh -s -- --tag v0.6.0</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>To build gest from source instead, clone https://github.com/rahuldave/gest,
+run <code>git checkout v0.6.0</code> in the clone, then run
+<code>cargo install --locked --path .</code> there.</p>
+<p>The install line of jagt works the same way. It takes <code>install.sh</code> from the tag
+v0.6.4 of jagt.</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/v0.6.4/scripts/install.sh | sh -s -- --tag v0.6.4</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>To build jagt from source instead, run
+<code>cargo install --locked --git https://github.com/rahuldave/jagt --tag v0.6.4 jagt</code>.</p>
 <p>A profile can need more programs. The rust profile needs <code>rustup</code>, from
 https://rustup.rs/. The installer checks each program of the profile. When
 <code>rustup</code> is missing, it stops before it writes anything, and it says where to
@@ -103,15 +125,15 @@ itself. For example, it installs the toolchain, which brings <code>cargo</code>,
 <p>The installer reads each package from a clone in one folder. The default
 folder is <code>~/.local/share/skill-packages</code>. To use another folder, export
 <code>SKILL_PACKAGES_DIR</code> in your shell profile, for example:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span class="bu">export</span> <span class="va">SKILL_PACKAGES_DIR</span><span class="op">=</span>~/Projects</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span class="bu">export</span> <span class="va">SKILL_PACKAGES_DIR</span><span class="op">=</span>~/Projects</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Set it before the first install. <code>just install</code> in a project finds the clones
 in that folder only.</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">git clone https://github.com/rahuldave/jnterfaces <span class="st">&quot;</span><span class="ss">${</span><span class="va">SKILL_PACKAGES_DIR</span><span class="kw">:-</span><span class="va">$HOME</span>/.local/share/skill-packages<span class="ss">}</span><span class="st">/jnterfaces</span><span class="st">&quot;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">git clone https://github.com/rahuldave/jnterfaces <span class="st">&quot;</span><span class="ss">${</span><span class="va">SKILL_PACKAGES_DIR</span><span class="kw">:-</span><span class="va">$HOME</span>/.local/share/skill-packages<span class="ss">}</span><span class="st">/jnterfaces</span><span class="st">&quot;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>The installer clones each other package that it needs into the same folder.</p>
 </section>
 <section id="step-2-make-the-project-and-install" class="level2">
 <h2 class="anchored" data-anchor-id="step-2-make-the-project-and-install">Step 2: make the project and install</h2>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">mkdir app <span class="op">&amp;&amp;</span> <span class="bu">cd</span> app <span class="op">&amp;&amp;</span> git init
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">mkdir app <span class="op">&amp;&amp;</span> <span class="bu">cd</span> app <span class="op">&amp;&amp;</span> git init
 uv run <span class="st">&quot;</span><span class="ss">${</span><span class="va">SKILL_PACKAGES_DIR</span><span class="kw">:-</span><span class="va">$HOME</span>/.local/share/skill-packages<span class="ss">}</span><span class="st">/jnterfaces/scripts/install_stack.py</span><span class="st">&quot;</span> --profile python</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Use <code>--profile typescript</code> for TypeScript, <code>--profile rust</code> for Rust, or
 <code>--profile python,typescript</code> for two languages. At a terminal, the installer asks about each role. Add
@@ -180,7 +202,7 @@ Each of these files is yours from then on.</li>
 project with no code yet. A Rust project always has code, so first read
 <a href="#a-rust-project">A Rust project</a>.</p>
 <p><code>just check</code> runs the steps of the commit gates, in this order:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode text code-with-copy"><code class="sourceCode text">tools-check release-check fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode text code-with-copy"><code class="sourceCode text">tools-check release-check fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>A step fails when the change breaks a rule. The <code>prose</code> role gives
 <code>prose-check</code>, and the tasker role (agent_gest_git_skills) gives
 <code>release-check</code>. The installer gives <code>tools-check</code> and <code>diff-check</code>. A step that nothing gives
@@ -259,7 +281,7 @@ parent commit. The agent of <code>test-review</code> reads the result.</p>
 </table>
 </div>
 <p>Add the type check:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install typecheck</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install typecheck</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p><code>pyproject.toml</code> gets <code>default-groups = &quot;all&quot;</code> under <code>[tool.uv]</code>, so that
 <code>uv run</code> has every tool. The project uses the Python that <code>uv</code> picks, and <code>uv init</code> writes that version as <code>requires-python</code>.</p>
 </section>
@@ -326,17 +348,17 @@ only.</p>
 <h3 class="anchored" data-anchor-id="the-code-and-the-tests">The code and the tests</h3>
 <p>Put modules at the top of the project, such as <code>app.py</code>, or put a package
 folder there. Put the tests in <code>tests/</code>, in files named <code>test_NAME.py</code>:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span class="co"># app.py</span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span class="co"># app.py</span>
 <span class="kw">def</span> <span class="fu">add</span>(a: <span class="bu">int</span>, b: <span class="bu">int</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="bu">int</span>:
     <span class="cf">return</span> a <span class="op">+</span> b</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span class="co"># tests/test_app.py</span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span class="co"># tests/test_app.py</span>
 <span class="im">from</span> app <span class="im">import</span> add
 
 
 <span class="kw">def</span> <span class="fu">test_add</span>():
     <span class="kw">assert</span> add(<span class="dv">1</span>, <span class="dv">2</span>) <span class="op">==</span> <span class="dv">3</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>pytest finds <code>app</code> because the <code>test</code> tool adds <code>&quot;.&quot;</code> to <code>pythonpath</code>. Then:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just fmt
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just fmt
 just verify
 just cov</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
@@ -423,7 +445,7 @@ add <code>pythonpath</code>. Add <code>pythonpath = [&quot;.&quot;]</code> to th
 </table>
 </div>
 <p>The install turns on the default tools. Add the integration tests, which run from <code>tests/integration</code>:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install integration</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install integration</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>The packages go into <code>devDependencies</code> of <code>package.json</code>. The npm cache is in
 <code>.local/npm-cache</code>, which Git ignores.</p>
 </section>
@@ -488,11 +510,11 @@ add <code>pythonpath</code>. Add <code>pythonpath = [&quot;.&quot;]</code> to th
 <p>Put the code and the tests in <code>src/</code>. Name each test file <code>NAME.test.ts</code>.
 <code>tsconfig.json</code> compiles all of <code>src</code>, so the build writes the tests to
 <code>dist</code> too. Import the code with the <code>.js</code> name that the build writes:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode typescript code-with-copy"><code class="sourceCode typescript"><span class="co">// src/app.ts</span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode typescript code-with-copy"><code class="sourceCode typescript"><span class="co">// src/app.ts</span>
 <span class="kw">export</span> <span class="kw">function</span> add(a<span class="op">:</span> <span class="dt">number</span>, b<span class="op">:</span> <span class="dt">number</span>)<span class="op">:</span> <span class="dt">number</span> {
   <span class="cf">return</span> a <span class="op">+</span> b;
 }</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode typescript code-with-copy"><code class="sourceCode typescript"><span class="co">// src/app.test.ts</span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode typescript code-with-copy"><code class="sourceCode typescript"><span class="co">// src/app.test.ts</span>
 <span class="kw">import</span> assert <span class="kw">from</span> <span class="st">&quot;node:assert/strict&quot;</span>;
 <span class="kw">import</span> { test } <span class="kw">from</span> <span class="st">&quot;node:test&quot;</span>;
 <span class="kw">import</span> { add } <span class="kw">from</span> <span class="st">&quot;./app.js&quot;</span>;
@@ -501,7 +523,7 @@ test(<span class="st">&quot;add&quot;</span>, () =&gt; {
   assert.equal(add(<span class="fl">1</span>, <span class="fl">2</span>), <span class="fl">3</span>);
 });</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>The tests use <code>node:test</code> and <code>node:assert</code>, which come with Node. Then:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just fmt
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just fmt
 just verify</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 <section id="change-a-setting-1" class="level3">
@@ -561,7 +583,7 @@ sets a line width of 120 for Biome.</p>
 </table>
 </div>
 <p>Add the format of the TOML files:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install toml</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install toml</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>No tool adds a crate to <code>Cargo.toml</code> or writes a config file. The installer
 installs the programs of each tool, with <code>rustup component add</code> or <code>cargo +stable install --locked</code>. The skill <code>rust-profile</code> tells an agent which tool
 gives which recipe. The rules in <code>.agents/targets/rust/</code> add to the agentic
@@ -663,7 +685,7 @@ that starts with a digit, add <code>--name NAME</code>.</p>
 an integration test in <code>tests/</code>. Write a doc comment for each item. The
 example is a library, so it starts from <code>cargo init --lib --vcs none</code> before
 the install, and has no <code>src/main.rs</code>:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode rust code-with-copy"><code class="sourceCode rust"><span class="co">// src/lib.rs
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode rust code-with-copy"><code class="sourceCode rust"><span class="co">// src/lib.rs
 </span><span class="st">//! The arithmetic of the app.
 </span>
 <span class="st">/// Returns the sum of `a` and `b`.
@@ -680,7 +702,7 @@ the install, and has no <code>src/main.rs</code>:</p>
         <span class="fu">assert_eq!</span>(add(<span class="dv">1</span>, <span class="dv">2</span>), <span class="dv">3</span>);
     }
 }</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode rust code-with-copy"><code class="sourceCode rust"><span class="co">// tests/add.rs
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode rust code-with-copy"><code class="sourceCode rust"><span class="co">// tests/add.rs
 </span><span class="st">//! The tests of the public API.
 </span>
 <span class="pp">#[</span><span class="pp">test</span><span class="pp">]</span>
@@ -688,7 +710,7 @@ the install, and has no <code>src/main.rs</code>:</p>
     <span class="fu">assert_eq!</span>(app::add(<span class="op">-</span><span class="dv">1</span>, <span class="op">-</span><span class="dv">2</span>), <span class="op">-</span><span class="dv">3</span>);
 }</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>The integration test names the crate <code>app</code>, the name of the folder. Then:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just setup
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just setup
 just fmt
 just verify</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
@@ -720,7 +742,7 @@ gives each recipe and each rule of the steps.</p>
 <p>The <code>tasker</code> role works on a branch in the main checkout. A Git worktree is a
 second checkout of the same repository, in another folder. To work on each
 task in its own worktree, and keep the main checkout on <code>main</code>, run:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install <span class="va">tasker</span><span class="op">=</span>gitwt
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just install <span class="va">tasker</span><span class="op">=</span>gitwt
 just tasker-mode</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>These recipes manage the worktrees:</p>
 <div class="sd-table">
@@ -760,7 +782,7 @@ source folder, the docs and the branches.</p>
 commit against the writing guide. It leaves out <code>AGENTS.md</code>, <code>CLAUDE.md</code> and
 the folders of the installer. Name pages to check only them, and add <code>-v</code> to
 see the soft notes:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just prose-check -v README.md</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just prose-check -v README.md</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <p>It is the step <code>prose-check</code> of <code>just check</code>.</p>
 </section>
 <section id="what-to-commit" class="level2">
@@ -785,7 +807,7 @@ role, <code>ty.toml</code>,
 <code>node_modules/</code>, <code>dist/</code>, <code>target/</code>, the caches and the logs of the installer.</p>
 <p>A person who clones the project runs these commands. <code>just install</code> also
 installs the Git hooks of the <code>tasker</code> role:</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just setup
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">just setup
 just install</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 <section id="keep-it-up-to-date" class="level2">

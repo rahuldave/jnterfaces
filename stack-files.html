@@ -549,6 +549,10 @@ The top key <code>programs</code> is a list of programs. Each program has these 
 <td>Optional, with <code>install</code>. <code>project</code>, the default, runs <code>install</code> in the folder of the project. <code>home</code> runs it in your home folder, or in an empty folder outside the project when <code>HOME</code> is not set.</td>
 </tr>
 <tr>
+<td><code>each_clone</code></td>
+<td>Optional, <code>true</code>, with <code>install</code>. The program is a setup of each clone, such as the git hooks of a role. See <a href="#a-setup-of-each-clone">A setup of each clone</a>.</td>
+</tr>
+<tr>
 <td><code>description</code></td>
 <td>For a program without <code>install</code>: what a person does to get it. For a program with <code>install</code>: optional, what the program does.</td>
 </tr>
@@ -609,7 +613,7 @@ program again.</p>
 </tr>
 <tr>
 <td>the <code>tasker</code> role</td>
-<td><code>gest</code> &gt;=0.5.6, when agent_gest_git_skills gives it</td>
+<td><code>gest</code> &gt;=0.6.0 and <code>jagt</code> &gt;=0.6.3, when agent_gest_git_skills gives it</td>
 </tr>
 </tbody>
 </table>
@@ -671,6 +675,31 @@ project.</li>
 <li><strong>A program stays.</strong> The installer never uninstalls a program, also when a
 tool, a profile or a role goes. The <code>before_remove</code> step of a role can take
 out what its programs put in the project, such as a Git hook.</li>
+</ul>
+</section>
+<section id="a-setup-of-each-clone" class="level4">
+<h4 class="anchored" data-anchor-id="a-setup-of-each-clone">A setup of each clone</h4>
+<p>Some programs are not on the machine, but in one clone of the project. An
+example is the git hooks of the tasker role. A fresh clone has no git hooks,
+so its commits skip the commit gate. Give such a program <code>&quot;each_clone&quot;: true</code>.</p>
+<ul>
+<li><strong><code>just install</code> sets it up.</strong> In each clone, <code>just install</code> runs the check,
+and runs <code>install</code> when the check fails. When the check passes, the run
+changes nothing.</li>
+<li><strong>The record keeps it.</strong> The key <code>programs</code> of <code>.agents/stack.json</code> has the
+program, with <code>&quot;each_clone&quot;: true</code>. So <code>tools-check</code>, the first step of
+<code>just check</code>, runs its check in each clone. A clone without the setup fails
+<code>just check</code>, and the message says to run <code>just install</code>.</li>
+<li><strong>CI skips it.</strong> <code>tools-check</code> and <code>just install --check</code> do not run its
+check when the variable <code>CI</code> is set and is not <code>0</code> or <code>false</code>. CI makes no
+commits, so it needs no git hooks. GitHub Actions and GitLab set <code>CI</code>. On a
+runner that does not set it, such as Jenkins, set <code>CI=true</code> yourself.</li>
+<li><strong>A failed check says why.</strong> <code>tools-check</code> prints the last lines of the
+error output of the check. For example, the check of the tasker role names
+a <code>.pre-commit-config.yaml</code> without the hooks of the role.</li>
+<li><strong>The check decides the rest.</strong> For example, the check of the tasker role
+passes in a folder that is not a Git repository. Such a folder has no hooks
+to set up.</li>
 </ul>
 <p>The programs of jnterfaces itself, <code>git</code>, <code>gh</code>, <code>just</code>, <code>uv</code> and <code>jlog</code>, are
 not in a profile. They are in <code>executables.required</code> of the
@@ -815,7 +844,7 @@ the install fails. Then run <code>rustup default stable</code>, or pin a toolcha
 </tr>
 <tr>
 <td><code>programs</code></td>
-<td>Each program without <code>install</code> that the project needs, with its check, its <code>expect</code>, its floor in <code>version</code>, and the floor of each owner in <code>owners</code>. The installer writes it at each run. <code>tools-check</code> and <code>just install --check</code> read it, so a clone can check its programs from this key alone. The floors of <code>owners</code> count, and <code>version</code> is the highest of them. A program with <code>install</code>, such as the git hooks of a role or a toolchain, is not in it: it is the state of one machine, and <code>just install</code> sets it up.</td>
+<td>Each program without <code>install</code> that the project needs, with its check, its <code>expect</code>, its floor in <code>version</code>, and the floor of each owner in <code>owners</code>. The installer writes it at each run. <code>tools-check</code> and <code>just install --check</code> read it, so a clone can check its programs from this key alone. The floors of <code>owners</code> count, and <code>version</code> is the highest of them. A program with <code>install</code>, such as a toolchain, is not in it: it is the state of one machine, and <code>just install</code> sets it up. A program with <code>each_clone</code>, such as the git hooks of a role, is in it, with <code>&quot;each_clone&quot;: true</code>. <code>tools-check</code> skips its check in CI.</td>
 <td><code>{&quot;just&quot;: {&quot;check&quot;: &quot;just --version&quot;, &quot;version&quot;: &quot;&gt;=1.50.0&quot;, &quot;owners&quot;: {&quot;jnterfaces&quot;: &quot;&gt;=1.50.0&quot;}}}</code></td>
 </tr>
 <tr>
