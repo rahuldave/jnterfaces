@@ -123,6 +123,8 @@ installer. Each later run fails in the same way until you rename the recipe. A r
 The block stays this time. The name of a profile, such as <code>python</code>, also clashes. So does a recipe of a role
 that is on, such as <code>review</code>, <code>worktree-new</code> or <code>ci-gate</code> of the <code>tasker</code> role, or <code>prose-check</code> of the
 <code>prose</code> role. For these, the installer stops, writes nothing in <code>.agents/just</code>, and names the clash.</p>
+<p>If your <code>Justfile</code> does not parse with the block, the installer also takes the block out, so that your
+recipes still run. After the rename, run the <code>uv run</code> command of step 2 again.</p>
 <p><strong>The names that you can keep.</strong> <code>.agents/just/index.just</code> leaves out each name that your <code>Justfile</code>
 has, so your recipe takes its place. These names are the recipes of the profiles, such as <code>setup</code>,
 <code>fmt</code>, <code>lint</code> and <code>test</code>, the steps of <code>just check</code> that no role gives, and <code>verify</code>, <code>check</code> and <code>ci</code>. For example, your
