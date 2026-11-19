@@ -59,7 +59,7 @@ declarations, then writes the project and its records.
 | `.agents/just/<profile>/*.just` and `.agents/just/roles/<package>.just` | the project | the packages, through `install_extras.files` | The recipe files of each tool and role. The package record keeps their hashes. |
 | `.agents/config/<profile>/...` | the project | the installer | The own files of the tools. |
 | `.agents/instructions/<role>.md` | the project | the installer | The own file of a role. A line in `AGENTS.md` points to it. |
-| `.agents/install.just` | the project | the installer | The recipes `just install` and `just uninstall`. |
+| `.agents/install.just` | the project | the installer | The recipes `just install`, `just uninstall` and `just env-lab`. |
 | `.agents/log/` | the project | jlog | The run log of the recipes. Git ignores it, and no owner of a part may name it. |
 | `.agents/skills/` and `.claude/skills/` | the project | the installer | The skills, and a link to each one for Claude Code. |
 | `.claude/hooks/` and `.codex/hooks/` | the project | the tasker role, through `install_extras.files` | The hook scripts. The hook entries go in `.claude/settings.json` and `.codex/hooks.json` as parts. |
