@@ -41,6 +41,9 @@ uv run ~/.local/share/skill-packages/jnterfaces/scripts/install_stack.py --profi
 
 [Start a new project](#start-a-new-project) gives each step, from an empty
 folder to a project whose checks pass.
+For a project that already has code or a Justfile,
+[Bring an existing project in](https://rahuldave.github.io/jnterfaces/existing-project.html)
+gives each step, and tells how to fix a clash of recipe names.
 
 On the first install at a terminal, the installer asks which roles to
 install. It saves the answers in `.agents/stack.json`. If you name only roles, the
@@ -184,6 +187,8 @@ Later, `just install --update` gets the new commits of each package, and
 
 [Start a Python, TypeScript or Rust project](https://rahuldave.github.io/jnterfaces/new-project.html)
 is the guide to a new project. It gives each tool, recipe, hook and config file, with examples.
+[Bring an existing project in](https://rahuldave.github.io/jnterfaces/existing-project.html)
+is the guide to a project that already has code or a Justfile.
 
 ### Tools and profiles
 
