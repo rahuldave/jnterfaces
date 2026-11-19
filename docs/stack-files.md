@@ -200,6 +200,7 @@ The top key `programs` is a list of programs. Each program has these keys:
 | `version` | Optional. The version floor, `>=X.Y.Z` or `>=X.Y`, for example `>=1.50.0`. Without it, the check must pass, and any version counts. |
 | `install` | The command that installs the program, for example `cargo +stable install --locked cargo-llvm-cov@0.9.1`. |
 | `install_in` | Optional, with `install`. `project`, the default, runs `install` in the folder of the project. `home` runs it in your home folder, or in an empty folder outside the project when `HOME` is not set. |
+| `each_clone` | Optional, `true`, with `install`. The program is a setup of each clone, such as the git hooks of a role. See [A setup of each clone](#a-setup-of-each-clone). |
 | `description` | For a program without `install`: what a person does to get it. For a program with `install`: optional, what the program does. |
 
 A program needs `install` or `description`. The first word of `check` and
@@ -308,6 +309,30 @@ These rules follow from the order:
   tool, a profile or a role goes. The `before_remove` step of a role can take
   out what its programs put in the project, such as a Git hook.
 
+#### A setup of each clone
+
+Some programs are not on the machine, but in one clone of the project. An
+example is the git hooks of the tasker role. A fresh clone has no git hooks,
+so its commits skip the commit gate. Give such a program `"each_clone": true`.
+
+- **`just install` sets it up.** In each clone, `just install` runs the check,
+  and runs `install` when the check fails. When the check passes, the run
+  changes nothing.
+- **The record keeps it.** The key `programs` of `.agents/stack.json` has the
+  program, with `"each_clone": true`. So `tools-check`, the first step of
+  `just check`, runs its check in each clone. A clone without the setup fails
+  `just check`, and the message says to run `just install`.
+- **CI skips it.** `tools-check` and `just install --check` do not run its
+  check when the variable `CI` is set and is not `0` or `false`. CI makes no
+  commits, so it needs no git hooks. GitHub Actions and GitLab set `CI`. On a
+  runner that does not set it, such as Jenkins, set `CI=true` yourself.
+- **A failed check says why.** `tools-check` prints the last lines of the
+  error output of the check. For example, the check of the tasker role names
+  a `.pre-commit-config.yaml` without the hooks of the role.
+- **The check decides the rest.** For example, the check of the tasker role
+  passes in a folder that is not a Git repository. Such a folder has no hooks
+  to set up.
+
 The programs of jnterfaces itself, `git`, `gh`, `just`, `uv` and `jlog`, are
 not in a profile. They are in `executables.required` of the
 `skill-package.json` of jnterfaces.
@@ -365,7 +390,7 @@ The record has these keys:
 | `code` | The globs of the source files of each profile, for `@code` of the gate. | `{"python": ["**/*.py"]}` |
 | `tests` | The globs of the test files of each profile. `test-parent` copies only these files into the parent commit. | `{"python": ["tests/**"]}` |
 | `steps` | The steps of `just check`, in their order. `jlog pass` reads them. With the answer `integration=verify`, `integration` is not in the list. | `["tools-check", "release-check", "fmt-check", ...]` |
-| `programs` | Each program without `install` that the project needs, with its check, its `expect`, its floor in `version`, and the floor of each owner in `owners`. The installer writes it at each run. `tools-check` and `just install --check` read it, so a clone can check its programs from this key alone. The floors of `owners` count, and `version` is the highest of them. A program with `install`, such as the git hooks of a role or a toolchain, is not in it: it is the state of one machine, and `just install` sets it up. | `{"just": {"check": "just --version", "version": ">=1.50.0", "owners": {"jnterfaces": ">=1.50.0"}}}` |
+| `programs` | Each program without `install` that the project needs, with its check, its `expect`, its floor in `version`, and the floor of each owner in `owners`. The installer writes it at each run. `tools-check` and `just install --check` read it, so a clone can check its programs from this key alone. The floors of `owners` count, and `version` is the highest of them. A program with `install`, such as a toolchain, is not in it: it is the state of one machine, and `just install` sets it up. A program with `each_clone`, such as the git hooks of a role, is in it, with `"each_clone": true`. `tools-check` skips its check in CI. | `{"just": {"check": "just --version", "version": ">=1.50.0", "owners": {"jnterfaces": ">=1.50.0"}}}` |
 | `project_programs` | The programs that the project itself needs. You write it, and the installer keeps it. Each entry has `name` and `check`, and can have `version`, `expect` and `description`. The owner is the project. A program without `install` must be there before a run writes anything. | `[{"name": "gest", "check": "gest --version", "version": ">=0.6.0"}]` |
 | `ci` | The steps that `just ci` runs after `ci-gate`. Each one must be a step of `just check`. You edit it, and `just install` keeps it. | `["test"]` |
 | `provided_steps` | The steps that an installed profile or role provides. `jlog pass` counts a skip only for a step that is not in this list. | `["lint", "test", "diff-check"]` |

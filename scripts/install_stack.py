@@ -257,7 +257,7 @@ def check_profile(name, profile, choices):
 
 
 PROGRAM_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.+-]*')
-PROGRAM_KEYS = {'name', 'check', 'install', 'description', 'expect', 'install_in', 'version'}
+PROGRAM_KEYS = {'name', 'check', 'install', 'description', 'expect', 'install_in', 'version', 'each_clone'}
 
 
 def command_of(text):
@@ -326,6 +326,8 @@ def check_program_list(programs, fail):
         if entry.get('install_in', 'project') not in ('project', 'home') or ('install_in' in entry
                                                                              and 'install' not in entry):
             fail(f'install_in of the program {program} must be project or home, and only with an install')
+        if 'each_clone' in entry and (entry['each_clone'] is not True or 'install' not in entry):
+            fail(f'each_clone of the program {program} must be true, and only with an install')
     return declared
 
 
@@ -849,6 +851,9 @@ def merge_programs(programs, extra):
         takes = ('install' in entry and 'install' not in old) or ('check' in entry and 'check' not in old)
         merged = dict(entry) if takes else dict(old)
         merged['floors'] = floors
+        # A setup of each clone stays one when any owner says so, so that the record keeps it.
+        if old.get('each_clone') or entry.get('each_clone'):
+            merged['each_clone'] = True
         merged.pop('version', None)
         version = None
         for floor in floors.values():
@@ -865,16 +870,17 @@ def merge_programs(programs, extra):
 
 def recorded_programs(programs):
     """The key programs of .agents/stack.json: each program with its check, its expect, its floor and the floor of
-    each owner, so that a clone can check the programs from the record alone. Only a program without an install is
-    in it: the machine must have it. A program with an install, such as the git hooks of a role or a toolchain, is
-    the state of one machine, which just install sets up, so a fresh clone or CI would fail on it. A program of a
-    tools table without a check is left out too: only the installer checks that it is on PATH."""
+    each owner, so that a clone can check the programs from the record alone. A program without an install is in it:
+    the machine must have it. A program with an install, such as a toolchain, is the state of one machine, which just
+    install sets up, so a fresh clone or CI would fail on it. A program with each_clone is in it, with each_clone: it
+    is a setup of each clone, such as the git hooks of a role, so tools-check finds a clone without it, and CI skips
+    it. A program of a tools table without a check is left out too: only the installer checks that it is on PATH."""
     found = {}
     for entry in sorted(programs, key=lambda item: item['name']):
-        if not entry.get('check') or 'install' in entry:
+        if not entry.get('check') or ('install' in entry and not entry.get('each_clone')):
             continue
         program = {'check': entry['check']}
-        program.update({key: entry[key] for key in ('expect', 'version') if entry.get(key)})
+        program.update({key: entry[key] for key in ('expect', 'version', 'each_clone') if entry.get(key)})
         program['owners'] = dict(floors_of(entry))
         found[entry['name']] = program
     return found
@@ -1166,7 +1172,7 @@ def load_profiles(names, registry_profiles, choices, overrides, fetch=True):
 def check_record_programs(target, record, registry, overrides):
     """For just install --check: print each program that the profiles, tools and roles of the record need and that
     is missing. True when one is missing. A profile or role without a clone is not checked, and --check clones
-    nothing."""
+    nothing. In CI, a program with each_clone is not checked: it is a setup of each clone, such as a git hook."""
     record = record if isinstance(record, dict) else {}
     found, missing, covered = clone_programs(target, record, registry, overrides)
     # The programs of the record join them: a clone of the project, as in CI, has no clone of a package, and the
@@ -1180,9 +1186,14 @@ def check_record_programs(target, record, registry, overrides):
     merge_programs(found, [{'name': name, 'check': program['check'], 'owner': owner, 'description':
                             f'Install it, or run just install, so that {program["check"]} works.',
                             **({'version': floor} if floor else {}),
-                            **({'expect': program['expect']} if program.get('expect') else {})}
+                            **({'expect': program['expect']} if program.get('expect') else {}),
+                            **({'each_clone': True} if program.get('each_clone') else {})}
                            for name, program in saved.items() for owner, floor in program['owners'].items()
                            if owner not in covered])
+    if in_ci():
+        # The record counts too: an older clone of a package may not mark the program yet.
+        each = {name for name, program in saved.items() if program.get('each_clone')}
+        found = [entry for entry in found if not entry.get('each_clone') and entry['name'] not in each]
     for entry in found:
         problem = program_problem(target, entry)
         if problem is None:
