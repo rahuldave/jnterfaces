@@ -319,7 +319,9 @@ of a dependency group goes, the installer takes out the empty group.
 - **`--answer KEY=VALUE`** answers a setup question and saves the answer.
   The next section lists the questions.
 - **`--ask`** asks again, even when the project has saved choices.
-- **`--update`** runs `git pull --ff-only` in each clone first.
+- **`--update`** first fast-forwards each package clone that the run uses.
+  It does not change a clone with uncommitted changes, or a clone on another
+  branch. [The stack guide](docs/stack-guide.md) gives the rules.
 - **`--clone NAME=DIR`** uses one clone in another folder.
 - **`--clean`** installs the last commit of each clone, without uncommitted
   changes. **`--dry-run`** checks everything and writes nothing in the

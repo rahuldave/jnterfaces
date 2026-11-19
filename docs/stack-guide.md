@@ -168,9 +168,32 @@ The installer runs these steps:
 
 A later `just install` with no names installs the same set again, from the
 clones as they are. To get new commits of the packages, run `just install
---update`. It pulls the jnterfaces clone and the clone of each package that
-the run installs. It skips a clone with no upstream branch, and it prints
-"Not updated". The installer writes a config file of a tool, for example
+--update`. It pulls the jnterfaces clone. Then it fast-forwards the clone of
+each package that the run uses. The run uses the profiles, the roles that it
+installs, and the roles that it removes.
+
+The clones are in `SKILL_PACKAGES_DIR`, else next to the jnterfaces clone. A
+`--clone NAME=DIR` clone is updated too. The installer never discards a local
+change:
+
+- **A clone with uncommitted changes** stops the run. The message names the
+  clone, and the installer writes nothing in the project. An untracked or ignored file
+  where the new commits add a file or a folder stops the run too.
+- **A clone that cannot fast-forward** stops the run in the same way. A clone
+  cannot fast-forward when its branch has commits that the remote branch does
+  not have.
+- **A clone on a branch that is not the default branch** of its remote stays on
+  its branch. The installer prints "Not updated" and the name of the branch,
+  and it does not switch the branch.
+- **A clone on no branch, or on a branch with no upstream branch**, stays as it
+  is. The installer prints "Not updated". A clone that does not know the default
+  branch of its remote stays as it is too. The message gives the command that
+  sets the default branch.
+
+The installer updates the profile clones first, and then the role clones. A
+role clone that stops the run does not undo the update of the profile clones.
+
+The installer writes a config file of a tool, for example
 `ruff.toml`, when the project has none. It takes the file out with its tool
 only when nobody changed it.
 

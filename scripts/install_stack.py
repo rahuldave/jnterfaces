@@ -1740,15 +1740,100 @@ def head_of(clone):
         raise StackError(f'--clean needs a Git clone with a commit: {clone}')
 
 
-def update(clone):
-    """Pull a clone that follows a branch upstream. A clone without an upstream stays as it is."""
-    upstream = subprocess.run(['git', '-C', str(clone), 'rev-parse', '--abbrev-ref', '@{upstream}'], capture_output=True)
-    if upstream.returncode:
-        print(f'Not updated: {clone} follows no upstream branch', file=sys.stderr)
-        return
-    run = subprocess.run(['git', '-C', str(clone), 'pull', '--ff-only', '--quiet'], capture_output=True, text=True)
-    if run.returncode:
-        raise StackError(f'Cannot update {clone} with git pull --ff-only: {run.stderr.strip()}')
+def git_out(clone, *args):
+    """The output of a git command in a clone, or None when it fails."""
+    run = subprocess.run(['git', '-C', str(clone), *args], capture_output=True, text=True)
+    return run.stdout.strip() if run.returncode == 0 else None
+
+
+def ignored_in_the_way(clone):
+    """The ignored files of a clone that a fast-forward to its upstream would overwrite or delete: a file at a path
+    that the new commits add, at a folder of such a path, or in a folder where the new commits add a file."""
+    added = [path for path in (git_out(clone, 'diff', '--name-only', '-z', '--no-renames', '--diff-filter=A', 'HEAD',
+                                       '@{upstream}') or '').split('\0') if path]
+    if not added:
+        return []
+    ignored = [path for path in (git_out(clone, 'ls-files', '-z', '--others', '--ignored', '--exclude-standard')
+                                 or '').split('\0') if path]
+    fold = str.casefold if git_out(clone, 'config', '--bool', 'core.ignorecase') == 'true' else str
+    folded = {fold(path) for path in added}
+    kept = []
+    for path in ignored:
+        key = fold(path)
+        prefixes = [key[:i] for i, char in enumerate(key) if char == '/']
+        if (key in folded or any(other.startswith(key + '/') for other in folded)
+                or any(prefix in folded for prefix in prefixes)):
+            kept.append(path)
+    return kept
+
+
+def update_clones(clones):
+    """Bring each clone of a package up to date with git fetch and a fast-forward merge, for just install --update.
+    A clone that is on no branch, has no upstream branch, or is on a branch other than the default branch of its
+    remote, stays as it is, and the run names it. A clone with changes that are not committed, or one that cannot
+    fast-forward, stops the run before a clone of this call changes, and nothing is written. Return the names of the clones that
+    were checked."""
+    problems, merges = [], []
+    for name, clone in clones.items():
+        if git_out(clone, 'rev-parse', '--git-dir') is None:
+            print(f'Not updated: the {name} clone {clone} is not a Git clone', file=sys.stderr)
+            continue
+        branch = git_out(clone, 'symbolic-ref', '--quiet', '--short', 'HEAD')
+        upstream = git_out(clone, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}')
+        if branch is None or not upstream:
+            where = 'is on no branch' if branch is None else f'has the branch {branch}, which follows no upstream branch'
+            print(f'Not updated: the {name} clone {clone} {where}', file=sys.stderr)
+            continue
+        remote = git_out(clone, 'config', f'branch.{branch}.remote')
+        default = git_out(clone, 'symbolic-ref', '--quiet', '--short', f'refs/remotes/{remote}/HEAD') if remote else None
+        if remote != '.' and not default:
+            print(f'Not updated: the {name} clone {clone} does not know the default branch of its remote {remote}. '
+                  f'Run git -C {shlex.quote(str(clone))} remote set-head {remote} --auto, then run just install '
+                  f'--update again', file=sys.stderr)
+            continue
+        if default and upstream != default:
+            print(f'Not updated: the {name} clone {clone} is on the branch {branch}, not on the default branch '
+                  f'{default.partition("/")[2]}. The installer does not switch it.', file=sys.stderr)
+            continue
+        if git_out(clone, 'status', '--porcelain', '--untracked-files=no'):
+            problems.append(f'the {name} clone {clone} has changes that are not committed. Commit them or put '
+                            f'them away')
+            continue
+        fetch = subprocess.run(['git', '-C', str(clone), 'fetch', '--quiet'], capture_output=True, text=True)
+        if fetch.returncode:
+            problems.append(f'git fetch failed in the {name} clone {clone}: {fetch.stderr.strip()}')
+            continue
+        if git_out(clone, 'merge-base', '--is-ancestor', '@{upstream}', 'HEAD') is not None:
+            continue
+        if git_out(clone, 'merge-base', '--is-ancestor', 'HEAD', '@{upstream}') is None:
+            problems.append(f'the {name} clone {clone} cannot fast-forward to {upstream}: the branch {branch} has '
+                            f'commits that {upstream} does not have. Merge or rebase it by hand')
+            continue
+        # git checks the files that are not tracked, as the merge would, and changes nothing.
+        trial = subprocess.run(['git', '-C', str(clone), 'read-tree', '-n', '-m', '-u', 'HEAD', '@{upstream}'],
+                               capture_output=True, text=True)
+        if trial.returncode:
+            problems.append(f'the {name} clone {clone} cannot fast-forward to {upstream}, because of local files: '
+                            f'{" ".join(trial.stderr.split())}')
+            continue
+        # The merge would overwrite or delete an ignored file where the new commits add a file or a folder.
+        kept = ignored_in_the_way(clone)
+        if kept:
+            problems.append(f'the {name} clone {clone} has ignored files where the new commits add files: '
+                            f'{", ".join(kept)}. Move them away')
+            continue
+        merges.append((name, clone))
+    if problems:
+        raise StackError('just install --update stops, and nothing was written in the project. Fix each clone, then '
+                         'run just install --update again:\n  ' + '\n  '.join(problems))
+    for name, clone in merges:
+        run = subprocess.run(['git', '-C', str(clone), 'merge', '--ff-only', '--quiet', '@{upstream}'],
+                             capture_output=True, text=True)
+        if run.returncode:
+            raise StackError(f'Cannot fast-forward the {name} clone {clone}: {run.stderr.strip()}. Nothing was '
+                             f'written.')
+        print(f'Updated the {name} clone {clone}', file=sys.stderr)
+    return set(clones)
 
 
 def run_installer(clone, options, target, head, dry_run, quiet=False):
@@ -3151,7 +3236,7 @@ def main(argv=None):
     parser.add_argument('--clone', action='append', default=[], metavar='NAME=DIR',
                         help='use this clone of a package; default: a folder in SKILL_PACKAGES_DIR, else next to '
                              'the jnterfaces clone')
-    parser.add_argument('--update', action='store_true', help='git pull --ff-only each clone of a package first')
+    parser.add_argument('--update', action='store_true', help='fast-forward each clone of a package that the run uses first')
     parser.add_argument('--clean', action='store_true', help='install the committed HEAD of each clone')
     parser.add_argument('--dry-run', action='store_true', help='check everything and write nothing in the target')
     parser.add_argument('--check', action='store_true',
@@ -3215,6 +3300,12 @@ def main(argv=None):
     unknown_off = [name for name in split['profiles_off'] if name not in active]
     if unknown_off:
         print(f'The profile(s) {", ".join(unknown_off)} are not on, so there is nothing to remove.', file=sys.stderr)
+    # The profile clones are brought up to date first, so that their profile.json is read from the new commit.
+    updated = set()
+    if args.update:
+        updated = update_clones({registry_profiles[name]['package']: clone_dir(
+            {'name': registry_profiles[name]['package'], 'repository': registry_profiles[name]['repository']},
+            overrides) for name in active})
     profiles = load_profiles(active, registry_profiles, choices, overrides)
     defaults = {name: bool(entry.get('default')) for name, entry in choices.items()}
     for name in active:
@@ -3313,9 +3404,7 @@ def main(argv=None):
     clones.update({profiles[name]['package']['name']: profiles[name]['root'] for name in active})
     print(f'The package clones are in {packages_dir()}; set SKILL_PACKAGES_DIR to use another folder.', file=sys.stderr)
     if args.update:
-        for name, clone in clones.items():
-            if name != 'jnterfaces':
-                update(clone)
+        update_clones({name: clone for name, clone in clones.items() if name != 'jnterfaces' and name not in updated})
     heads = {name: head_of(clone) for name, clone in clones.items()} if args.clean else {}
     # A package that requires a version of another package stops the run here, before anything is written.
     check_requires([p for p, _ in steps], {p['name']: clones[p['name']] for p, _ in steps}, heads)

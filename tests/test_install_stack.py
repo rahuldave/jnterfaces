@@ -2574,6 +2574,162 @@ sys.exit(run.returncode)
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertTrue((self.target / '.agents/skills/lanes/NEW.md').is_file())
 
+    def cloned_package(self, name):
+        """Make the clone of a package in the packages folder a clone of an origin repository, as a clone from GitHub
+        is. Return the origin."""
+        origin = self.base / f'origin-{name}'
+        shutil.move(self.packages / name, origin)
+        git(self.base, 'clone', '-q', str(origin), str(self.packages / name))
+        return origin
+
+    def test_update_fast_forwards_each_package_clone_of_the_stack(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        origin = self.cloned_package('nossaifd')
+        (origin / '.agents/skills/nossaifd/NEW.md').write_text('new\n')
+        commit(origin)
+        run = self.stack('--defaults', '--update')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(f'Updated the nossaifd clone {(self.packages / "nossaifd").resolve()}', run.stderr)
+        self.assertEqual(git(self.packages / 'nossaifd', 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'HEAD'))
+        self.assertTrue((self.target / '.agents/skills/nossaifd/NEW.md').is_file())
+
+    def test_update_reads_the_new_profile(self):
+        self.assertEqual(self.stack('--defaults', '--profile', 'python').returncode, 0)
+        origin = self.cloned_package('jnprofile-python')
+        (origin / '.agents/just/python/base.just').write_text('# The base of python\nsetup:\n    @echo newer\n')
+        commit(origin)
+        run = self.stack('--defaults', '--update')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('Updated the jnprofile-python clone', run.stderr)
+        self.assertIn('newer', (self.target / '.agents/just/python/base.just').read_text())
+
+    def test_update_stops_on_a_dirty_clone_and_writes_nothing(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        index = (self.target / '.agents/just/index.just').read_bytes()
+        origin = self.cloned_package('nossaifd')
+        (origin / '.agents/skills/nossaifd/NEW.md').write_text('new\n')
+        commit(origin)
+        clone = (self.packages / 'nossaifd').resolve()
+        before = git(clone, 'rev-parse', 'HEAD')
+        (clone / '.agents/skills/nossaifd/SKILL.md').write_text('my edit\n')
+        run = self.stack('--defaults', '--update')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn(f'the nossaifd clone {clone} has changes that are not committed', run.stderr)
+        self.assertEqual((self.target / '.agents/just/index.just').read_bytes(), index)
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), before)
+        self.assertEqual((clone / '.agents/skills/nossaifd/SKILL.md').read_text(), 'my edit\n')
+        self.assertFalse((self.target / '.agents/skills/nossaifd/NEW.md').exists())
+
+    def test_update_stops_on_an_untracked_file_that_the_new_commits_add(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        origin = self.cloned_package('nossaifd')
+        (origin / 'a.txt').write_text('origin\n')
+        commit(origin)
+        clone = (self.packages / 'nossaifd').resolve()
+        before = git(clone, 'rev-parse', 'HEAD')
+        (clone / 'a.txt').write_text('mine\n')
+        run = self.stack('--defaults', '--update')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertRegex(run.stderr, re.escape(f'the nossaifd clone {clone} cannot fast-forward to origin/') +
+                         r'\w+, because of local files')
+        self.assertIn('a.txt', run.stderr)
+        self.assertEqual((clone / 'a.txt').read_text(), 'mine\n')
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), before)
+
+    def test_update_keeps_an_ignored_file_where_the_new_commits_add_a_folder(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        origin = self.cloned_package('nossaifd')
+        (origin / 'notes').mkdir()
+        (origin / 'notes/r').write_text('origin\n')
+        commit(origin)
+        clone = (self.packages / 'nossaifd').resolve()
+        (clone / '.git/info/exclude').write_text('notes\n')
+        (clone / 'notes').write_text('precious\n')
+        run = self.stack('--defaults', '--update')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn(f'the nossaifd clone {clone} has ignored files where the new commits add files: notes',
+                      run.stderr)
+        self.assertEqual((clone / 'notes').read_text(), 'precious\n')
+
+    def test_update_reports_a_clone_that_does_not_know_its_default_branch(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        origin = self.cloned_package('nossaifd')
+        (origin / 'a.txt').write_text('origin\n')
+        commit(origin)
+        clone = (self.packages / 'nossaifd').resolve()
+        git(clone, 'remote', 'set-head', 'origin', '-d')
+        run = self.stack('--defaults', '--update')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(f'Not updated: the nossaifd clone {clone} does not know the default branch of its remote '
+                      'origin', run.stderr)
+        self.assertFalse((clone / 'a.txt').exists())
+
+    def test_update_keeps_an_ignored_file_in_a_folder_where_the_new_commits_add_a_file(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        origin = self.cloned_package('nossaifd')
+        (origin / 'notes').write_text('origin\n')
+        commit(origin)
+        clone = (self.packages / 'nossaifd').resolve()
+        (clone / '.git/info/exclude').write_text('notes/\n')
+        (clone / 'notes').mkdir()
+        (clone / 'notes/mine').write_text('precious\n')
+        run = self.stack('--defaults', '--update')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn(f'the nossaifd clone {clone} has ignored files where the new commits add files: notes/mine',
+                      run.stderr)
+        self.assertEqual((clone / 'notes/mine').read_text(), 'precious\n')
+
+    def test_update_follows_a_tracked_file_that_becomes_a_folder_and_a_case_rename(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        origin = self.cloned_package('nossaifd')
+        (origin / 'docs').write_text('a file\n')
+        (origin / 'x').mkdir()
+        (origin / 'x/index.md').write_text('x\n')
+        commit(origin)
+        clone = (self.packages / 'nossaifd').resolve()
+        git(clone, 'pull', '-q', '--ff-only')
+        git(origin, 'rm', '-q', 'docs')
+        (origin / 'docs').mkdir()
+        (origin / 'docs/index.md').write_text('a folder\n')
+        git(origin, 'mv', 'x/index.md', 'x/tmp')
+        git(origin, 'mv', 'x/tmp', 'x/Index.md')
+        commit(origin)
+        run = self.stack('--defaults', '--update')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'HEAD'))
+        self.assertEqual((clone / 'docs/index.md').read_text(), 'a folder\n')
+
+    def test_update_stops_on_a_clone_that_cannot_fast_forward(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        index = (self.target / '.agents/just/index.just').read_bytes()
+        origin = self.cloned_package('nossaifd')
+        (origin / 'a.txt').write_text('origin\n')
+        commit(origin)
+        clone = (self.packages / 'nossaifd').resolve()
+        (clone / 'b.txt').write_text('mine\n')
+        commit(clone)
+        mine = git(clone, 'rev-parse', 'HEAD')
+        run = self.stack('--defaults', '--update')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn(f'the nossaifd clone {clone} cannot fast-forward', run.stderr)
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), mine)
+        self.assertEqual((self.target / '.agents/just/index.just').read_bytes(), index)
+
+    def test_update_reports_a_clone_on_another_branch_and_keeps_it(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        origin = self.cloned_package('nossaifd')
+        git(origin, 'branch', 'work')
+        (origin / 'a.txt').write_text('origin\n')
+        commit(origin)
+        clone = (self.packages / 'nossaifd').resolve()
+        git(clone, 'fetch', '-q')
+        git(clone, 'checkout', '-q', '-b', 'work', '--track', 'origin/work')
+        run = self.stack('--defaults', '--update')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(f'Not updated: the nossaifd clone {clone} is on the branch work', run.stderr)
+        self.assertEqual(git(clone, 'symbolic-ref', '--short', 'HEAD'), 'work')
+        self.assertFalse((clone / 'a.txt').exists())
+
     def test_dry_run_writes_nothing(self):
         (self.target / 'pyproject.toml').write_text('')
         run = self.stack('--all', '--dry-run')
