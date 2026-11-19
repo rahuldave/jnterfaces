@@ -2562,8 +2562,8 @@ def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runn
     with jlog pass. The index leaves out each name in taken: the names of the project and of the roles. runnable
     holds the names in taken that are recipes. check depends only on a recipe, because just cannot depend on an
     alias or a module. check runs only the steps in check, the steps of just check for the answers of the setup
-    questions. ci runs ci-gate, then the steps in ci. A role with a commit gate defines ci-gate; without one, ci-gate
-    is a stub that says so. verifies holds the verify steps of each module, from the installed tools."""
+    questions. ci runs ci-gate, then the steps in ci. ci-gate is a step of check too. A role with a commit gate
+    defines ci-gate; without one, ci-gate is a no-op step that logs a skip. verifies holds the verify steps of each module, from the installed tools."""
     lines = [HEADER, '# The recipes of the profiles and roles of this project. .agents/install.just imports this file.',
              '']
     if full and shell:
@@ -2620,11 +2620,8 @@ def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runn
         steps = [step for step in STEPS if step in check and (step in real or step in runnable)]
         lines += ['', '# Everything a commit must pass: each step, then the pass of jlog for the worktree',
                   f'check: {" ".join(steps)}', '    jlog pass']
-    if 'ci-gate' not in taken:
-        lines += ['', '# No role of this repository has a commit gate, so CI has no trailers to check', 'ci-gate:',
-                  '    @echo "ci-gate: no commit gate in this repository"']
     if 'ci' not in taken:
-        listed = [step for step in ci if step in real or step in runnable]
+        listed = [step for step in ci if step != 'ci-gate' and (step in real or step in runnable)]
         lines += ['', '# What CI checks: the trailers of the commit gate, then the steps of the list ci of '
                   '.agents/stack.json', f'ci: {" ".join(["ci-gate", *listed])}']
     return '\n'.join(lines) + '\n'
@@ -3141,6 +3138,16 @@ def staged_recipes(target, profiles, modules, verifies, dry_run, generated, star
                              f'cannot read its names. just said: {just_error(target, just_dir / role)}. Nothing in '
                              f'.agents/just changed.')
     role_names = {name for dump in role_recipes.values() for name in names_of(dump)}
+    # The ci-gate of an older tasker role does not end with jlog step ci-gate, so jlog pass would fail on it. Then
+    # just check leaves it out until the role is updated, and just ci still runs it.
+    old_gates = [role for role, dump in role_recipes.items()
+                 if 'ci-gate' in ((dump or {}).get('recipes') or {})
+                 and not lint_steps.ends_well('ci-gate', dump['recipes']['ci-gate'])]
+    if old_gates and 'ci-gate' in check:
+        check = tuple(step for step in check if step != 'ci-gate')
+        out['steps'] = list(check)
+        say(f'The recipe ci-gate of {role_shown(old_gates[0])} does not end with jlog step ci-gate, so just check '
+            f'leaves out the step ci-gate. Update the role with just install --update.')
     for name in sorted(role_names & {recipe for module in kept for recipe in recipes.get(module, {})} & set(STEPS)):
         raise StackError(f'The recipe {name} is in a recipe file of a role and in a profile, so the role would hide '
                          f'the step of the profile. Take the role or the tool out. Nothing in .agents/just changed.')

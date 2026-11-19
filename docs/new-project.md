@@ -143,12 +143,12 @@ project with no code yet. A Rust project always has code, so first read
 `just check` runs the steps of the commit gates, in this order:
 
 ```text
-tools-check release-check fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
+tools-check release-check ci-gate fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
 ```
 
 A step fails when the change breaks a rule. The `prose` role gives
 `prose-check`, and the tasker role (agent_gest_git_skills) gives
-`release-check`. The installer gives `tools-check` and `diff-check`. A step that nothing gives
+`release-check` and `ci-gate`. The installer gives `tools-check` and `diff-check`. A step that nothing gives
 logs a skip. Each profile gives the steps of its installed tools, and the
 `test-paths` recipe:
 

@@ -262,7 +262,7 @@ Each tool of a profile has one recipe file, for example
 **The steps of just check.** `just check` runs these steps in every project:
 
 ```text
-tools-check release-check fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
+tools-check release-check ci-gate fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
 ```
 
 - **A combined step** ends with the line `jlog step NAME`, so the run log
@@ -290,8 +290,9 @@ tools-check release-check fmt-check lint typecheck test integration coverage-che
 `ci` of `.agents/stack.json`:
 
 - **`ci-gate`** comes from a role with a commit gate, such as `tasker`. It
-  checks that each commit of the pull request passed the gate. Without such
-  a role, `ci-gate` only says that there is no gate.
+  checks that each commit of the pull request passed the gate. It is a step
+  of `just check` too, so a commit without the trailer stops `just check` on
+  your machine. Without such a role, `ci-gate` is a step that logs a skip.
 - **The list `ci`** is yours to edit. Run `just install` after a change. Each
   name must be a step of `just check`, so CI never fails on a step that the
   gate did not see. The installer leaves out any other name, and says so.
