@@ -3424,7 +3424,111 @@ def staged_recipes(target, profiles, modules, verifies, dry_run, generated, star
     return None
 
 
+# The target of a real run, for unbreak_justfile.
+WRITING = {}
+
+
 def main(argv=None):
+    """Run the installer. A real run that stops with an error leaves no Justfile that the lines of the installer
+    break."""
+    WRITING.clear()
+    try:
+        return install_run(argv)
+    except StackError as exc:
+        note = unbreak_justfile(WRITING['target']) if 'target' in WRITING else None
+        if note:
+            raise StackError(f'{exc}\n{note}') from exc
+        raise
+
+
+def unbreak_justfile(target):
+    """Take the lines of the installer out of a Justfile that does not parse with them and parses without them, as
+    when a recipe of yours has the name of a recipe of a role: the run stopped, and just would not run any recipe.
+    The lines go from the block and from where you moved them; your own lines in the block stay where they are. The
+    record and the pending file forget the lines of the Justfile first, so that a later run adds the block again, and
+    does not count it as deleted by you. Return the note for the user, or None when the Justfile stays as it is."""
+    justfile = justfile_of(target)
+    text = justfile_text(justfile)
+    if text is None or not just_error(target, justfile):
+        return None
+    record = raw_record(target)
+    parts = record.get('parts') if isinstance(record.get('parts'), dict) else {}
+    claims = (move_justfile_parts(target, dict(parts)) or {}).get(justfile.name) or {}
+    moved = {line for line in (IMPORT_LINE, JLOG_LINE)
+             if isinstance(claims.get(line), dict) and claims[line].get('state') == 'added'}
+    bare = unblocked_text(text, moved)
+    if bare == text or text_error(target, bare):
+        # No line of the installer is there, or the Justfile does not parse without them either, so they are not the
+        # cause. The Justfile stays.
+        return None
+    try:
+        # A pending file that is not the installer's stays as it is: the next run names it.
+        pending = shared_files.read_pending(target)
+    except shared_files.SharedError:
+        pending = {}
+    try:
+        if any(name in parts for name in JUSTFILES):
+            for name in JUSTFILES:
+                parts.pop(name, None)
+            write_record(target, record)
+        if any(name in pending for name in JUSTFILES):
+            for name in JUSTFILES:
+                pending.pop(name, None)
+            if pending:
+                shared_files.save_pending(target, pending)
+            else:
+                (target / shared_files.PENDING).unlink(missing_ok=True)
+        data = justfile.read_bytes()
+        bom = '\ufeff'.encode() if data.startswith('\ufeff'.encode()) else b''
+        shared_files.write(justfile, bom + bare.encode('utf-8', errors='surrogateescape'))
+    except (OSError, StackError):
+        return None
+    return (f'{justfile.name} did not parse with the lines of the installer, so the installer took them out again, '
+            f'and {justfile.name} parses. Until they are back, just install does not run the installer. Fix what the '
+            f'message above names, then run the installer again: {install_command(["--target", str(target)])}')
+
+
+def unblocked_text(text, moved=()):
+    """The text of a Justfile without the lines of the installer: its block, with the begin and end comments, and the
+    lines in moved that you moved out of the block. A line of yours in the block stays in its place. The empty line
+    that the installer puts after a block at the start of the file goes with the block."""
+    style = shared_files.HASH
+    rows = shared_files.rows_of(text)
+    ours = (IMPORT_LINE, JLOG_LINE)
+    out, index = [], 0
+
+    def owner(pattern, row):
+        match = pattern.match(shared_files.bare(row))
+        return match.group(1) if match else None
+    while index < len(rows):
+        row = rows[index]
+        if owner(style.begin, row) == 'jnterfaces':
+            close = next((later for later in range(index + 1, len(rows))
+                          if owner(style.begin, rows[later]) or owner(style.end, rows[later])), None)
+            if close is not None and owner(style.end, rows[close]) == 'jnterfaces':
+                first = index + 1
+                if first < len(rows) and style.written.match(shared_files.bare(rows[first])):
+                    first += 1
+                kept = [inner for inner in rows[first:close]
+                        if shared_files.normal(shared_files.bare(inner)) not in ours]
+                top = index == 0
+                out.extend(kept)
+                index = close + 1
+                # One empty line after a block at the top is the installer's, unless the file had more than one.
+                if (top and not kept and index + 1 < len(rows) and not rows[index].strip()
+                        and rows[index + 1].strip()):
+                    index += 1
+                continue
+        if shared_files.normal(shared_files.bare(row)) in moved:
+            index += 1
+            continue
+        out.append(row)
+        index += 1
+    return ''.join(out)
+
+
+def install_run(argv=None):
+    """The body of main."""
     SAID.clear()
     RUNNER.clear()
     RESOLVED.clear()
@@ -3488,6 +3592,9 @@ def main(argv=None):
         if clash:
             print(clash)
         return 1 if gone or findings or missing or conflicts or clash else code
+    # A real run that stops leaves no Justfile that the lines of the installer break.
+    if not args.dry_run:
+        WRITING['target'] = target
     # jlog is the shell of each recipe in .agents/just, so a recipe fails without it.
     if not shutil.which('jlog'):
         raise StackError(f'jlog is not on PATH. Each recipe that just install writes runs through jlog, so install it '

@@ -103,6 +103,9 @@ The block stays this time. The name of a profile, such as `python`, also clashes
 that is on, such as `review`, `worktree-new` or `ci-gate` of the `tasker` role, or `prose-check` of the
 `prose` role. For these, the installer stops, writes nothing in `.agents/just`, and names the clash.
 
+If your `Justfile` does not parse with the block, the installer also takes the block out, so that your
+recipes still run. After the rename, run the `uv run` command of step 2 again.
+
 **The names that you can keep.** `.agents/just/index.just` leaves out each name that your `Justfile`
 has, so your recipe takes its place. These names are the recipes of the profiles, such as `setup`,
 `fmt`, `lint` and `test`, the steps of `just check` that no role gives, and `verify`, `check` and `ci`. For example, your
