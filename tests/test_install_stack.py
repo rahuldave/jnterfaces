@@ -3813,7 +3813,7 @@ class StepTests(StackTests):
         self.assertEqual(run.returncode, 0, run.stderr)
         index = self.index()
         self.assertIn('\nci: ci-gate\n', index)
-        self.assertIn('\nci-gate:\n    @echo "ci-gate: no commit gate in this repository"', index)
+        self.assertIn('\nci-gate:\n    jlog skip ci-gate "no commit gate in this repository"', index)
         record = self.target / '.agents/stack.json'
         saved = json.loads(record.read_text())
         saved['ci'] = ['test', 'lint', 'deploy']
@@ -3860,7 +3860,7 @@ class StepTests(StackTests):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn('lint in the project is an alias, a module, or a recipe that needs an argument', run.stderr)
         self.assertNotIn('does not parse', run.stderr)
-        self.assertIn('\ncheck: tools-check release-check fmt-check typecheck ', self.index())
+        self.assertIn('\ncheck: tools-check release-check ci-gate fmt-check typecheck ', self.index())
         self.assertEqual(self.just_in(self.target, '--summary').returncode, 0)
 
     def test_the_installer_stops_with_the_install_line_when_jlog_is_missing(self):
@@ -4207,12 +4207,52 @@ class StepTests(StackTests):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertNotIn('jlog skip release-check', self.index())
         self.assertEqual(self.saved()['provided_steps'], ['tools-check', 'release-check'])
-        self.assertIn('\ncheck: tools-check release-check fmt-check', self.index())
+        self.assertIn('\ncheck: tools-check release-check ci-gate fmt-check', self.index())
         commit(self.target)
         run = self.just_in(self.target, 'check')
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertIn('release ok', run.stdout)
         self.assertEqual([record['step'] for record in self.records(kind='step')], ['tools-check', 'release-check'])
+
+    def test_ci_gate_of_a_role_is_a_step_of_check_and_an_old_one_is_left_out(self):
+        # The tasker role gives ci-gate; the test role stands in for it here.
+        self.role('ci-gate:\n    @echo gate ok\n    jlog step ci-gate\n')
+        run = self.stack('prose', '--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('jlog skip ci-gate', self.index())
+        self.assertIn('ci-gate', self.saved()['provided_steps'])
+        self.assertIn('ci-gate', self.saved()['steps'])
+        self.assertIn('\ncheck: tools-check release-check ci-gate fmt-check', self.index())
+        self.assertIn('\nci: ci-gate\n', self.index())
+        commit(self.target)
+        run = self.just_in(self.target, 'check')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn('gate ok', run.stdout)
+        # A ci-gate listed in the key ci runs once.
+        record = self.target / '.agents/stack.json'
+        saved = json.loads(record.read_text())
+        saved['ci'] = ['ci-gate', 'lint']
+        record.write_text(json.dumps(saved))
+        self.assertEqual(self.stack('prose', '--defaults', '--without', 'tasker').returncode, 0)
+        self.assertIn('\nci: ci-gate lint\n', self.index())
+        # The ci-gate of an older role has no jlog step, so check leaves it out, and ci still runs it.
+        self.role('ci-gate:\n    @echo old gate\n')
+        run = self.stack('prose', '--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('does not end with jlog step ci-gate, so just check leaves out the step ci-gate', run.stderr)
+        self.assertIn('\ncheck: tools-check release-check fmt-check', self.index())
+        self.assertNotIn('ci-gate', self.saved()['steps'])
+        self.assertIn('\nci: ci-gate lint\n', self.index())
+        commit(self.target)
+        run = self.just_in(self.target, 'check')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
+    def test_a_ci_gate_of_the_project_without_jlog_step_is_named_by_the_lint(self):
+        (self.target / 'Justfile').write_text("import? '.agents/install.just'\n\nci-gate:\n    @echo mine\n")
+        run = self.stack('prose', '--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('The lint of steps: ci-gate', run.stderr)
+        self.assertIn('jlog step ci-gate', run.stderr)
 
     def test_a_jlog_run_in_a_file_that_the_justfile_imports_counts(self):
         (self.target / 'vars.just').write_text('export JLOG_RUN := "fixed"\n')
@@ -5412,7 +5452,7 @@ class VersionTests(StackTests):
         self.assertEqual(self.install().returncode, 0)
         index = (self.target / '.agents/just/index.just').read_text()
         self.assertIn('tools-check:\n    ' + install_stack.TOOLS_CHECK_LINE + '\n    jlog step tools-check', index)
-        self.assertIn('\ncheck: tools-check release-check fmt-check', index)
+        self.assertIn('\ncheck: tools-check release-check ci-gate fmt-check', index)
         self.assertEqual(self.saved()['steps'][0], 'tools-check')
         self.assertIn('tools-check', self.saved()['provided_steps'])
 
@@ -5512,7 +5552,7 @@ class VersionTests(StackTests):
         start = justfile.read_text()
         justfile.write_text(start + '\ncheck: lint\n    jlog pass\n')
         run = self.stack('--check', env={'FAKE_VERSIONS': str(self.versions)})
-        self.assertIn('check: it does not run tools-check, release-check, fmt-check', run.stdout)
+        self.assertIn('check: it does not run tools-check, release-check, ci-gate, fmt-check', run.stdout)
         # A check from before release-check, with the other steps, is named for that step alone.
         steps = ' '.join(step for step in STEPS if step != 'release-check')
         justfile.write_text(start + f'\ncheck: {steps}\n    jlog pass\n')

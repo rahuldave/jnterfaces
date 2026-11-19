@@ -27,13 +27,16 @@ IMPORTS = re.compile(r'''^import\??\s+['"](\./)?\.agents/install\.just['"]''', r
 # The steps of just check, in their order. integration comes before coverage-check, so that the gate of coverage reads
 # the reports of test and integration from the same run. tools-check comes first: a step fails in a confusing way when
 # a program is missing or too old. release-check comes next: the tasker role (agent_gest_git_skills) gives it, and it
-# checks offline that the next release tag will be valid.
-STEPS = ('tools-check', 'release-check', 'fmt-check', 'lint', 'typecheck', 'test', 'integration', 'coverage-check',
+# checks offline that the next release tag will be valid. ci-gate comes next: the tasker role gives it too, and it checks
+# that each commit since the base branch has the trailer of the commit gate. just ci runs it too, so CI runs only
+# steps of just check.
+STEPS = ('tools-check', 'release-check', 'ci-gate', 'fmt-check', 'lint', 'typecheck', 'test', 'integration', 'coverage-check',
          'docstring-check', 'docs-check', 'prose-check', 'diff-check')
 # The reason that a no-op step logs with jlog skip.
 REASONS = {
     'tools-check': 'no tools check in this repository',
     'release-check': 'no release check in this repository',
+    'ci-gate': 'no commit gate in this repository',
     'fmt-check': 'no format checker in this repository',
     'lint': 'no linter in this repository',
     'typecheck': 'no type checker in this repository',

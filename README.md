@@ -228,17 +228,18 @@ In a project that jnterfaces started, with its starter Justfile:
   project with no language, `just check` passes.
 - **`just ci`** is what CI checks. It runs `ci-gate`, then the steps in the
   list `ci` of `.agents/stack.json`. A role with a commit gate gives
-  `ci-gate`, which checks the trailer of the gate on each commit. Each step in
-  the list must be a step of `just check`, so CI checks only a part of it. The
-  list is empty at first.
+  `ci-gate`, which checks the trailer of the gate on each commit. `ci-gate` is
+  a step of `just check` too, and each step in the list must be a step of
+  `just check`. So CI checks only a part of `just check`. The list is empty
+  at first.
 
 **The steps of just check.** `just check` runs these steps, in this order:
 
 ```text
-tools-check release-check fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
+tools-check release-check ci-gate fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
 ```
 
-The `prose` role gives `prose-check`, the tasker role (agent_gest_git_skills) gives `release-check`, and the installer gives `tools-check` and `diff-check`. `tools-check` checks that each program of `.agents/stack.json` is there, at its version floor.
+The `prose` role gives `prose-check`, the tasker role (agent_gest_git_skills) gives `release-check` and `ci-gate`, and the installer gives `tools-check` and `diff-check`. An older tasker role whose `ci-gate` does not end with `jlog step ci-gate` stays out of `just check`, and the installer says to update it. `tools-check` checks that each program of `.agents/stack.json` is there, at its version floor.
 Each profile gives the steps of its installed tools:
 
 | Profile | Steps | `test-paths` |

@@ -128,7 +128,7 @@ the Justfile.
 this order, in every project:
 
 ```text
-tools-check release-check fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
+tools-check release-check ci-gate fmt-check lint typecheck test integration coverage-check docstring-check docs-check prose-check diff-check
 ```
 
 `references/command_contract.md` gives the meaning of each step. The rules
