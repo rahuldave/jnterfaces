@@ -1341,6 +1341,140 @@ class StackTests(unittest.TestCase):
         self.assertEqual(self.just_in_target('prose').stdout.strip(), 'mine')
         self.assertEqual(self.just_in_target('install', '--help').returncode, 0)
 
+    def parses(self):
+        return subprocess.run(['just', '--justfile', self.target / 'Justfile', '--summary'], capture_output=True,
+                              text=True).returncode == 0
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_role_recipe_that_you_add_later_stops_the_run_and_the_block_goes_so_the_justfile_parses(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        justfile.write_text(justfile.read_text() + 'prose:\n    @echo mine\n')
+        self.assertFalse(self.parses())
+        run = self.stack()
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertIn('The recipe prose is in Justfile and in the recipe file of a role', run.stderr)
+        self.assertIn('so the installer took them out again, and Justfile parses', run.stderr)
+        self.assertIn('then run the installer again: uv run --script ', run.stderr)
+        self.assertTrue(self.parses())
+        self.assertEqual(justfile.read_text(), 'x:\n    @echo x\nprose:\n    @echo mine\n')
+        self.assertEqual(self.just_in_target('prose').stdout.strip(), 'mine')
+        self.assertNotIn('Justfile', self.saved()['parts'])
+        self.assertFalse((self.target / '.agents/stack-pending.json').exists())
+        # After the rename, the run adds the block again: the installer took it out, so it is not declined.
+        justfile.write_text('x:\n    @echo x\nmy-prose:\n    @echo mine\n')
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('# begin lines of jnterfaces', justfile.read_text())
+        self.assertIn('prose', self.just_in_target('--summary').stdout.split())
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_renamed_justfile_gets_the_block_again_after_the_installer_took_it_out(self):
+        (self.target / 'justfile').write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        (self.target / 'justfile').rename(self.target / 'tmp.just')
+        (self.target / 'tmp.just').rename(self.target / 'Justfile')
+        justfile = self.target / 'Justfile'
+        justfile.write_text(justfile.read_text() + 'prose:\n    @echo mine\n')
+        self.assertEqual(self.stack().returncode, 1)
+        self.assertTrue(self.parses())
+        self.assertFalse(any(name in self.saved()['parts'] for name in ('justfile', 'Justfile', '.justfile')))
+        justfile.write_text('x:\n    @echo x\nmy-prose:\n    @echo mine\n')
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('declined', run.stderr)
+        self.assertIn('# begin lines of jnterfaces', justfile.read_text())
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_your_lines_in_the_block_and_your_empty_lines_stay_when_the_installer_takes_its_lines_out(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('\n\nx:\n    @echo x\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        text = justfile.read_text()
+        justfile.write_text(text.replace("import? '.agents/install.just'\n",
+                                         "import? '.agents/install.just'\nmyvar := \"keep\"\n")
+                            + 'prose:\n    @echo mine\n')
+        self.assertEqual(self.stack().returncode, 1)
+        self.assertTrue(self.parses())
+        after = justfile.read_text()
+        self.assertIn('myvar := "keep"', after)
+        self.assertNotIn('.agents/install.just', after)
+        self.assertNotIn('begin lines of jnterfaces', after)
+        self.assertTrue(after.endswith('\n\nx:\n    @echo x\nprose:\n    @echo mine\n'), after)
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_an_import_line_that_you_moved_out_of_the_block_goes_too_when_the_justfile_does_not_parse(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        text = justfile.read_text().replace("import? '.agents/install.just'\n", '')
+        justfile.write_text(text + "import? '.agents/install.just'\nprose:\n    @echo mine\n")
+        self.assertEqual(self.stack().returncode, 1)
+        self.assertTrue(self.parses())
+        self.assertEqual(justfile.read_text(), 'x:\n    @echo x\nprose:\n    @echo mine\n')
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_run_that_stops_before_it_writes_leaves_a_justfile_that_parses(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        justfile.write_text(justfile.read_text() + 'prose:\n    @echo mine\n')
+        run = self.stack('--clone', f'nossaifd={self.base / "nothere"}')
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertTrue(self.parses())
+        self.assertIn('so the installer took them out again', run.stderr)
+        self.assertNotIn('nothere', run.stderr.split('run the installer again:')[1])
+        # A pending file that is not the installer's stays, and the lines go all the same.
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack().returncode, 0)
+        justfile.write_text(justfile.read_text() + 'prose:\n    @echo mine\n')
+        (self.target / '.agents/stack-pending.json').write_text('nope')
+        self.assertEqual(self.stack().returncode, 1)
+        self.assertTrue(self.parses())
+        self.assertEqual((self.target / '.agents/stack-pending.json').read_text(), 'nope')
+        (self.target / '.agents/stack-pending.json').unlink()
+        # A dry run and --check write nothing.
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack().returncode, 0)
+        text = justfile.read_text() + 'prose:\n    @echo mine\n'
+        justfile.write_text(text)
+        self.stack('--dry-run')
+        self.stack('--check')
+        self.assertEqual(justfile.read_text(), text)
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_module_name_that_you_add_later_stops_the_run_and_the_justfile_parses(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack('--profile', 'python', 'prose').returncode, 0)
+        justfile.write_text(justfile.read_text() + 'python:\n    @echo mine\n')
+        run = self.stack()
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertIn('is the module of the python profile', run.stderr)
+        self.assertTrue(self.parses())
+        self.assertEqual(self.just_in_target('python').stdout.strip(), 'mine')
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_role_recipe_and_an_install_recipe_on_the_first_run_leave_a_justfile_that_parses(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('prose:\n    @echo mine\ninstall:\n    @echo mine\n')
+        run = self.stack('prose')
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertTrue(self.parses())
+        self.assertEqual(justfile.read_text(), 'prose:\n    @echo mine\ninstall:\n    @echo mine\n')
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_justfile_that_does_not_parse_without_the_block_either_keeps_the_block_when_a_run_stops(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        text = justfile.read_text() + 'prose:\n    @echo mine\ny:\n  @echo y\n z\n'
+        justfile.write_text(text)
+        run = self.stack()
+        self.assertEqual(justfile.read_text(), text)
+        self.assertNotIn('took the block out again', run.stderr)
+
     def test_a_dry_run_and_check_name_the_import_and_write_nothing(self):
         justfile = self.target / 'Justfile'
         justfile.write_text('x:\n    @echo x\n')
