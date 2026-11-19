@@ -441,8 +441,9 @@ The installer adds no block in these cases:
   does not add them again. To have them back, add the lines after the blocks.
 
 **A clash with the block.** The block imports `.agents/install.just`, which
-has the recipes `install` and `uninstall` and the variable `jn_copier`. A
-recipe of yours with one of these names makes the Justfile fail to parse.
+has the recipes `install`, `uninstall` and `env-lab`, and the variable
+`jn_copier`. A recipe of yours with one of these names makes the Justfile fail
+to parse.
 Then the installer takes the block out again. It names the clash, and it
 prints the lines to add by hand.
 
