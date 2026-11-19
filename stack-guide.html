@@ -502,8 +502,9 @@ yourself.</li>
 does not add them again. To have them back, add the lines after the blocks.</li>
 </ul>
 <p><strong>A clash with the block.</strong> The block imports <code>.agents/install.just</code>, which
-has the recipes <code>install</code> and <code>uninstall</code> and the variable <code>jn_copier</code>. A
-recipe of yours with one of these names makes the Justfile fail to parse.
+has the recipes <code>install</code>, <code>uninstall</code> and <code>env-lab</code>, and the variable
+<code>jn_copier</code>. A recipe of yours with one of these names makes the Justfile fail
+to parse.
 Then the installer takes the block out again. It names the clash, and it
 prints the lines to add by hand.</p>
 <p>The record keeps the hash of your Justfile, so the next run does not try
