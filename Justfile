@@ -66,7 +66,7 @@ tools-check:
     uv run --no-project --quiet --no-python-downloads --python '>=3.9' python .agents/tools_check.py --manifest skill-package.json
 
 # The release tags. scripts/release_tag.py is a copy of .agents/skills/gpa/scripts/release_tag.py of
-# agent_gest_git_skills at the commit e03015c. The job release of verify.yml runs just release on each push to main.
+# agent_gest_git_skills at the commit 26ef730. The job release of verify.yml runs just release on each push to main.
 release_tag := "uv run --no-project --quiet --no-python-downloads --python '>=3.9' python scripts/release_tag.py"
 
 # Tag HEAD with the next release vX.Y.Z by semver, push the tag and check it. Takes --dry-run first

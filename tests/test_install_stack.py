@@ -5145,7 +5145,13 @@ class FloorUnitTests(unittest.TestCase):
         program = {'check': 'gate --check-hooks', 'each_clone': True, 'owners': {'the tasker role': None}}
         line = tools_check.problem('hooks', program, lambda argv: (1, '', 'a\nb\nc\nthe config lacks the hooks\n'),
                                    lambda name: '/bin/gate')
-        self.assertIn('It said: b / c / the config lacks the hooks', line)
+        self.assertTrue(line.endswith('It said: b / c / the config lacks the hooks.'), line)
+        line = tools_check.problem('hooks', program, lambda argv: (1, '', 'commit-msg: there is no hook\n'),
+                                   lambda name: '/bin/gate')
+        self.assertTrue(line.endswith('It said: commit-msg: there is no hook.'), line)
+        line = tools_check.problem('hooks', program, lambda argv: (1, '', 'run just install.\n'),
+                                   lambda name: '/bin/gate')
+        self.assertTrue(line.endswith('It said: run just install.'), line)
         del program['each_clone']
         line = tools_check.problem('hooks', program, lambda argv: (1, '', 'the config lacks the hooks'),
                                    lambda name: '/bin/gate')
