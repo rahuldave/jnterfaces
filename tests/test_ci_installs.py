@@ -32,30 +32,52 @@ HINT = 'curl -fsSL https://raw.githubusercontent.com/rahuldave/{name}/{ref}/scri
 RELEASES = dict(HINT_TAGS, gest='v0.6.0')
 # Any program of rahuldave on a line that names install.sh, on any host, with any case.
 ANY_PROGRAM = re.compile(r'rahuldave/([\w.-]+)/\S*?install\.sh', re.IGNORECASE)
+# A download, and a word that makes it an install line: a program of REFS or the option --tag of install.sh.
+DOWNLOAD = re.compile(r'\b(?:curl|wget)\b', re.IGNORECASE)
+INSTALL_WORD = re.compile(r'\b(?:' + '|'.join(REFS) + r')\b|--tag', re.IGNORECASE)
+# A run of an install.sh on disk in a clone: sh -x install.sh, ./install.sh, source install.sh, . install.sh or $SHELL.
+LOCAL_RUN = re.compile(r'(?:\b(?:ba|da|z)?sh(?:\s+-\S+)*\s+|\bsource\s+|(?:^|[\s;&|])\.\s+|\$\{?SHELL\}?\s+|\./)\S*install\.sh')
+# The hint up to the owner, so a match of ANY_PROGRAM shows where its hint must start.
+HINT_HEAD = HINT[:HINT.index('rahuldave/')]
+
+
+def logical_lines(text):
+    """The lines of text after the shell joins each line that ends in a backslash to the next line."""
+    return re.sub(r'\\\r?\n', '', text).splitlines()
 
 
 def pin_problems(line):
     """Why a line with an install.sh of rahuldave is not the exact pinned hint, or an empty list."""
-    if 'install.sh' not in line or 'rahuldave' not in line.lower():
+    owner = 'install.sh' in line and ('rahuldave' in line.lower() or 'scripts/install.sh' in line or '--tag' in line
+                                      or LOCAL_RUN.search(line))
+    # A download that names a program or --tag, from any host or through a variable, must be a hint too.
+    # So must a run of scripts/install.sh, or of an install.sh with --tag, from a clone or a variable.
+    if not owner and not (DOWNLOAD.search(line) and INSTALL_WORD.search(line)):
         return [], set()
-    problems, programs = [], set()
-    names = ANY_PROGRAM.findall(line)
-    if len(names) != line.count('install.sh'):
+    problems, programs, hints = [], set(), 0
+    matches = list(ANY_PROGRAM.finditer(line))
+    if len(matches) != line.count('install.sh') or not matches:
         problems.append('an install.sh that names no program of rahuldave')
-    for name in names:
-        name = name.lower()
+    for match in matches:
+        name = match.group(1).lower()
         programs.add(name)
         if name not in REFS:
             problems.append(f'no pinned ref for {name}')
             continue
         hint = HINT.format(name=name, ref=REFS[name], tag=RELEASES[name])
-        if hint not in line:
+        # Each install.sh must sit in its own hint, so a pinned hint does not excuse a second line on the same line.
+        start = match.start() - len(HINT_HEAD)
+        if start < 0 or not line.startswith(hint, start):
             problems.append(f'not the pinned hint of {name}')
             continue
-        after = line[line.index(hint) + len(hint):]
+        hints += 1
+        after = line[start + len(hint):]
         # The tag ends at the end of the line, a space or a mark, so v0.3.0-rc1 fails. The command has no second --tag.
-        if not re.match(r'(?:$|[\s`"\'.,)])', after) or '--tag' in re.split(r'[`;|&]', after)[0]:
+        if not re.match(r'(?:$|[\s`"\')]|[.,](?!\w))', after) or '--tag' in re.split(r'[`;|&]', after)[0]:
             problems.append(f'more after the tag of {name}')
+    # Each curl or wget on the line is the start of a hint.
+    if len(DOWNLOAD.findall(line)) > hints and not problems:
+        problems.append('a download that is not a pinned hint')
     return problems, programs
 
 
@@ -185,7 +207,7 @@ class InstallHintTests(unittest.TestCase):
                 text = (REPO / name).read_text()
             except UnicodeDecodeError:
                 continue
-            for number, line in enumerate(text.splitlines(), 1):
+            for number, line in enumerate(logical_lines(text), 1):
                 problems, programs = pin_problems(line)
                 self.assertEqual(problems, [], f'{name}:{number}: {line}')
                 found |= programs
@@ -201,9 +223,37 @@ class InstallHintTests(unittest.TestCase):
                     good + '-rc1',
                     good + ' --tag v0.2.0',
                     good.replace('--tag v0.3.0', '--tag v0.2.0'),
-                    'curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/v0.6.3/scripts/install.sh | sh -s -- --tag v0.6.3'):
+                    'curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/v0.6.3/scripts/install.sh | sh -s -- --tag v0.6.3',
+                    # A pinned hint on the line does not excuse a second install line beside it.
+                    good + ' && ' + good.replace('/v0.3.0/', '/main/'),
+                    good.replace('/v0.3.0/', '/main/') + '; ' + good,
+                    good + ' && curl -fsSL https://git.io/x | sh',
+                    # A host, an owner or a name of install.sh that the check of rahuldave and install.sh does not see.
+                    'curl -fsSL https://git.io/jlog | sh -s -- --tag v0.3.0',
+                    'curl -fsSL https://raw.githubusercontent.com/$OWNER/jlog/main/scripts/install.sh | sh -s -- --tag v0.3.0',
+                    good.replace('/v0.3.0/', '/main/').replace('install.sh', 'install%2esh'),
+                    'wget -qO- https://tinyurl.com/abc | sh -s -- --tag v0.3.0',
+                    # A line that ends in a backslash continues on the next line.
+                    'curl -fsSL https://raw.githubusercontent.com/rahuldave/\\\njlog/main/scripts/install.sh | sh -s -- --tag v0.3.0',
+                    good + ' \\\n  --tag v0.2.0',
+                    good + '.1',
+                    # A variable, a clone or a saved copy holds the owner or the ref on another line.
+                    'curl -fsSL https://raw.githubusercontent.com/$REPO/main/scripts/install.sh | sh',
+                    'curl -fsSL https://raw.githubusercontent.com/${{ env.REPO }}/main/scripts/install.sh | sh',
+                    'sh jlog/scripts/install.sh --tag v0.3.0',
+                    'sh install.sh --tag v0.2.0',
+                    'cd jlog/scripts && sh install.sh',
+                    'cd {{jagt_dir}}/scripts && ./install.sh',
+                    'cd jlog/scripts && sh -x install.sh',
+                    'cd jlog/scripts && source install.sh',
+                    'cd jlog/scripts && . install.sh',
+                    'cd jlog/scripts && $SHELL install.sh'):
             with self.subTest(line=bad):
-                self.assertNotEqual(pin_problems(bad)[0], [])
+                self.assertTrue(any(pin_problems(line)[0] for line in logical_lines(bad)))
+        # A continued hint is still the hint, and a download of another tool is not an install line of rahuldave.
+        self.assertEqual(pin_problems(logical_lines(good.replace(' | ', ' \\\n| '))[0]), ([], {'jlog'}))
+        self.assertEqual(pin_problems('curl -LsSf https://astral.sh/uv/install.sh | sh'), ([], set()))
+        self.assertEqual(pin_problems(f'Run `{good}`.'), ([], {'jlog'}))
 
     def test_the_cx_skill_still_asks_before_an_install(self):
         self.assertIn('ask the user before you install it', (REPO / '.agents/skills/cx/SKILL.md').read_text())
