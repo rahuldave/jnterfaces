@@ -423,6 +423,28 @@ CI do not read `.zshrc`. So a recipe must not need a setting from it.
 - **The lab runs a failed recipe twice,** so use it on recipes that can run
   again.
 
+### When the Justfile does not parse
+
+`just install` is a recipe, so it cannot run when just cannot read the
+Justfile. This occurs, for example, when you remove a recipe that a recipe of
+the index uses, and just says ``Recipe `check` has unknown dependency `lint` ``.
+Run the installer itself in the folder of the project, the folder with
+`.agents/install.just`. It writes the index again for the recipes that the
+Justfile has now. In another folder, the command stops and writes nothing:
+
+```bash
+jn_dir="${JNTERFACES_DIR:-${SKILL_PACKAGES_DIR:-$HOME/.local/share/skill-packages}/jnterfaces}"
+if [ ! -f .agents/install.just ]; then
+    echo "Run this in the folder of the project, which has .agents/install.just" >&2; false
+elif [ -f "$jn_dir/scripts/install_stack.py" ] || git clone --quiet https://github.com/rahuldave/jnterfaces "$jn_dir"; then
+    uv run --script "$jn_dir/scripts/install_stack.py" --target .
+fi
+```
+
+Then run `just install --check`.
+[When a later edit breaks the Justfile](https://rahuldave.github.io/jnterfaces/stack-guide.html#how-the-recipes-arrive),
+in `docs/stack-guide.md`, gives each cause.
+
 ### copier
 
 `.agents/install.just` defines the variable `jn_copier`, which runs copier 9

@@ -2834,6 +2834,50 @@ class RecipeTests(unittest.TestCase):
         run = self.just('--evaluate', 'jn_copier')
         self.assertEqual(run.stdout, "uvx --from 'copier==9.*' copier")
 
+    def test_the_command_of_the_stack_guide_mends_a_justfile_that_lost_a_recipe_of_check(self):
+        # The project has its own lint, so check of the index depends on it. When the lint goes, the Justfile does not
+        # parse, just install cannot run, and the command of the section "When a later edit breaks the Justfile"
+        # writes the index again.
+        justfile = self.target / 'Justfile'
+        justfile.write_text("import? '.agents/install.just'\n\nlint:\n    @echo mine\n")
+        run = self.just('install', '--defaults', 'cx', JNTERFACES_DIR=str(self.jn))
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertRegex((self.target / '.agents/just/index.just').read_text(), r'\ncheck:.* lint ')
+        justfile.write_text("import? '.agents/install.just'\n")
+        run = self.just('install', JNTERFACES_DIR=str(self.jn))
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('unknown dependency `lint`', run.stderr)
+        guide = (REPO / 'docs/stack-guide.md').read_text()
+        section = guide[guide.index('**When a later edit breaks the Justfile.**'):]
+        command = re.search(r'```bash\n(.*?)\n```', section, re.S).group(1)
+        # The README gives the same command.
+        self.assertIn(f'```bash\n{command}\n```', (REPO / 'README.md').read_text())
+        # The command finds the clone as .agents/install.just does.
+        found = re.search(r'^jn_dir=(.*)$', command, re.M).group(1)
+        self.assertIn(f'dir={found}\n', (REPO / '.agents/install.just').read_text())
+        env = {key: value for key, value in os.environ.items() if key not in ('JNTERFACES_DIR', 'SKILL_PACKAGES_DIR')}
+        # In a folder of the project, the command stops before the installer, which would install a second project
+        # there.
+        (self.target / 'src').mkdir()
+        run = subprocess.run(['sh', '-c', command], cwd=self.target / 'src', capture_output=True, text=True,
+                             stdin=subprocess.DEVNULL, env=dict(env, JNTERFACES_DIR=str(self.jn)))
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('Run this in the folder of the project', run.stderr)
+        self.assertEqual(list((self.target / 'src').iterdir()), [])
+        # With no clone in SKILL_PACKAGES_DIR, the command clones jnterfaces. Git takes the clone of the test in place
+        # of GitHub.
+        fresh = self.base / 'fresh'
+        run = subprocess.run(['sh', '-c', command], cwd=self.target, capture_output=True, text=True,
+                             stdin=subprocess.DEVNULL,
+                             env=dict(env, SKILL_PACKAGES_DIR=str(fresh), GIT_CONFIG_COUNT='1',
+                                      GIT_CONFIG_KEY_0=f'url.{self.jn}.insteadOf',
+                                      GIT_CONFIG_VALUE_0='https://github.com/rahuldave/jnterfaces'))
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertTrue((fresh / 'jnterfaces/scripts/install_stack.py').is_file())
+        self.assertEqual(self.just('--summary').returncode, 0)
+        run = self.just('install', '--check', JNTERFACES_DIR=str(self.jn))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
     def test_the_folder_of_packages_comes_from_skill_packages_dir(self):
         env = {key: value for key, value in os.environ.items() if key != 'JNTERFACES_DIR'}
         run = subprocess.run(['just', 'install', '--defaults', 'cx'], cwd=self.target, capture_output=True, text=True,

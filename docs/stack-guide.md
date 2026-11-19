@@ -319,20 +319,31 @@ The installer stops, and changes nothing in `.agents/just`, in these cases:
   `lint`. The step of the profile would not run in `just check`.
 
 **When a later edit breaks the Justfile.** The index leaves out the names that
-the Justfile has when you run `just install`. Two later edits make the
+the Justfile has when you run `just install`. Three later edits make the
 Justfile stop parsing:
 
 - You add `set shell` to the Justfile. The index sets the shell too.
 - You add a recipe with the name of a recipe of the index, such as `lint`,
   and the Justfile does not have `set allow-duplicate-recipes`.
+- You remove a recipe of the Justfile that a recipe of the index uses. For
+  example, the Justfile has its own `lint`, so `check` of the index depends on
+  that `lint`. When you remove it, just gives the error
+  ``Recipe `check` has unknown dependency `lint` ``.
 
 Then `just install` cannot run, because just cannot read the Justfile, and
 `just install --check` fails. Run the installer itself in the folder of the
-project. It writes the index again without the new names. The command finds
-the clone of jnterfaces as `.agents/install.just` does:
+project, the folder with `.agents/install.just`. It writes the index again
+for the names that the Justfile has now. The command finds the clone of
+jnterfaces as `.agents/install.just` does, and clones it when it is missing.
+In another folder, the command stops and writes nothing:
 
 ```bash
-uv run --script "${JNTERFACES_DIR:-${SKILL_PACKAGES_DIR:-$HOME/.local/share/skill-packages}/jnterfaces}/scripts/install_stack.py" --target .
+jn_dir="${JNTERFACES_DIR:-${SKILL_PACKAGES_DIR:-$HOME/.local/share/skill-packages}/jnterfaces}"
+if [ ! -f .agents/install.just ]; then
+    echo "Run this in the folder of the project, which has .agents/install.just" >&2; false
+elif [ -f "$jn_dir/scripts/install_stack.py" ] || git clone --quiet https://github.com/rahuldave/jnterfaces "$jn_dir"; then
+    uv run --script "$jn_dir/scripts/install_stack.py" --target .
+fi
 ```
 
 The shell that you set must start with jlog, for example `set shell :=
