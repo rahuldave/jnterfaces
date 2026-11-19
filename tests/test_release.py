@@ -15,8 +15,8 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / 'scripts' / 'release_tag.py'
 WORKFLOW = ROOT / '.github' / 'workflows' / 'verify.yml'
-# The Git blob of release_tag.py at the commit fbf0837 of agent_gest_git_skills. A change of the copy comes from there.
-UPSTREAM_BLOB = '28294abb7175e6ee90970ed2e136536a18daca50'
+# The Git blob of release_tag.py at the commit e03015c of agent_gest_git_skills. A change of the copy comes from there.
+UPSTREAM_BLOB = '5830085f986ce05fc2c7dddb680e3e34263a2b1f'
 # A git hook sets these for the repository of the hook, and the scratch repository must not use them.
 HOOK_VARIABLES = ('GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_OBJECT_DIRECTORY')
 # Git with no config of the user, such as a signing key, and a fixed author.
@@ -142,7 +142,7 @@ class WorkflowTest(unittest.TestCase):
 class CopyTest(unittest.TestCase):
     def test_the_script_is_the_copy_of_upstream(self):
         blob = run(['git', 'hash-object', str(SCRIPT)], ROOT).stdout.strip()
-        self.assertEqual(blob, UPSTREAM_BLOB, 'scripts/release_tag.py differs from agent_gest_git_skills fbf0837')
+        self.assertEqual(blob, UPSTREAM_BLOB, 'scripts/release_tag.py differs from agent_gest_git_skills e03015c')
 
 
 class HookTest(unittest.TestCase):
