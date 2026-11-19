@@ -2368,7 +2368,7 @@ def import_verdict(target, justfile, text):
     # Before the first install, the project has no .agents/install.just, so the copy imports the one of jnterfaces.
     line = IMPORT_LINE
     if not (target / '.agents/install.just').is_file():
-        line = 'import? ' + json.dumps(str(ROOT / '.agents/install.just'))
+        line = 'import? ' + just_string(str(ROOT / '.agents/install.just'))
     error = text_error(target, line + '\n' + text)
     return ('clash', error) if error else (None, None)
 
@@ -2422,7 +2422,7 @@ def jlog_note(target):
 
 def justfile_note(target, record):
     """For just install --check: the note when the Justfile lacks the import of the recipe file and the record has no
-    line of it, or None."""
+    line of it, or None. A clash of names gets no note here: justfile_clash names it."""
     record = record if isinstance(record, dict) else {}
     justfile = justfile_of(target)
     text = justfile_text(justfile)
@@ -2433,11 +2433,6 @@ def justfile_note(target, record):
     parts = move_justfile_parts(target, record.get('parts') if isinstance(record.get('parts'), dict) else {})
     if isinstance(parts.get(justfile.name), dict) and IMPORT_LINE in parts[justfile.name]:
         return None
-    clash = record.get('justfile_clash')
-    if (isinstance(clash, dict) and isinstance(clash.get('error'), str)
-            and clash.get('hash') == hashlib.sha256(justfile.read_bytes()).hexdigest()):
-        return (f'{justfile.name} does not import .agents/install.just. A run of just install took the line out, '
-                f'because {justfile.name} did not parse with it. just said: {clash["error"]}')
     if text.startswith('#!'):
         return (f'{justfile.name} does not import .agents/install.just, and the installer does not add the line '
                 f'before its #! line. Add this line to it: {IMPORT_LINE}')
@@ -2446,9 +2441,124 @@ def justfile_note(target, record):
         return (f'{justfile.name} does not import .agents/install.just, and it does not parse, so the next just '
                 f'install adds no import. Fix it first. just said: {error}')
     if kind == 'clash':
-        return (f'{justfile.name} does not import .agents/install.just. The next just install adds the line '
-                f'{IMPORT_LINE} only if {justfile.name} still parses with it, and now it does not. just said: {error}')
+        # justfile_clash gives the message, and the check fails.
+        return None
     return f'{justfile.name} does not import .agents/install.just. The next just install adds the line {IMPORT_LINE}'
+
+
+def held_clash(target, clash):
+    """The clash of the record while it still holds: the Justfile has the hash of the record and still does not parse
+    with the import. Else None, so that the run tries the block again, for example after the recipe file changed."""
+    justfile = justfile_of(target)
+    text = justfile_text(justfile)
+    if not isinstance(clash, dict) or text is None or clash.get('hash') != hashlib.sha256(justfile.read_bytes()).hexdigest():
+        return None
+    return clash if recipe_file_error(target, text) and not just_error(target, justfile) else None
+
+
+def recipe_file_error(target, text):
+    """The error of just for a Justfile with this text and an import of the recipe file, or None when it parses. The
+    run writes the recipe file of this jnterfaces, so the test reads that one. The index leaves out each name of the
+    project, so it is not part of a clash. The line numbers of the error count one line more than the text."""
+    return text_error(target, 'import? ' + just_string(str(ROOT / '.agents/install.just')) + '\n' + text)
+
+
+def just_string(text):
+    """A just string of the text. A single-quoted string has no escapes, so a path such as /Users/José stays as it is.
+    A double-quoted one takes the escapes of just, which are not those of JSON: a letter outside ASCII stays as it
+    is."""
+    if "'" not in text and '\n' not in text:
+        return f"'{text}'"
+    return '"' + text.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n') + '"'
+
+
+def block_clash(target, parts):
+    """The error of just when the Justfile has the block, parses without it, and clashes with the recipe file of this
+    jnterfaces, as after an update that brings a recipe with a name of the project. Else None."""
+    text = justfile_text(justfile_of(target))
+    if (text is None or not has_block(text) or imports_install(text, own=False) or declined_import(target, parts)
+            or text_error(target, without_block(text))):
+        return None
+    return recipe_file_error(target, without_block(text))
+
+
+def declined_import(target, parts):
+    """Whether you deleted the block: the parts have the import, and the Justfile does not. No run adds it again."""
+    justfile = justfile_of(target)
+    text = justfile_text(justfile)
+    parts = move_justfile_parts(target, parts if isinstance(parts, dict) else {})
+    return (text is not None and not imports_install(text) and isinstance(parts.get(justfile.name), dict)
+            and IMPORT_LINE in parts[justfile.name])
+
+
+def clash_names(target, justfile, text):
+    """Each name of the Justfile that .agents/install.just has too, as a line such as 'the recipe install, on line 3
+    of Justfile'. The recipe file is the one of this jnterfaces, which the run writes. The names of the files that it
+    imports do not count: the index leaves out each name of the project."""
+    try:
+        rows = (ROOT / '.agents/install.just').read_text().split('\n')
+    except OSError:
+        return []
+    theirs = text_dump(target, '\n'.join(row for row in rows if not IMPORT_ROW.match(row))) or {}
+    own = text_dump(target, without_block(text)) or {}
+    callable_ = ('recipes', 'aliases', 'modules')
+    found = []
+    for name in sorted({n for key in callable_ for n in own.get(key) or {}}
+                       & {n for key in callable_ for n in theirs.get(key) or {}}):
+        kind = 'module' if name in (own.get('modules') or {}) else 'alias' if name in (own.get('aliases') or {}) \
+            else 'recipe'
+        found.append((kind, name, definition_of(target, justfile, name)))
+    for name in sorted(set(own.get('assignments') or {}) & set(theirs.get('assignments') or {})):
+        found.append(('variable', name, definition_of(target, justfile, name, variable=True)))
+    return [f'the {kind} {name}' + (f', on line {where[1]} of {shown(target, where[0])}' if where else '')
+            for kind, name, where in found]
+
+
+def clash_message(target, justfile, text, error, lead, command=None):
+    """The message of a Justfile that cannot take the block, because a name of it clashes with .agents/install.just.
+    lead starts it, such as 'just install failed'. error is what just said, for a clash without a name of the recipe
+    file. command is the command to run again, by default the command of this run as uv runs it."""
+    names = clash_names(target, justfile, text)
+    # Not the command as typed: after the block went, just install does not reach the installer.
+    command = command or install_command(sys.argv[1:])
+    if names:
+        found = (f'{justfile.name} has names that .agents/install.just has too, so {justfile.name} does not parse with '
+                 f'the block of the installer, which imports that file:\n' + ''.join(f'  - {name}\n' for name in names))
+        rename = 'Rename each one, for example the recipe install to setup, '
+    else:
+        found = (f'{justfile.name} does not parse with the block of the installer, which imports '
+                 f'.agents/install.just. just said: {error}\n')
+        rename = 'Rename the recipe or variable of yours that just names, '
+    return (f'{lead}: {justfile.name} has no block of the installer. {found}'
+            f'Until you rename them, just install does not run the installer. {rename}then run the same command '
+            f'again: {command}')
+
+
+def install_command(words):
+    """The command that runs this installer with these words, as the user can type it."""
+    return shlex.join(['uv', 'run', '--script', str(Path(__file__).resolve()), *words])
+
+
+def without_dry_run(words):
+    """The command of this run without --dry-run, for the dry run to name the real run. --dr is the shortest form
+    that the parser takes."""
+    return install_command([word for word in words if not (len(word) >= 4 and '--dry-run'.startswith(word))])
+
+
+def justfile_clash(target, record, lead='The next just install fails', command=None):
+    """For just install --check and the dry run: the clash message when the next just install would not add the
+    block because a name clashes, or None."""
+    record = record if isinstance(record, dict) else {}
+    justfile = justfile_of(target)
+    text = justfile_text(justfile)
+    if text is None or imports_install(text) or record.get('started') is True or text.startswith('#!'):
+        return None
+    if declined_import(target, record.get('parts')):
+        return None
+    kind, error = import_verdict(target, justfile, text)
+    if kind != 'clash':
+        return None
+    return clash_message(target, justfile, text, error, lead, command)
 
 
 CLAUDE_IMPORT = '@AGENTS.md'
@@ -2904,6 +3014,13 @@ IMPORT_ROW = re.compile(r'''^import\??[ \t]+(['"])(.+?)\1''')
 def defined_in(target, justfile, name, seen=None):
     """The file of the project that defines name, as a recipe, an alias or a module: the Justfile or a file that it
     imports. The search leaves out .agents/install.just and what it imports. None when no file has the line."""
+    found = definition_of(target, justfile, name, seen)
+    return found[0] if found is not None else None
+
+
+def definition_of(target, justfile, name, seen=None, variable=False):
+    """The file of the project that defines name and the number of the line, as (path, line), or None. With variable
+    True, the name is a variable, such as jn_copier := "...", else a recipe, an alias or a module."""
     seen = set() if seen is None else seen
     key = os.path.abspath(justfile)
     if key in seen or len(seen) > 50:
@@ -2912,18 +3029,22 @@ def defined_in(target, justfile, name, seen=None):
     text = source_text(Path(justfile))
     if text is None:
         return None
-    # A recipe line: the name, its parameters, which can have defaults such as v="1", then a colon that is not :=.
-    pattern = re.compile(rf'^(@?{re.escape(name)}(?=[\s:])(?![ \t]*:=)[^\n]*?:(?!=)|alias[ \t]+{re.escape(name)}[ \t]*:='
-                         rf'|mod\??[ \t]+{re.escape(name)}(?=[\s]|$))')
+    if variable:
+        pattern = re.compile(rf'^(export[ \t]+)?{re.escape(name)}[ \t]*:=')
+    else:
+        # A recipe line: the name, its parameters, which can have defaults such as v="1", then a colon that is not :=.
+        pattern = re.compile(rf'^(@?{re.escape(name)}(?=[\s:])(?![ \t]*:=)[^\n]*?:(?!=)|alias[ \t]+{re.escape(name)}'
+                             rf'[ \t]*:=|mod\??[ \t]+{re.escape(name)}(?=[\s]|$))')
     imports = []
-    for row in text.splitlines():
+    # just counts lines at each newline only, so the rows split there too.
+    for number, row in enumerate(text.split('\n'), 1):
         if pattern.match(row):
-            return Path(justfile)
+            return Path(justfile), number
         found = IMPORT_ROW.match(row)
         if found and not INSTALL_IMPORT.match(row.rstrip('\r')):
             imports.append(Path(os.path.dirname(key)) / os.path.expanduser(found.group(2)))
     for path in imports:
-        where = defined_in(target, path, name, seen)
+        where = definition_of(target, path, name, seen, variable)
         if where is not None:
             return where
     return None
@@ -3044,7 +3165,7 @@ def check_conflicts(target, record, registry_profiles, packages=()):
 
 
 def write_recipes(target, profiles, active, tools, dry_run, generated, started, known=(), roles=(), adding=False,
-                  out=None, check=STEPS, overlays=None):
+                  out=None, check=STEPS, overlays=None, blockless=False):
     """Write .agents/just: a module for each active profile with the recipes of its installed tools, and the index.
     A file that the user changed stays as it is. The installer builds the new files in a stage, a copy of .agents in
     a folder of the target, and checks them there: a copy of the Justfile that imports the stage must parse with
@@ -3055,6 +3176,8 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
     to the Justfile, so that the run does not tell the user to add it. out gets the steps and the provided steps for
     .agents/stack.json. check holds the steps of just check, for the answers of the setup questions. With dry_run,
     the run checks the same, and writes nothing; overlays then names the files that the clones put in .agents.
+    blockless is True when a clash of names takes the block out of the Justfile in this run: the checks then read
+    the Justfile without it.
     Return the error of just when the Justfile does not parse."""
     out = {} if out is None else out
     out['steps'] = list(check)
@@ -3082,13 +3205,13 @@ def write_recipes(target, profiles, active, tools, dry_run, generated, started, 
         return
     try:
         return staged_recipes(target, profiles, modules, verifies, dry_run, generated, started, known, roles, adding,
-                              out, check, stage)
+                              out, check, stage, blockless)
     finally:
         shutil.rmtree(stage, ignore_errors=True)
 
 
 def staged_recipes(target, profiles, modules, verifies, dry_run, generated, started, known, roles, adding, out, check,
-                   stage):
+                   stage, blockless=False):
     """The body of write_recipes, with the stage."""
     folder = target / RECIPES
     just_dir = stage / 'just'
@@ -3124,8 +3247,11 @@ def staged_recipes(target, profiles, modules, verifies, dry_run, generated, star
     text = justfile_text(justfile) if justfile is not None else None
     # A Justfile that jnterfaces did not start reads the index when it imports the recipe file: through the block of
     # the installer, or through a line of its own.
-    imported = started or (text is not None and imports_install(text))
     source = source_text(justfile) if justfile is not None else None
+    if blockless and text is not None:
+        text = without_block(text)
+        source = without_block(source) if source is not None else None
+    imported = started or (text is not None and imports_install(text))
     present = [role for role in roles if (just_dir / role).is_file()]
     roles = present if imported else []
     candidates = {index_text(kept, recipes, full=False), index_text({}, recipes, full=False)}
@@ -3348,6 +3474,7 @@ def main(argv=None):
         raw = raw_record(target)
         missing = check_record_programs(target, raw, args.registry, overrides)
         note = justfile_note(target, raw)
+        clash = justfile_clash(target, raw, command=install_command(['--target', str(target)]))
         notes, gone = generated_notes(target, raw)
         notes = [text for text in (note, jlog_note(target)) if text] + notes
         code = shared_files.check(target, read_parts(target), notes)
@@ -3358,7 +3485,9 @@ def main(argv=None):
         conflicts = check_conflicts(target, raw, registry[3], registry[0])
         for finding in conflicts:
             print(f'The next just install stops: {finding} {CONFLICT_FIX}')
-        return 1 if gone or findings or missing or conflicts else code
+        if clash:
+            print(clash)
+        return 1 if gone or findings or missing or conflicts or clash else code
     # jlog is the shell of each recipe in .agents/just, so a recipe fails without it.
     if not shutil.which('jlog'):
         raise StackError(f'jlog is not on PATH. Each recipe that just install writes runs through jlog, so install it '
@@ -3575,11 +3704,14 @@ def main(argv=None):
                 owned[key] = sorted(set(owned[key]) & present)
     commands = tool_steps(target, profiles, active, tools_add, tools_remove, tools, owned, args.dry_run)
 
+    # The clash of the record holds while the Justfile is as it was and still does not parse with the block. Then the
+    # run does not try the block again, and it fails at the end.
+    held = held_clash(target, (record or {}).get('raw', {}).get('justfile_clash'))
+
     def lines_now():
         # The lines of the installer in the Justfile, from the Justfile as it is now.
         return justfile_lines(target, bool((record or {}).get('started')) or state.get('started', False),
-                              state.get('clash', (record or {}).get('raw', {}).get('justfile_clash')),
-                              state.get('parts', parts))
+                              state.get('clash', held), state.get('parts', parts))
     state = {}
     for name in active:
         init = profiles[name].get('init')
@@ -3613,15 +3745,24 @@ def main(argv=None):
         dry_lines = lines_now()
         justfile = justfile_of(target)
         text = justfile_text(justfile)
-        if dry_lines and text is not None and not has_block(text) and not imports_install(text):
+        dry_clash = None
+        declined = declined_import(target, state.get('parts', parts))
+        early = block_clash(target, state.get('parts', parts))
+        if early:
+            # The block is there, and the recipe file of this jnterfaces clashes with a name: the real run takes the
+            # block out and fails.
+            dry_clash = clash_message(target, justfile, text, early, 'Dry run: the real run would fail',
+                                      without_dry_run(sys.argv[1:]))
+        if ((dry_lines or held) and text is not None and not declined and not has_block(text)
+                and not imports_install(text)):
             kind, error = import_verdict(target, justfile, text)
             if kind == 'broken':
                 dry_lines = {}
                 print(f'{justfile.name} does not parse, so the real run would add no import to it. just said: {error}')
             elif kind == 'clash':
                 dry_lines = {}
-                print(f'{justfile.name} does not parse with the line {IMPORT_LINE}, so the real run would add it only '
-                      f'if {justfile.name} still parses with it. just said: {error}')
+                dry_clash = clash_message(target, justfile, text, error, 'Dry run: the real run would fail',
+                                          without_dry_run(sys.argv[1:]))
         sync_files(target, profiles, [n for n in active if n not in leaving], tools, active, True, parts, roles,
                    gone_roles, unsure, migrating, after=after, justfile=dry_lines, dropped=dropped, started=starting)
         write_justfile(target, True, bool((record or {}).get('started')))
@@ -3630,8 +3771,9 @@ def main(argv=None):
             write_recipes(target, profiles, [n for n in active if n not in leaving], tools, True,
                           dict((record or {}).get('generated', {})), starting, registry_profiles,
                           [f'roles/{package["name"]}.just' for package, _ in steps]
-                          + ([DOCS_RECIPES] if chosen.get('docs') else []), bool(dry_lines), {}, check_steps(answers),
-                          package_overlays(steps, clones))
+                          + ([DOCS_RECIPES] if chosen.get('docs') else []), bool(dry_lines) or bool(dry_clash), {},
+                          check_steps(answers),
+                          package_overlays(steps, clones), blockless=bool(dry_clash))
         except StackError as exc:
             print(f'Dry run: the real run would stop here: {exc}')
             return 1
@@ -3640,6 +3782,9 @@ def main(argv=None):
             return 1
         if any(step[7] for step in commands):
             print('Dry run: the real run would fail at the steps above.')
+            return 1
+        if dry_clash:
+            print(dry_clash)
             return 1
         print('Dry run: ' + ', '.join(p['name'] for p, _ in steps) + f' would be installed in {target}'
               + (', and ' + ', '.join(p['name'] for p in removals) + ' removed' if removals else ''))
@@ -3663,9 +3808,9 @@ def main(argv=None):
     # The files that just install writes in .agents/just, with their hashes, and whether it wrote the Justfile. A
     # file is the installer's to change only while its hash is the recorded one.
     generated = dict((record or {}).get('generated', {}))
-    state.update(started=bool((record or {}).get('started')), parts=parts,
-                 clash=(record or {}).get('raw', {}).get('justfile_clash'))
+    state.update(started=bool((record or {}).get('started')), parts=parts, clash=held)
     state['adding'] = bool(lines_now())
+    state['early'] = block_clash(target, parts)
     # The keys that save writes. It keeps each other key of the record, so that it never drops one.
     managed = {'version', 'profiles', 'choices', 'tools', 'variants', 'owned_packages', 'added_packages',
                'pending_tools', 'removing_tools', 'removing_profiles', 'generated', 'started', 'parts',
@@ -3707,11 +3852,13 @@ def main(argv=None):
         if tests:
             record['tests'] = tests
         step_record = {}
+        clashing = bool(state['early']) or isinstance(state['clash'], dict)
         write_recipes(target, profiles, [name for name in kept_profiles if name not in leaving], tool_list, False,
                       generated, state['started'], registry_profiles,
                       [f'roles/{package["name"]}.just' for package, _ in steps]
-                      + ([DOCS_RECIPES] if chosen.get('docs') else []), state['adding'], step_record,
-                      check_steps(answers))
+                      + ([DOCS_RECIPES] if chosen.get('docs') else []),
+                      # A clash gets its message at the end of the run, so the index does not ask for the import.
+                      state['adding'] or clashing, step_record, check_steps(answers), blockless=clashing)
         # The steps of just check, and the steps that a profile or a role provides, for jlog pass.
         for key in ('steps', 'provided_steps'):
             if key in step_record or key in old:
@@ -3827,12 +3974,26 @@ def main(argv=None):
             before = None
             say(f'{justfile.name} does not parse, so the installer adds no import to it. Fix it, then run just '
                 f'install again. just said: {error}')
+        elif not imports_install(text) and not declined_import(target, parts) and recipe_file_error(target, text):
+            # A name of the Justfile clashes with the recipe file, so the block does not go in, and the run fails at
+            # the end. The run after the block went in, below, finds the clashes that only the index brings.
+            adding = {}
+            before = None
+            state['clash'] = {'hash': hashlib.sha256(justfile.read_bytes()).hexdigest(),
+                              'error': recipe_file_error(target, text)}
+    # The block is there, and the recipe file of this jnterfaces clashes with a name of the Justfile: the block goes
+    # before the recipes are written, so that no note counts its lines, and the run fails at the end.
+    early = state['early'] = block_clash(target, parts)
+    if early:
+        adding = {}
     state['parts'] = sync_files(target, profiles, [name for name in active if name not in leaving], tools, active,
                                 False, parts, roles, gone_roles, unsure, migrating, after=after, justfile=adding,
                                 dropped=dropped, started=state['started'])
     state['adding'] = False
     justfile = justfile_of(target)
     text = justfile_text(justfile)
+    if early and text is not None and not imports_install(text):
+        state['clash'] = {'hash': hashlib.sha256(justfile.read_bytes()).hexdigest(), 'error': early}
     added = justfile.read_bytes() if before is not None and text is not None else None
     # A clash of the record that the Justfile no longer matches is gone: the Justfile changed since.
     if isinstance(state['clash'], dict) and (text is None or state['clash'].get('hash')
@@ -3863,11 +4024,8 @@ def main(argv=None):
         # they were. Else the writer took out the block only.
         if untouched:
             shared_files.write(justfile, before)
+        # The run goes on, so that the other files are written, and fails at the end with the names of the clash.
         state['clash'] = {'hash': hashlib.sha256(justfile.read_bytes()).hexdigest(), 'error': error}
-        say(f'{justfile.name} does not parse with the block of the installer, which imports .agents/install.just, so '
-            f'the installer took the block out again. Rename the recipe or variable of the project that just names, '
-            f'then run just install again. just said: {error} (The line numbers count the {lines} lines of the block '
-            f'at the start of {justfile.name}.)')
         save(tools, [])
     shared_files.finish(target)
     if any(owner.key == 'docs' for owner in gone_roles):
@@ -3895,6 +4053,15 @@ def main(argv=None):
     print(f'Saved in {RECORD}. Run just install again without names to install the same set.')
     for note in generated_notes(target, raw_record(target))[0]:
         say(note)
+    # A Justfile that cannot take the block because of a clash of names fails the run, also when the record kept the
+    # clash from an earlier run: just install does not run the installer until the names change.
+    justfile = justfile_of(target)
+    text = justfile_text(justfile)
+    if isinstance(state['clash'], dict) and text is not None and not imports_install(text):
+        error = state['clash'].get('error') if isinstance(state['clash'].get('error'), str) else ''
+        print(clash_message(target, justfile, text, error, 'The install failed')
+              + ' The other files of the install are written.', file=sys.stderr)
+        return 1
     return 0
 
 

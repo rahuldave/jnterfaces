@@ -442,13 +442,15 @@ The installer adds no block in these cases:
 
 **A clash with the block.** The block imports `.agents/install.just`, which
 has the recipes `install`, `uninstall` and `env-lab`, and the variable
-`jn_copier`. A recipe of yours with one of these names makes the Justfile fail
-to parse.
-Then the installer takes the block out again. It names the clash, and it
-prints the lines to add by hand.
+`jn_copier`. A recipe or variable of yours with one of these names makes the
+Justfile fail to parse. Then the installer takes the block out again, writes
+the other files, and fails. At the end of its output, it names each name
+that clashes and its line in the Justfile. It tells you to rename each one,
+for example `install` to `setup`, and to run the same command again.
 
-The record keeps the hash of your Justfile, so the next run does not try
-again until you change the Justfile.
+The record keeps the hash of your Justfile. While the Justfile stays the
+same, the next run does not add the block again. That run fails too, and so
+does a run with `--check` or `--dry-run`.
 
 **The lint of steps.** A step that hides its lines from the run log can make
 a gate wrong. `just install` and `just install --check` name each step that

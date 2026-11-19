@@ -92,8 +92,11 @@ and the variable `jn_copier`. When your `Justfile` has one of these names, just 
 error: Recipe `install` first defined on line 7 is redefined on line 16
 ```
 
-Then the installer takes its block out again, and it tells you to rename your recipe. Your own `install`
-recipe stays, so `just install` still runs your old recipe and not the installer.
+Then the installer takes its block out again, and the run fails. The installer still writes the other
+files of the install. At the end of its output, it names each name that clashes and its line in your
+`Justfile`. Your own `install` recipe stays, so `just install` still runs your old recipe and not the
+installer. Each later run fails in the same way until you rename the recipe. A run with `--check` or
+`--dry-run` fails too.
 
 To fix it, rename your recipe, for example to `setup`. Then run the `uv run` command of step 2 again.
 The block stays this time. The name of a profile, such as `python`, also clashes. So does a recipe of a role
