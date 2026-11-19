@@ -21,7 +21,15 @@ install *args:
         mkdir -p "$(dirname "$dir")"
         git clone --quiet https://github.com/rahuldave/jnterfaces "$dir"
     fi
-    case " $* " in *" --update "*) git -C "$dir" pull --ff-only --quiet ;; esac
+    case " $* " in *" --update "*)
+        # --update moves the jnterfaces clone to its latest release tag first, with the checks of the package clones.
+        # An older clone that does not know --update-self gets the newest commit of its branch.
+        if grep -q -e '--update-self' "$dir/scripts/install_stack.py"; then
+            uv run --quiet --script "$dir/scripts/install_stack.py" --update-self
+        else
+            git -C "$dir" pull --ff-only --quiet
+        fi ;;
+    esac
     # The command as the user typed it, for .agents/stack-log.jsonl and the comments of the blocks in the line files.
     JNTERFACES_COMMAND="${JNTERFACES_COMMAND:-just install${*:+ $*}}"
     export JNTERFACES_COMMAND

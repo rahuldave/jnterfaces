@@ -912,8 +912,9 @@ def check_requires(packages, clones, heads):
             if found is None or found < wanted:
                 raise StackError(f'{package["name"]} requires {name} {floor}, but the clone of {name} at {clone} is '
                                  + (f'at {version}' if version else 'at no tag, so its version is not known')
-                                 + f'. Update that clone, for example with git pull --ff-only in {clone}, then run just '
-                                   f'install again. Nothing was written.')
+                                 + f'. Update that clone with just install --update, which moves it to its latest '
+                                   f'release. If that release is older than {floor}, check out a newer commit in {clone}, '
+                                   f'then run just install again. Nothing was written.')
 
 
 def role_before_remove(package, clone):
@@ -1757,11 +1758,11 @@ def git_out(clone, *args):
     return run.stdout.strip() if run.returncode == 0 else None
 
 
-def ignored_in_the_way(clone):
-    """The ignored files of a clone that a fast-forward to its upstream would overwrite or delete: a file at a path
-    that the new commits add, at a folder of such a path, or in a folder where the new commits add a file."""
+def ignored_in_the_way(clone, goal='@{upstream}'):
+    """The ignored files of a clone that a move to the commit goal would overwrite or delete: a file at a path that
+    goal adds, at a folder of such a path, or in a folder where goal adds a file."""
     added = [path for path in (git_out(clone, 'diff', '--name-only', '-z', '--no-renames', '--diff-filter=A', 'HEAD',
-                                       '@{upstream}') or '').split('\0') if path]
+                                       goal) or '').split('\0') if path]
     if not added:
         return []
     ignored = [path for path in (git_out(clone, 'ls-files', '-z', '--others', '--ignored', '--exclude-standard')
@@ -1778,13 +1779,43 @@ def ignored_in_the_way(clone):
     return kept
 
 
-def update_clones(clones):
-    """Bring each clone of a package up to date with git fetch and a fast-forward merge, for just install --update.
-    A clone that is on no branch, has no upstream branch, or is on a branch other than the default branch of its
-    remote, stays as it is, and the run names it. A clone with changes that are not committed, or one that cannot
-    fast-forward, stops the run before a clone of this call changes, and nothing is written. Return the names of the clones that
-    were checked."""
-    problems, merges = [], []
+def latest_release(clone, branch, remote=None):
+    """The highest release tag vX.Y.Z by semver that the commit branch contains, else None. A tag with another sign,
+    such as v1.0.0-rc1, is not a release. With a remote, a tag counts only when the remote has it too, so a tag that
+    exists only in the clone cannot win. A failed git ls-remote raises StackError."""
+    names = None
+    if remote and remote != '.':
+        listed = git_out(clone, 'ls-remote', '--tags', '--refs', remote)
+        if listed is None:
+            raise StackError(f'git ls-remote --tags {remote} failed in {clone}')
+        names = {line.rpartition('refs/tags/')[2] for line in (listed or '').splitlines()}
+    tags = [tag for tag in (git_out(clone, 'tag', '--merged', branch) or '').split()
+            if install_package.RELEASE_TAG.fullmatch(tag) and (names is None or tag in names)]
+    return max(tags, key=lambda tag: tuple(int(part) for part in tag[1:].split('.'))) if tags else None
+
+
+def lacks_update_self(clone, goal):
+    """Why the jnterfaces clone must not move to the commit goal: an installer there without --update-self would
+    fast-forward the package clones, and the next run would move the clone again. Else None."""
+    script = git_out(clone, 'show', f'{goal}:scripts/install_stack.py')
+    if script is not None and '--update-self' in script:
+        return None
+    return 'is older than the move to releases'
+
+
+def update_clones(clones, refuse=None):
+    """Move each clone of a package to its latest release, for just install --update. The latest release is the
+    highest release tag vX.Y.Z that the remote default branch contains. The clone keeps its branch, and the branch
+    moves to the commit of the tag, forward or back. A clone whose remote branch has no release tag fast-forwards to
+    the remote branch, and the run says so.
+    A clone that is on no branch, such as a clone at a tag or a commit that you checked out, has no upstream branch, or
+    is on a branch other than the default branch of its remote, stays as it is, and the run names it. So does a clone
+    with commits that the remote branch does not have, when the remote branch has all its own commits too. A clone
+    with changes that are not committed, or one whose branch and remote branch both have their own commits, stops the
+    run before a clone of this call changes, and nothing is written. refuse, when given, takes a clone and the commit
+    of its release, and returns why the clone must not move there, or None. Return the names of the clones that were
+    checked."""
+    problems, moves = [], []
     for name, clone in clones.items():
         if git_out(clone, 'rev-parse', '--git-dir') is None:
             print(f'Not updated: the {name} clone {clone} is not a Git clone', file=sys.stderr)
@@ -1792,7 +1823,8 @@ def update_clones(clones):
         branch = git_out(clone, 'symbolic-ref', '--quiet', '--short', 'HEAD')
         upstream = git_out(clone, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}')
         if branch is None or not upstream:
-            where = 'is on no branch' if branch is None else f'has the branch {branch}, which follows no upstream branch'
+            where = ('is on no branch, so it stays at the commit that you checked out' if branch is None
+                     else f'has the branch {branch}, which follows no upstream branch')
             print(f'Not updated: the {name} clone {clone} {where}', file=sys.stderr)
             continue
         remote = git_out(clone, 'config', f'branch.{branch}.remote')
@@ -1810,40 +1842,69 @@ def update_clones(clones):
             problems.append(f'the {name} clone {clone} has changes that are not committed. Commit them or put '
                             f'them away')
             continue
-        fetch = subprocess.run(['git', '-C', str(clone), 'fetch', '--quiet'], capture_output=True, text=True)
+        # --tags gets the tags of a clone made with --no-tags too, and --force gets a tag that moved on the remote.
+        fetch = subprocess.run(['git', '-C', str(clone), 'fetch', '--quiet', '--tags', '--force'], capture_output=True,
+                               text=True)
         if fetch.returncode:
             problems.append(f'git fetch failed in the {name} clone {clone}: {fetch.stderr.strip()}')
             continue
-        if git_out(clone, 'merge-base', '--is-ancestor', '@{upstream}', 'HEAD') is not None:
-            continue
         if git_out(clone, 'merge-base', '--is-ancestor', 'HEAD', '@{upstream}') is None:
+            if git_out(clone, 'merge-base', '--is-ancestor', '@{upstream}', 'HEAD') is not None:
+                print(f'Not updated: the branch {branch} of the {name} clone {clone} has commits that {upstream} '
+                      f'does not have. The installer keeps them.', file=sys.stderr)
+                continue
             problems.append(f'the {name} clone {clone} cannot fast-forward to {upstream}: the branch {branch} has '
                             f'commits that {upstream} does not have. Merge or rebase it by hand')
             continue
-        # git checks the files that are not tracked, as the merge would, and changes nothing.
-        trial = subprocess.run(['git', '-C', str(clone), 'read-tree', '-n', '-m', '-u', 'HEAD', '@{upstream}'],
+        try:
+            tag = latest_release(clone, '@{upstream}', remote)
+        except StackError as exc:
+            problems.append(f'the {name} clone {clone} cannot list the release tags of its remote: {exc}')
+            continue
+        if tag is None:
+            print(f'The {name} clone {clone} has no release tag on {upstream}, so it gets the newest commit of '
+                  f'{upstream}.', file=sys.stderr)
+        goal = git_out(clone, 'rev-parse', '--verify', f'{tag or "@{upstream}"}^{{commit}}')
+        if goal is None:
+            problems.append(f'the {name} clone {clone} cannot find the commit of {tag or upstream}')
+            continue
+        if goal == git_out(clone, 'rev-parse', 'HEAD'):
+            continue
+        reason = refuse(clone, goal) if refuse and tag else None
+        if reason:
+            print(f'Not updated: the {name} clone {clone} stays where it is, because the release {tag} {reason}',
+                  file=sys.stderr)
+            continue
+        where = f'the release {tag}' if tag else upstream
+        # git checks the files that are not tracked, as the move would, and changes nothing.
+        trial = subprocess.run(['git', '-C', str(clone), 'read-tree', '-n', '-m', '-u', 'HEAD', goal],
                                capture_output=True, text=True)
         if trial.returncode:
-            problems.append(f'the {name} clone {clone} cannot fast-forward to {upstream}, because of local files: '
+            problems.append(f'the {name} clone {clone} cannot move to {where}, because of local files: '
                             f'{" ".join(trial.stderr.split())}')
             continue
-        # The merge would overwrite or delete an ignored file where the new commits add a file or a folder.
-        kept = ignored_in_the_way(clone)
+        # The move would overwrite or delete an ignored file where the goal adds a file or a folder.
+        kept = ignored_in_the_way(clone, goal)
         if kept:
             problems.append(f'the {name} clone {clone} has ignored files where the new commits add files: '
                             f'{", ".join(kept)}. Move them away')
             continue
-        merges.append((name, clone))
+        moves.append((name, clone, goal, where))
     if problems:
         raise StackError('just install --update stops, and nothing was written in the project. Fix each clone, then '
                          'run just install --update again:\n  ' + '\n  '.join(problems))
-    for name, clone in merges:
-        run = subprocess.run(['git', '-C', str(clone), 'merge', '--ff-only', '--quiet', '@{upstream}'],
-                             capture_output=True, text=True)
+    for name, clone, goal, where in moves:
+        forward = git_out(clone, 'merge-base', '--is-ancestor', 'HEAD', goal) is not None
+        back = git_out(clone, 'merge-base', '--is-ancestor', goal, 'HEAD') is not None
+        # Every commit of the branch is on the remote branch, so a move back to an older release loses no commit.
+        command = ['merge', '--ff-only', '--quiet', goal] if forward else ['reset', '--keep', '--quiet', goal]
+        run = subprocess.run(['git', '-C', str(clone), *command], capture_output=True, text=True)
         if run.returncode:
-            raise StackError(f'Cannot fast-forward the {name} clone {clone}: {run.stderr.strip()}. Nothing was '
+            raise StackError(f'Cannot move the {name} clone {clone} to {where}: {run.stderr.strip()}. Nothing was '
                              f'written.')
-        print(f'Updated the {name} clone {clone}', file=sys.stderr)
+        print(f'Updated the {name} clone {clone} to {where}' + (', an older commit than it had' if back else
+                                                                 '' if forward else ', on another line of the history'),
+              file=sys.stderr)
     return set(clones)
 
 
@@ -3254,7 +3315,8 @@ def main(argv=None):
     parser.add_argument('--clone', action='append', default=[], metavar='NAME=DIR',
                         help='use this clone of a package; default: a folder in SKILL_PACKAGES_DIR, else next to '
                              'the jnterfaces clone')
-    parser.add_argument('--update', action='store_true', help='fast-forward each clone of a package that the run uses first')
+    parser.add_argument('--update', action='store_true', help='move each clone of a package that the run uses to its latest release tag first')
+    parser.add_argument('--update-self', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--clean', action='store_true', help='install the committed HEAD of each clone')
     parser.add_argument('--dry-run', action='store_true', help='check everything and write nothing in the target')
     parser.add_argument('--check', action='store_true',
@@ -3263,6 +3325,10 @@ def main(argv=None):
                         help='answer a setup question, and save the answer: --answer issues=none')
     parser.add_argument('--registry', type=Path, default=ROOT / 'stack.json', help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.update_self:
+        # .agents/install.just runs this before the installer, so that the installer then runs from the new commit.
+        update_clones({'jnterfaces': ROOT}, refuse=lacks_update_self)
+        return 0
     if args.all and args.defaults:
         raise StackError('Use --all or --defaults, not both')
     if Path(str(args.target).rstrip('/') or '/').is_symlink():
