@@ -470,14 +470,14 @@ The skills use these executables:
 - **`jagt`** renders and checks packets, from https://github.com/rahuldave/jagt.
   The skill needs jagt 0.3.0 or later, which gives each packet a nonce.
   Install the release binary with
-  `curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/7ea80a99492fe5eed5d7fa9b9a4e1ba08599463a/scripts/install.sh | sh -s -- --tag v0.6.3`.
+  `curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/v0.6.4/scripts/install.sh | sh -s -- --tag v0.6.4`.
   To build it from source instead, run
-  `cargo install --locked --git https://github.com/rahuldave/jagt --tag v0.6.3 jagt`.
+  `cargo install --locked --git https://github.com/rahuldave/jagt --tag v0.6.4 jagt`.
 - **`cx`** runs incremental stages, from https://github.com/rahuldave/cx.
   Install the release binary with
-  `curl -fsSL https://raw.githubusercontent.com/rahuldave/cx/v0.2.2/scripts/install.sh | sh -s -- --tag v0.2.2`.
+  `curl -fsSL https://raw.githubusercontent.com/rahuldave/cx/v0.2.3/scripts/install.sh | sh -s -- --tag v0.2.3`.
   To build it from source instead, run
-  `cargo install --locked --git https://github.com/rahuldave/cx --tag v0.2.2 cx`.
+  `cargo install --locked --git https://github.com/rahuldave/cx --tag v0.2.3 cx`.
 
 ## How the packages stay apart
 
