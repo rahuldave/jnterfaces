@@ -265,7 +265,7 @@ For such a folder, run <code>cargo init --vcs none --name NAME</code> first.</p>
 command makes again, such as <code>.venv/</code> or <code>node_modules/</code>.</p>
 </li>
 </ol>
-<p>Later, <code>just install --update</code> gets the new commits of each package, and
+<p>Later, <code>just install --update</code> gets the latest release of each package, and
 <code>just install --check</code> compares the record with the files.</p>
 <p><a href="https://rahuldave.github.io/jnterfaces/new-project.html">Start a Python, TypeScript or Rust project</a>
 is the guide to a new project. It gives each tool, recipe, hook and config file, with examples.
@@ -443,9 +443,12 @@ the list leaves out is turned off.</li>
 <li><strong><code>--answer KEY=VALUE</code></strong> answers a setup question and saves the answer.
 The next section lists the questions.</li>
 <li><strong><code>--ask</code></strong> asks again, even when the project has saved choices.</li>
-<li><strong><code>--update</code></strong> first fast-forwards each package clone that the run uses.
-It does not change a clone with uncommitted changes, or a clone on another
-branch. <a href="https://rahuldave.github.io/jnterfaces/stack-guide.html">The stack guide</a> gives the rules.</li>
+<li><strong><code>--update</code></strong> first moves each package clone that the run uses to its
+latest release. The latest release is the highest release tag <code>vX.Y.Z</code> on
+the default branch of the remote. A package with no release tag gets the
+newest commit, and the run says so. <code>--update</code> does not change a clone with
+uncommitted changes, a clone on another branch, or a clone that you checked
+out at a tag or a commit. <a href="https://rahuldave.github.io/jnterfaces/stack-guide.html">The stack guide</a> gives the rules.</li>
 <li><strong><code>--clone NAME=DIR</code></strong> uses one clone in another folder.</li>
 <li><strong><code>--clean</code></strong> installs the last commit of each clone, without uncommitted
 changes. <strong><code>--dry-run</code></strong> checks everything and writes nothing in the

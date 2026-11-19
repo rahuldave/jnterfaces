@@ -274,9 +274,21 @@ step, it saves the record and writes the recipes again.</li>
 installs each missing one, and then checks it again.</li>
 </ol>
 <p>A later <code>just install</code> with no names installs the same set again, from the
-clones as they are. To get new commits of the packages, run <code>just install --update</code>. It pulls the jnterfaces clone. Then it fast-forwards the clone of
-each package that the run uses. The run uses the profiles, the roles that it
-installs, and the roles that it removes.</p>
+clones as they are. To get the new releases of the packages, run <code>just install --update</code>. It moves the jnterfaces clone to its latest release, by the
+rules below. Then it moves the clone of each package that the run uses to its
+latest release. The
+run uses the profiles, the roles that it installs, and the roles that it
+removes.</p>
+<p>The latest release of a package is the highest release tag <code>vX.Y.Z</code> by
+semantic version on the default branch of its remote. A tag such as
+<code>v1.0.0-rc1</code> or a date is not a release. A commit after the last release is
+not released, so <code>--update</code> does not install it. The clone keeps its branch,
+and the branch moves to the commit of the tag. A clone with commits after the
+latest release moves back to the release, when the remote branch has each of
+these commits. The record of the package, such as
+<code>.agents/nossaifd-install.json</code>, gives the tag in <code>source_version</code>.</p>
+<p><strong>A package with no release tag</strong> gets the newest commit of the remote branch,
+as a fast-forward. The run prints that the clone has no release tag.</p>
 <p>The clones are in <code>SKILL_PACKAGES_DIR</code>, else next to the jnterfaces clone. A
 <code>--clone NAME=DIR</code> clone is updated too. The installer never discards a local
 change:</p>
@@ -285,13 +297,16 @@ change:</p>
 clone, and the installer writes nothing in the project. An untracked or ignored file
 where the new commits add a file or a folder stops the run too.</li>
 <li><strong>A clone that cannot fast-forward</strong> stops the run in the same way. A clone
-cannot fast-forward when its branch has commits that the remote branch does
-not have.</li>
+cannot fast-forward when its branch and the remote branch each have commits
+that the other does not have.</li>
 <li><strong>A clone on a branch that is not the default branch</strong> of its remote stays on
 its branch. The installer prints “Not updated” and the name of the branch,
 and it does not switch the branch.</li>
+<li><strong>A clone with its own commits on top of the remote branch</strong> stays as it is.
+The installer prints “Not updated” and keeps the commits.</li>
 <li><strong>A clone on no branch, or on a branch with no upstream branch</strong>, stays as it
-is. The installer prints “Not updated”. A clone that does not know the default
+is. The installer prints “Not updated”. So, to pin a package to a tag or a
+commit, check out that tag or commit in its clone, for example <code>git -C CLONE checkout v0.4.3</code>. A clone that does not know the default
 branch of its remote stays as it is too. The message gives the command that
 sets the default branch.</li>
 </ul>
@@ -581,7 +596,7 @@ The workflow stays too, because a starter is yours from the start. Delete
 imports a file that is gone, so that you can delete <code>CLAUDE.md</code>.</p>
 <p>An install from before nossaifd renamed <code>declauding</code> to <code>declaude</code> has the
 folder <code>.agents/skills/declauding</code>.
-<code>just install --update</code> pulls the new nossaifd and installs <code>declaude</code>. It also
+<code>just install --update</code> gets the latest release of nossaifd and installs <code>declaude</code>. It also
 removes the folder <code>declauding</code> and its link, if the installer made them and
 you did not change or add a file in them.</p>
 <p>The installer keeps a file that you edited or added, so the folder stays. For
