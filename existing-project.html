@@ -1,0 +1,155 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="generator" content="smalldocs-0.5.12"><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"><title>Bring an existing project in – jnterfaces</title><link rel="icon" href="favicon.svg"><link rel="stylesheet" href="site_libs/themes/atelier/atelier.css" data-mode="light" class="quarto-color-scheme" id="quarto-bootstrap-light" media="not all and (prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/themes/atelier/atelier-dark.css" data-mode="dark" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap-dark" media="(prefers-color-scheme: dark)"><link rel="stylesheet" href="site_libs/bootstrap-icons/bootstrap-icons.min.css"><link rel="stylesheet" href="site_libs/smalldocs.css"><meta name="smalldocs:offset" content="./"><script src="site_libs/bootstrap/bootstrap.bundle.min.js"></script><script src="site_libs/fuse/fuse.min.js"></script><script src="site_libs/smalldocs.js" defer></script><script>(function(){var d=document.documentElement,s=null;try{s=localStorage.getItem('smalldocs-scheme')}catch(e){}var alt=s?s==='alternate':!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);var ls=document.querySelectorAll('link.quarto-color-scheme');if(alt)d.dataset.scheme='alternate';if(s)ls.forEach(function(l){var on=l.classList.contains('quarto-color-alternate')===alt;if(on)l.setAttribute('blocking','render');l.media=on?'all':'not all'});var on=ls[alt?1:0];if(on&&on.dataset.mode==='dark')d.classList.add('quarto-dark')})();</script></head><body class="nav-fixed"><header id="quarto-header" class="headroom sticky-top"><nav class="navbar navbar-expand-lg sd-navbar-default"><div class="navbar-container container-fluid"><div class="navbar-brand-container mx-auto"><a class="navbar-brand" href="index.html"><span class="navbar-title">jnterfaces</span></a></div><button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button><div class="collapse navbar-collapse" id="navbarCollapse"><ul class="navbar-nav navbar-nav-scroll me-auto"><li class="nav-item"><a class="nav-link" href="index.html"><span class="menu-text">Home</span></a></li><li class="nav-item"><a class="nav-link" href="new-project.html"><span class="menu-text">New project</span></a></li><li class="nav-item"><a class="nav-link active" href="existing-project.html" aria-current="page"><span class="menu-text">Existing project</span></a></li><li class="nav-item"><a class="nav-link" href="stack-guide.html"><span class="menu-text">Stack guide</span></a></li><li class="nav-item"><a class="nav-link" href="stack-files.html"><span class="menu-text">Stack files</span></a></li></ul><ul class="navbar-nav navbar-nav-scroll ms-auto"><li class="nav-item dropdown"><a class="nav-link dropdown-toggle" href="#" id="nav-menu-1" role="link" data-bs-toggle="dropdown" aria-expanded="false"><span class="menu-text">Projects</span></a><ul class="dropdown-menu" aria-labelledby="nav-menu-1"><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnterfaces/"><span class="menu-text">jnterfaces</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-python/"><span class="menu-text">jnprofile-python</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/jnprofile-typescript/"><span class="menu-text">jnprofile-typescript</span></a></li><li class=""><a class="dropdown-item" href="https://rahuldave.github.io/agent_gest_git_skills/"><span class="menu-text">agent_gest_git_skills</span></a></li></ul></li><li class="nav-item compact"><a class="nav-link" href="https://github.com/rahuldave/jnterfaces" aria-label="github"><i class="bi bi-github" role="img"></i></a></li><li class="nav-item compact"><a class="quarto-color-scheme-toggle nav-link" href="" title="Toggle dark mode" onclick="window.smalldocsToggleScheme(); return false;"><i class="bi"></i></a></li></ul><div class="quarto-navbar-tools"><div class="smalldocs-search" id="quarto-search"><i class="bi bi-search" aria-hidden="true"></i><input type="search" class="form-control form-control-sm" placeholder="Search" aria-label="Search" autocomplete="off"><div class="smalldocs-search-results dropdown-menu"></div></div></div></div></div></nav></header><div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article has-margin"><div id="quarto-margin-sidebar" class="sidebar margin-sidebar"><nav id="TOC" role="doc-toc" class="toc-active"><h2 id="toc-title">On this page</h2><ul><li><a href="#terms" id="toc-terms" class="nav-link" data-scroll-target="#terms">Terms</a></li><li><a href="#step-1-clone-jnterfaces-once" id="toc-step-1-clone-jnterfaces-once" class="nav-link" data-scroll-target="#step-1-clone-jnterfaces-once">Step 1: clone jnterfaces once</a></li><li><a href="#step-2-run-the-installer" id="toc-step-2-run-the-installer" class="nav-link" data-scroll-target="#step-2-run-the-installer">Step 2: run the installer</a></li><li><a href="#step-3-read-the-block-in-your-justfile" id="toc-step-3-read-the-block-in-your-justfile" class="nav-link" data-scroll-target="#step-3-read-the-block-in-your-justfile">Step 3: read the block in your Justfile</a></li><li><a href="#step-4-fix-a-clash-of-recipe-names" id="toc-step-4-fix-a-clash-of-recipe-names" class="nav-link" data-scroll-target="#step-4-fix-a-clash-of-recipe-names">Step 4: fix a clash of recipe names</a></li><li><a href="#step-5-map-your-names-in-agents.md" id="toc-step-5-map-your-names-in-agents.md" class="nav-link" data-scroll-target="#step-5-map-your-names-in-agents.md">Step 5: map your names in AGENTS.md</a></li><li><a href="#step-6-check-and-commit" id="toc-step-6-check-and-commit" class="nav-link" data-scroll-target="#step-6-check-and-commit">Step 6: check and commit</a></li></ul></nav><div class="toc-actions"><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/blob/main/docs/existing-project.md" class="toc-action"><i class="bi bi-code"></i> View source</a></div><div class="action-links"><a href="https://github.com/rahuldave/jnterfaces/issues/new" class="toc-action"><i class="bi bi-chat-right"></i> Report an issue</a></div></div></div><main class="content" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block default"><div class="quarto-title"><h1 class="title">Bring an existing project in</h1></div><div class="quarto-title-meta"></div></header><p>This page tells how to add the stack to a project that already has code, a <code>Justfile</code> or an
+<code>AGENTS.md</code>. Each step was run on 2026-11-19 with a new package cache. For a project that starts in an
+empty folder, read <a href="new-project.html">Start a Python, TypeScript or Rust project</a>.</p>
+<p>The machine needs the same programs as for a new project. <a href="new-project.html#what-the-machine-needs">What the machine
+needs</a> lists them.</p>
+<section id="terms" class="level2">
+<h2 class="anchored" data-anchor-id="terms">Terms</h2>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Term</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>recipe</td>
+<td>A command in a Justfile. <code>just NAME</code> runs the recipe NAME.</td>
+</tr>
+<tr>
+<td>shared recipe</td>
+<td>A recipe that the installer writes, in <code>.agents/install.just</code> or in <code>.agents/just/</code>.</td>
+</tr>
+<tr>
+<td>the block</td>
+<td>The lines that the installer adds at the top of your <code>Justfile</code>.</td>
+</tr>
+<tr>
+<td>step</td>
+<td>One check of <code>just check</code>, such as <code>lint</code> or <code>test</code>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="step-1-clone-jnterfaces-once" class="level2">
+<h2 class="anchored" data-anchor-id="step-1-clone-jnterfaces-once">Step 1: clone jnterfaces once</h2>
+<p>The project has no <code>just install</code> yet, so the first install runs from a clone of jnterfaces. Clone it
+into the folder of package clones:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">git clone https://github.com/rahuldave/jnterfaces <span class="st">&quot;</span><span class="ss">${</span><span class="va">SKILL_PACKAGES_DIR</span><span class="kw">:-</span><span class="va">$HOME</span>/.local/share/skill-packages<span class="ss">}</span><span class="st">/jnterfaces</span><span class="st">&quot;</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The installer clones each other package that it needs into the same folder.</p>
+</section>
+<section id="step-2-run-the-installer" class="level2">
+<h2 class="anchored" data-anchor-id="step-2-run-the-installer">Step 2: run the installer</h2>
+<p>In the folder of the project, run the installer from the clone:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">uv run <span class="st">&quot;</span><span class="ss">${</span><span class="va">SKILL_PACKAGES_DIR</span><span class="kw">:-</span><span class="va">$HOME</span>/.local/share/skill-packages<span class="ss">}</span><span class="st">/jnterfaces/scripts/install_stack.py</span><span class="st">&quot;</span> --profile python --target .</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Use <code>--profile typescript</code> or <code>--profile rust</code> for another language.</p>
+<p>At a terminal, the installer first asks which roles to install, then it asks the setup questions. With
+no terminal, for example when an agent runs it, the installer takes the default roles, <code>tasker</code> and
+<code>prose</code>. Then it prints the setup questions, writes nothing and stops:</p>
+<div class="sd-table">
+<table class="caption-top table">
+<thead>
+<tr>
+<th>Key</th>
+<th>Question</th>
+<th>Answers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>issues</code></td>
+<td>Which Gest tasks become GitHub issues?</td>
+<td><code>top</code> (the default), <code>development</code> or <code>none</code></td>
+</tr>
+<tr>
+<td><code>integration</code></td>
+<td>Run the integration tests in <code>just check</code>, or only in <code>just verify</code>?</td>
+<td><code>check</code> (the default) or <code>verify</code></td>
+</tr>
+<tr>
+<td><code>tasker</code></td>
+<td>One branch in the main checkout, or a worktree for each task? Only with the <code>tasker</code> role.</td>
+<td><code>git</code> (the default) or <code>gitwt</code></td>
+</tr>
+<tr>
+<td><code>review-model</code></td>
+<td>Which model does the adversarial review?</td>
+<td><code>strongest</code> (the default), or any model name</td>
+</tr>
+<tr>
+<td><code>docs-publish</code></td>
+<td>Publish the docs site of a public repository after a merge to main? Only with the <code>docs</code> role.</td>
+<td><code>yes</code> (the default) or <code>no</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The line <code>then:</code> of the questions gives the arguments to add, one <code>--answer KEY=VALUE</code> for each key. Add
+them to the <code>uv run</code> command, for example:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">uv run <span class="st">&quot;</span><span class="ss">${</span><span class="va">SKILL_PACKAGES_DIR</span><span class="kw">:-</span><span class="va">$HOME</span>/.local/share/skill-packages<span class="ss">}</span><span class="st">/jnterfaces/scripts/install_stack.py</span><span class="st">&quot;</span> --profile python --target . <span class="sc">\
+</span>  --answer <span class="va">issues</span><span class="op">=</span>none --answer <span class="va">integration</span><span class="op">=</span>check --answer <span class="va">tasker</span><span class="op">=</span>git --answer review-model<span class="op">=</span>strongest</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p><code>--defaults</code> takes the default roles and the default answer of each question.</p>
+</section>
+<section id="step-3-read-the-block-in-your-justfile" class="level2">
+<h2 class="anchored" data-anchor-id="step-3-read-the-block-in-your-justfile">Step 3: read the block in your Justfile</h2>
+<p>Your <code>Justfile</code> stays yours. The installer adds one block at its top:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode just code-with-copy"><code class="sourceCode just"># begin lines of jnterfaces, the installer, from jnterfaces at 361dcc3.
+# Last written to Justfile by `install_stack.py --profile python --target .`. The record is parts.&quot;Justfile&quot; in .agents/stack.json.
+import? &#x27;.agents/install.just&#x27;
+export JLOG_RUN := env(&quot;JLOG_RUN&quot;, uuid())
+# end lines of jnterfaces. They stay while the project keeps .agents/stack.json.</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The <code>import?</code> line reads the shared recipes. The <code>JLOG_RUN</code> line gives one run ID to each <code>just</code> call
+inside one <code>just check</code>, so that the run log of jlog keeps them together. The commit and the command in
+the comments change with each run.</p>
+<p>The installer leaves out a line that your <code>Justfile</code> already has. It adds no block to a <code>Justfile</code> that
+starts with a <code>#!</code> line or that is a symlink. <a href="stack-guide.html">How the stack fits together</a> lists each
+case.</p>
+</section>
+<section id="step-4-fix-a-clash-of-recipe-names" class="level2">
+<h2 class="anchored" data-anchor-id="step-4-fix-a-clash-of-recipe-names">Step 4: fix a clash of recipe names</h2>
+<p>Some names of the shared recipes clash with a recipe of yours. Others let your recipe take their place.</p>
+<p><strong>The names that clash.</strong> <code>.agents/install.just</code> has the recipes <code>install</code>, <code>uninstall</code> and <code>env-lab</code>,
+and the variable <code>jn_copier</code>. When your <code>Justfile</code> has one of these names, just stops with this error:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode text code-with-copy"><code class="sourceCode text">error: Recipe `install` first defined on line 7 is redefined on line 16</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Then the installer takes its block out again, and it tells you to rename your recipe. Your own <code>install</code>
+recipe stays, so <code>just install</code> still runs your old recipe and not the installer.</p>
+<p>To fix it, rename your recipe, for example to <code>setup</code>. Then run the <code>uv run</code> command of step 2 again.
+The block stays this time. The name of a profile, such as <code>python</code>, also clashes. So does a recipe of a role
+that is on, such as <code>review</code>, <code>worktree-new</code> or <code>ci-gate</code> of the <code>tasker</code> role, or <code>prose-check</code> of the
+<code>prose</code> role. For these, the installer stops, writes nothing in <code>.agents/just</code>, and names the clash.</p>
+<p><strong>The names that you can keep.</strong> <code>.agents/just/index.just</code> leaves out each name that your <code>Justfile</code>
+has, so your recipe takes its place. These names are the recipes of the profiles, such as <code>setup</code>,
+<code>fmt</code>, <code>lint</code> and <code>test</code>, the steps of <code>just check</code> that no role gives, and <code>verify</code>, <code>check</code> and <code>ci</code>. For example, your
+<code>setup</code> then takes the place of the <code>setup</code> of the profile, which runs <code>uv sync</code>.</p>
+<p>A recipe of yours with the name of a step must end with the line <code>jlog step NAME</code>, for example
+<code>jlog step test</code>. Without that line, <code>jlog pass</code> fails at the end of <code>just check</code>. A <code>check</code> of yours must end with the
+line <code>jlog pass</code>.</p>
+</section>
+<section id="step-5-map-your-names-in-agents.md" class="level2">
+<h2 class="anchored" data-anchor-id="step-5-map-your-names-in-agents.md">Step 5: map your names in AGENTS.md</h2>
+<p>When the project already has an <code>AGENTS.md</code>, the installer adds only its own blocks to it. Keep the
+names of your recipes. Write the mapping from each concept to your recipe in <code>AGENTS.md</code>, for example
+“full local check: <code>just check</code>” or “install the packages: <code>just setup</code>”. The <code>just</code> skill tells an agent
+to use the names that <code>AGENTS.md</code> maps.</p>
+</section>
+<section id="step-6-check-and-commit" class="level2">
+<h2 class="anchored" data-anchor-id="step-6-check-and-commit">Step 6: check and commit</h2>
+<p>The first commit goes through the commit gate of the <code>tasker</code> role. The gate needs a record of each
+agentic target that the change needs, and a pass of <code>just check</code> for the tree that you commit. It checks
+the whole worktree, with the files that are not staged too. Do the steps in this order:</p>
+<ol>
+<li>Stage the files, and run <code>just check</code>. Fix each step that fails.</li>
+<li>Run <code>just review</code>, and each other agentic target that the change needs. They and their fixes can
+change the files.</li>
+<li>Stage all the changes, and run <code>just check</code> again.</li>
+<li>Commit.</li>
+</ol>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash">git add --all
+just check</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>When the gate stops, its message names what is missing.
+<a href="new-project.html#what-to-commit">What to commit</a> lists the files.</p>
+</section>
+</main></div><footer class="footer"><div class="nav-footer"><div class="nav-footer-left">Part of <a href="https://rahuldave.github.io/jnterfaces/">jnterfaces</a> and its packages.</div><div class="nav-footer-center"></div><div class="nav-footer-right">Built with <a href="https://docs.smallish.dev/">smalldocs</a>.</div></div></footer></body></html>
