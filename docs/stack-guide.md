@@ -172,10 +172,24 @@ The installer runs these steps:
     installs each missing one, and then checks it again.
 
 A later `just install` with no names installs the same set again, from the
-clones as they are. To get new commits of the packages, run `just install
---update`. It pulls the jnterfaces clone. Then it fast-forwards the clone of
-each package that the run uses. The run uses the profiles, the roles that it
-installs, and the roles that it removes.
+clones as they are. To get the new releases of the packages, run `just
+install --update`. It moves the jnterfaces clone to its latest release, by the
+rules below. Then it moves the clone of each package that the run uses to its
+latest release. The
+run uses the profiles, the roles that it installs, and the roles that it
+removes.
+
+The latest release of a package is the highest release tag `vX.Y.Z` by
+semantic version on the default branch of its remote. A tag such as
+`v1.0.0-rc1` or a date is not a release. A commit after the last release is
+not released, so `--update` does not install it. The clone keeps its branch,
+and the branch moves to the commit of the tag. A clone with commits after the
+latest release moves back to the release, when the remote branch has each of
+these commits. The record of the package, such as
+`.agents/nossaifd-install.json`, gives the tag in `source_version`.
+
+**A package with no release tag** gets the newest commit of the remote branch,
+as a fast-forward. The run prints that the clone has no release tag.
 
 The clones are in `SKILL_PACKAGES_DIR`, else next to the jnterfaces clone. A
 `--clone NAME=DIR` clone is updated too. The installer never discards a local
@@ -185,13 +199,17 @@ change:
   clone, and the installer writes nothing in the project. An untracked or ignored file
   where the new commits add a file or a folder stops the run too.
 - **A clone that cannot fast-forward** stops the run in the same way. A clone
-  cannot fast-forward when its branch has commits that the remote branch does
-  not have.
+  cannot fast-forward when its branch and the remote branch each have commits
+  that the other does not have.
 - **A clone on a branch that is not the default branch** of its remote stays on
   its branch. The installer prints "Not updated" and the name of the branch,
   and it does not switch the branch.
+- **A clone with its own commits on top of the remote branch** stays as it is.
+  The installer prints "Not updated" and keeps the commits.
 - **A clone on no branch, or on a branch with no upstream branch**, stays as it
-  is. The installer prints "Not updated". A clone that does not know the default
+  is. The installer prints "Not updated". So, to pin a package to a tag or a
+  commit, check out that tag or commit in its clone, for example `git -C
+  CLONE checkout v0.4.3`. A clone that does not know the default
   branch of its remote stays as it is too. The message gives the command that
   sets the default branch.
 
@@ -538,7 +556,7 @@ imports a file that is gone, so that you can delete `CLAUDE.md`.
 
 An install from before nossaifd renamed `declauding` to `declaude` has the
 folder `.agents/skills/declauding`.
-`just install --update` pulls the new nossaifd and installs `declaude`. It also
+`just install --update` gets the latest release of nossaifd and installs `declaude`. It also
 removes the folder `declauding` and its link, if the installer made them and
 you did not change or add a file in them.
 

@@ -182,7 +182,7 @@ file stays.
    `CLAUDE.md`, `.github/workflows/`, the `Justfile` and the config files. `.gitignore` already leaves out what a
    command makes again, such as `.venv/` or `node_modules/`.
 
-Later, `just install --update` gets the new commits of each package, and
+Later, `just install --update` gets the latest release of each package, and
 `just install --check` compares the record with the files.
 
 [Start a Python, TypeScript or Rust project](https://rahuldave.github.io/jnterfaces/new-project.html)
@@ -325,9 +325,12 @@ of a dependency group goes, the installer takes out the empty group.
 - **`--answer KEY=VALUE`** answers a setup question and saves the answer.
   The next section lists the questions.
 - **`--ask`** asks again, even when the project has saved choices.
-- **`--update`** first fast-forwards each package clone that the run uses.
-  It does not change a clone with uncommitted changes, or a clone on another
-  branch. [The stack guide](https://rahuldave.github.io/jnterfaces/stack-guide.html) gives the rules.
+- **`--update`** first moves each package clone that the run uses to its
+  latest release. The latest release is the highest release tag `vX.Y.Z` on
+  the default branch of the remote. A package with no release tag gets the
+  newest commit, and the run says so. `--update` does not change a clone with
+  uncommitted changes, a clone on another branch, or a clone that you checked
+  out at a tag or a commit. [The stack guide](https://rahuldave.github.io/jnterfaces/stack-guide.html) gives the rules.
 - **`--clone NAME=DIR`** uses one clone in another folder.
 - **`--clean`** installs the last commit of each clone, without uncommitted
   changes. **`--dry-run`** checks everything and writes nothing in the

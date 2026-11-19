@@ -2590,8 +2590,205 @@ sys.exit(run.returncode)
         run = self.stack('--defaults', '--update')
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn(f'Updated the nossaifd clone {(self.packages / "nossaifd").resolve()}', run.stderr)
+        self.assertIn('has no release tag on origin/', run.stderr)
         self.assertEqual(git(self.packages / 'nossaifd', 'rev-parse', 'HEAD'), git(origin, 'rev-parse', 'HEAD'))
         self.assertTrue((self.target / '.agents/skills/nossaifd/NEW.md').is_file())
+
+    def released_package(self, name):
+        """A clone of a package whose origin has the release v0.1.0 at the clone's commit, then a commit with
+        NEW.md and the releases v0.10.0 and v0.9.0, then a commit with LATER.md, the pre-release v1.0.0-rc1 and a
+        date tag. Return the origin and the commit of v0.10.0."""
+        origin = self.cloned_package(name)
+        git(origin, 'tag', 'v0.1.0')
+        (origin / f'.agents/skills/{name}/NEW.md').write_text('new\n')
+        commit(origin)
+        git(origin, 'tag', '-a', '-m', 'release', 'v0.10.0')
+        git(origin, 'tag', 'v0.9.0')
+        release = git(origin, 'rev-parse', 'HEAD')
+        (origin / f'.agents/skills/{name}/LATER.md').write_text('later\n')
+        commit(origin)
+        git(origin, 'tag', 'v1.0.0-rc1')
+        git(origin, 'tag', '2026-11-19')
+        return origin, release
+
+    def test_update_moves_a_clone_to_its_latest_release_tag(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        origin, release = self.released_package('nossaifd')
+        clone = (self.packages / 'nossaifd').resolve()
+        run = self.stack('--defaults', '--update')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(f'Updated the nossaifd clone {clone} to the release v0.10.0', run.stderr)
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), release)
+        self.assertEqual(git(clone, 'symbolic-ref', '--short', 'HEAD'), git(origin, 'symbolic-ref', '--short', 'HEAD'))
+        self.assertTrue((self.target / '.agents/skills/nossaifd/NEW.md').is_file())
+        self.assertFalse((self.target / '.agents/skills/nossaifd/LATER.md').exists())
+        record = json.loads((self.target / '.agents/nossaifd-install.json').read_text())
+        self.assertEqual(record['source_version'], 'v0.10.0')
+        # A second run finds the clone at its release and leaves it there.
+        run = self.stack('--defaults', '--update')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('Updated the nossaifd clone', run.stderr)
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), release)
+
+    def test_update_moves_an_older_checkout_forward_to_a_newer_release(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        origin, release = self.released_package('nossaifd')
+        clone = (self.packages / 'nossaifd').resolve()
+        self.assertEqual(self.stack('--defaults', '--update').returncode, 0)
+        (origin / '.agents/skills/nossaifd/NEWER.md').write_text('newer\n')
+        commit(origin)
+        git(origin, 'tag', 'v0.11.0')
+        newer = git(origin, 'rev-parse', 'HEAD')
+        run = self.stack('--defaults', '--update')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(f'Updated the nossaifd clone {clone} to the release v0.11.0', run.stderr)
+        self.assertNotIn('an older commit', run.stderr)
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), newer)
+        self.assertTrue((self.target / '.agents/skills/nossaifd/NEWER.md').is_file())
+        record = json.loads((self.target / '.agents/nossaifd-install.json').read_text())
+        self.assertEqual(record['source_version'], 'v0.11.0')
+
+    def test_update_moves_a_clone_with_unreleased_commits_back_to_the_release(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        origin = self.cloned_package('nossaifd')
+        (origin / '.agents/skills/nossaifd/NEW.md').write_text('new\n')
+        commit(origin)
+        release = git(origin, 'rev-parse', 'HEAD')
+        (origin / '.agents/skills/nossaifd/LATER.md').write_text('later\n')
+        commit(origin)
+        clone = (self.packages / 'nossaifd').resolve()
+        git(clone, 'pull', '-q', '--ff-only')
+        # The tag comes after the clone has its commit, as a release of an older commit does.
+        git(origin, 'tag', 'v0.2.0', release)
+        run = self.stack('--defaults', '--update')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(f'Updated the nossaifd clone {clone} to the release v0.2.0, an older commit than it had',
+                      run.stderr)
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), release)
+        self.assertFalse((clone / '.agents/skills/nossaifd/LATER.md').exists())
+        self.assertFalse((self.target / '.agents/skills/nossaifd/LATER.md').exists())
+        record = json.loads((self.target / '.agents/nossaifd-install.json').read_text())
+        self.assertEqual(record['source_version'], 'v0.2.0')
+
+    def test_update_gets_the_tags_of_a_no_tags_clone_and_a_tag_that_moved(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        origin, release = self.released_package('nossaifd')
+        clone = (self.packages / 'nossaifd').resolve()
+        git(clone, 'config', 'remote.origin.tagOpt', '--no-tags')
+        run = self.stack('--defaults', '--update')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('to the release v0.10.0', run.stderr)
+        # The release v0.10.0 moves on the remote to the newest commit.
+        newest = git(origin, 'rev-parse', 'HEAD')
+        git(origin, 'tag', '-f', '-a', '-m', 'again', 'v0.10.0', newest)
+        run = self.stack('--defaults', '--update')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), newest)
+
+    def test_update_leaves_out_a_tag_that_only_the_clone_has(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        origin, release = self.released_package('nossaifd')
+        clone = (self.packages / 'nossaifd').resolve()
+        git(clone, 'fetch', '-q')
+        git(clone, 'tag', 'v9.9.9', 'origin/HEAD')
+        run = self.stack('--defaults', '--update')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('to the release v0.10.0', run.stderr)
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), release)
+
+    def test_update_stops_when_the_remote_tags_cannot_be_listed(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        self.released_package('nossaifd')
+        clone = (self.packages / 'nossaifd').resolve()
+        before = git(clone, 'rev-parse', 'HEAD')
+        real = install_stack.git_out
+        with mock.patch.object(install_stack, 'git_out',
+                               side_effect=lambda c, *args: None if args[0] == 'ls-remote' else real(c, *args)):
+            with self.assertRaises(install_stack.StackError) as caught:
+                install_stack.update_clones({'nossaifd': clone})
+        self.assertIn('cannot list the release tags of its remote', str(caught.exception))
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), before)
+
+    def test_update_to_a_release_on_another_line_of_the_history_says_so(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        origin = self.cloned_package('nossaifd')
+        main = git(origin, 'symbolic-ref', '--short', 'HEAD')
+        git(origin, 'checkout', '-q', '-b', 'side')
+        (origin / 'side.txt').write_text('side\n')
+        commit(origin)
+        git(origin, 'tag', 'v0.3.0')
+        side = git(origin, 'rev-parse', 'HEAD')
+        git(origin, 'checkout', '-q', main)
+        (origin / 'main.txt').write_text('main\n')
+        commit(origin)
+        clone = (self.packages / 'nossaifd').resolve()
+        git(clone, 'pull', '-q', '--ff-only', '--no-tags')
+        git(origin, 'merge', '-q', '--no-edit', 'side')
+        run = self.stack('--defaults', '--update')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('to the release v0.3.0, on another line of the history', run.stderr)
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), side)
+
+    def test_update_of_a_tagged_package_stops_on_a_dirty_clone(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        self.released_package('nossaifd')
+        clone = (self.packages / 'nossaifd').resolve()
+        before = git(clone, 'rev-parse', 'HEAD')
+        (clone / '.agents/skills/nossaifd/SKILL.md').write_text('my edit\n')
+        run = self.stack('--defaults', '--update')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn(f'the nossaifd clone {clone} has changes that are not committed', run.stderr)
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), before)
+        self.assertEqual((clone / '.agents/skills/nossaifd/SKILL.md').read_text(), 'my edit\n')
+
+    def test_update_of_a_tagged_package_stops_on_a_diverged_clone(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        self.released_package('nossaifd')
+        clone = (self.packages / 'nossaifd').resolve()
+        (clone / 'b.txt').write_text('mine\n')
+        commit(clone)
+        mine = git(clone, 'rev-parse', 'HEAD')
+        run = self.stack('--defaults', '--update')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn(f'the nossaifd clone {clone} cannot fast-forward', run.stderr)
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), mine)
+
+    def test_update_keeps_a_clone_with_its_own_commits_on_top_of_the_remote_branch(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        origin, _ = self.released_package('nossaifd')
+        clone = (self.packages / 'nossaifd').resolve()
+        git(clone, 'pull', '-q', '--ff-only')
+        (clone / 'b.txt').write_text('mine\n')
+        commit(clone)
+        mine = git(clone, 'rev-parse', 'HEAD')
+        run = self.stack('--defaults', '--update')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('of the nossaifd clone', run.stderr)
+        self.assertIn('The installer keeps them.', run.stderr)
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), mine)
+
+    def test_update_keeps_a_clone_pinned_to_a_tag_or_a_commit(self):
+        self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        origin, release = self.released_package('nossaifd')
+        clone = (self.packages / 'nossaifd').resolve()
+        git(clone, 'fetch', '-q', '--tags')
+        git(clone, 'checkout', '-q', 'v0.1.0')
+        pinned = git(clone, 'rev-parse', 'HEAD')
+        run = self.stack('--defaults', '--update')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(f'Not updated: the nossaifd clone {clone} is on no branch', run.stderr)
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), pinned)
+        self.assertFalse((self.target / '.agents/skills/nossaifd/NEW.md').exists())
+        record = json.loads((self.target / '.agents/nossaifd-install.json').read_text())
+        self.assertEqual(record['source_version'], 'v0.1.0')
+        # A clone named with --clone at a commit is pinned the same way.
+        work = self.base / 'nossaifd-pinned'
+        git(self.base, 'clone', '-q', str(origin), str(work))
+        git(work, 'checkout', '-q', release)
+        run = self.stack('--defaults', '--update', '--clone', f'nossaifd={work}')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('is on no branch', run.stderr)
+        self.assertEqual(git(work, 'rev-parse', 'HEAD'), release)
 
     def test_update_reads_the_new_profile(self):
         self.assertEqual(self.stack('--defaults', '--profile', 'python').returncode, 0)
@@ -2630,7 +2827,7 @@ sys.exit(run.returncode)
         (clone / 'a.txt').write_text('mine\n')
         run = self.stack('--defaults', '--update')
         self.assertNotEqual(run.returncode, 0)
-        self.assertRegex(run.stderr, re.escape(f'the nossaifd clone {clone} cannot fast-forward to origin/') +
+        self.assertRegex(run.stderr, re.escape(f'the nossaifd clone {clone} cannot move to origin/') +
                          r'\w+, because of local files')
         self.assertIn('a.txt', run.stderr)
         self.assertEqual((clone / 'a.txt').read_text(), 'mine\n')
@@ -5059,6 +5256,149 @@ def jlog_has_run():
     return found is not None and found >= (0, 2, 0)
 
 
+class InstallRecipeUpdateTests(unittest.TestCase):
+    """just install --update of .agents/install.just moves the jnterfaces clone to its latest release tag, with the
+    checks of update_clones, before the installer runs."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.base = Path(temp.name)
+        self.origin = self.base / 'origin'
+        # The origin has the scripts of this clone, so that --update-self runs the code under test.
+        shutil.copytree(REPO / 'scripts', self.origin / 'scripts', ignore=shutil.ignore_patterns('__pycache__'))
+        (self.origin / '.agents').mkdir()
+        shutil.copy(REPO / '.agents/tools_check.py', self.origin / '.agents/tools_check.py')
+        (self.origin / '.gitignore').write_text('__pycache__/\n')
+        git(self.base, 'init', '-q', str(self.origin))
+        commit(self.origin)
+        self.project = self.base / 'project'
+        (self.project / '.agents').mkdir(parents=True)
+        (self.project / '.agents/install.just').write_text((REPO / '.agents/install.just').read_text())
+        (self.project / 'Justfile').write_text("import '.agents/install.just'\n")
+        self.clone = self.base / 'jnterfaces'
+
+    def install(self, *args):
+        """Run just install with these options. The option --stop-here makes the installer stop with an error after
+        the update, so that the test needs no packages and no network."""
+        env = dict(os.environ, JNTERFACES_DIR=str(self.clone), SKILL_PACKAGES_DIR=str(self.base / 'packages'))
+        return subprocess.run(['just', 'install', *args, '--stop-here'], cwd=self.project, env=env,
+                              capture_output=True, text=True, stdin=subprocess.DEVNULL)
+
+    def later(self, name):
+        (self.origin / name).write_text(name + '\n')
+        commit(self.origin)
+        return git(self.origin, 'rev-parse', 'HEAD')
+
+    def updated(self, run):
+        """The update ran, and then the installer stopped at the option --stop-here."""
+        self.assertIn('unrecognized arguments: --stop-here', run.stderr)
+        self.assertNotIn('Install failed', run.stderr)
+
+    def test_update_moves_the_clone_to_the_latest_release(self):
+        git(self.base, 'clone', '-q', str(self.origin), str(self.clone))
+        release = self.later('a')
+        git(self.origin, 'tag', '-a', '-m', 'release', 'v0.10.0')
+        git(self.origin, 'tag', 'v0.9.0')
+        self.later('b')
+        git(self.origin, 'tag', 'v1.0.0-rc1')
+        run = self.install('--update')
+        self.updated(run)
+        self.assertIn(f'Updated the jnterfaces clone {self.clone.resolve()} to the release v0.10.0', run.stderr)
+        self.assertEqual(git(self.clone, 'rev-parse', 'HEAD'), release)
+        self.assertEqual(git(self.clone, 'symbolic-ref', '--short', 'HEAD'),
+                         git(self.origin, 'symbolic-ref', '--short', 'HEAD'))
+        # A run without --update leaves the clone where it is.
+        newer = self.later('c')
+        git(self.origin, 'tag', 'v0.11.0')
+        self.install()
+        self.assertEqual(git(self.clone, 'rev-parse', 'HEAD'), release)
+        self.updated(self.install('--update'))
+        self.assertEqual(git(self.clone, 'rev-parse', 'HEAD'), newer)
+
+    def test_update_without_a_release_tag_gets_the_newest_commit_and_says_so(self):
+        git(self.base, 'clone', '-q', str(self.origin), str(self.clone))
+        newest = self.later('a')
+        run = self.install('--update')
+        self.updated(run)
+        self.assertIn('has no release tag', run.stderr)
+        self.assertEqual(git(self.clone, 'rev-parse', 'HEAD'), newest)
+
+    def test_update_keeps_the_own_commits_of_the_clone(self):
+        git(self.origin, 'tag', 'v0.1.0')
+        git(self.base, 'clone', '-q', str(self.origin), str(self.clone))
+        (self.clone / 'mine.txt').write_text('mine\n')
+        commit(self.clone)
+        mine = git(self.clone, 'rev-parse', 'HEAD')
+        run = self.install('--update')
+        self.updated(run)
+        self.assertIn('Not updated', run.stderr)
+        self.assertEqual(git(self.clone, 'rev-parse', 'HEAD'), mine)
+
+    def test_update_keeps_a_clone_pinned_to_a_tag(self):
+        git(self.origin, 'tag', 'v0.1.0')
+        pinned = git(self.origin, 'rev-parse', 'HEAD')
+        self.later('a')
+        git(self.origin, 'tag', 'v0.2.0')
+        git(self.base, 'clone', '-q', str(self.origin), str(self.clone))
+        git(self.clone, 'checkout', '-q', 'v0.1.0')
+        run = self.install('--update')
+        self.updated(run)
+        self.assertIn('is on no branch', run.stderr)
+        self.assertEqual(git(self.clone, 'rev-parse', 'HEAD'), pinned)
+
+    def test_update_stops_on_a_dirty_clone_and_keeps_its_change(self):
+        git(self.base, 'clone', '-q', str(self.origin), str(self.clone))
+        self.later('a')
+        git(self.origin, 'tag', 'v0.1.0')
+        before = git(self.clone, 'rev-parse', 'HEAD')
+        (self.clone / '.gitignore').write_text('mine\n')
+        run = self.install('--update')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('has changes that are not committed', run.stderr)
+        self.assertNotIn('--stop-here', run.stderr)
+        self.assertEqual(git(self.clone, 'rev-parse', 'HEAD'), before)
+        self.assertEqual((self.clone / '.gitignore').read_text(), 'mine\n')
+
+    def test_update_keeps_an_ignored_file_that_a_move_back_would_overwrite(self):
+        (self.origin / 'notes.txt').write_text('old\n')
+        commit(self.origin)
+        git(self.origin, 'tag', 'v0.1.0')
+        git(self.origin, 'rm', '-q', 'notes.txt')
+        commit(self.origin)
+        git(self.base, 'clone', '-q', str(self.origin), str(self.clone))
+        (self.clone / '.git/info/exclude').write_text('notes.txt\n')
+        (self.clone / 'notes.txt').write_text('precious\n')
+        run = self.install('--update')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('has ignored files where the new commits add files: notes.txt', run.stderr)
+        self.assertEqual((self.clone / 'notes.txt').read_text(), 'precious\n')
+
+    def test_update_stays_off_a_release_older_than_update_self(self):
+        (self.origin / 'scripts/install_stack.py').write_text('print("old")\n')
+        commit(self.origin)
+        git(self.origin, 'tag', 'v0.1.0')
+        git(self.origin, 'checkout', '-q', 'HEAD~1', '--', 'scripts/install_stack.py')
+        commit(self.origin)
+        git(self.base, 'clone', '-q', str(self.origin), str(self.clone))
+        newest = git(self.clone, 'rev-parse', 'HEAD')
+        for _ in range(2):
+            run = self.install('--update')
+            self.updated(run)
+            self.assertIn('because the release v0.1.0 is older than the move to releases', run.stderr)
+            self.assertEqual(git(self.clone, 'rev-parse', 'HEAD'), newest)
+
+    def test_an_older_clone_without_update_self_gets_the_newest_commit(self):
+        (self.origin / 'scripts/install_stack.py').write_text('print("old")\n')
+        commit(self.origin)
+        git(self.base, 'clone', '-q', str(self.origin), str(self.clone))
+        newest = self.later('a')
+        git(self.origin, 'tag', 'v0.1.0', 'HEAD~1')
+        run = self.install('--update')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(git(self.clone, 'rev-parse', 'HEAD'), newest)
+
+
 class FloorUnitTests(unittest.TestCase):
     """The comparison of versions and the check of one program, in .agents/tools_check.py."""
 
@@ -5485,7 +5825,7 @@ class VersionTests(StackTests):
         self.assertIn('is at no tag, so its version is not known', run.stderr)
         git(jn, 'tag', 'v0.1.0')
         run = self.install()
-        self.assertIn('is at v0.1.0. Update that clone', run.stderr)
+        self.assertIn('is at v0.1.0. Update that clone with just install --update', run.stderr)
         self.assertFalse((self.target / '.agents').exists())
         git(jn, 'tag', 'v0.2.0')
         run = self.install()

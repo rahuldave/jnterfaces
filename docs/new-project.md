@@ -510,7 +510,7 @@ just install
 | Command | What it does |
 |---|---|
 | `just install` | Installs again what the record saves |
-| `just install --update` | Gets the new commits of each package clone first |
+| `just install --update` | Moves each package clone to its latest release tag first |
 | `just install --check` | Compares the record with the files, and changes nothing |
 | `just install --dry-run` | Checks everything, and writes nothing |
 | `just uninstall typecheck` | Takes out a tool: its packages, its files and its recipes |
