@@ -8,6 +8,8 @@ lint, tests, coverage, types, a Git hook and one full check. Each step and each
 example was run on 2026-10-31 in an empty folder. The Rust steps and examples
 were run on 2026-11-15.
 
+For a project that already has code or a Justfile, read
+[Bring an existing project in](existing-project.md).
 [How the stack fits together](stack-guide.md) tells how an install works.
 [The files of the stack](stack-files.md) tells what each file holds.
 

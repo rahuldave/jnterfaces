@@ -17,6 +17,8 @@ website:
         text: Home
       - href: new-project.md
         text: New project
+      - href: existing-project.md
+        text: Existing project
       - href: stack-guide.md
         text: Stack guide
       - href: stack-files.md
