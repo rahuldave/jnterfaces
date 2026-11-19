@@ -503,12 +503,14 @@ does not add them again. To have them back, add the lines after the blocks.</li>
 </ul>
 <p><strong>A clash with the block.</strong> The block imports <code>.agents/install.just</code>, which
 has the recipes <code>install</code>, <code>uninstall</code> and <code>env-lab</code>, and the variable
-<code>jn_copier</code>. A recipe of yours with one of these names makes the Justfile fail
-to parse.
-Then the installer takes the block out again. It names the clash, and it
-prints the lines to add by hand.</p>
-<p>The record keeps the hash of your Justfile, so the next run does not try
-again until you change the Justfile.</p>
+<code>jn_copier</code>. A recipe or variable of yours with one of these names makes the
+Justfile fail to parse. Then the installer takes the block out again, writes
+the other files, and fails. At the end of its output, it names each name
+that clashes and its line in the Justfile. It tells you to rename each one,
+for example <code>install</code> to <code>setup</code>, and to run the same command again.</p>
+<p>The record keeps the hash of your Justfile. While the Justfile stays the
+same, the next run does not add the block again. That run fails too, and so
+does a run with <code>--check</code> or <code>--dry-run</code>.</p>
 <p><strong>The lint of steps.</strong> A step that hides its lines from the run log can make
 a gate wrong. <code>just install</code> and <code>just install --check</code> name each step that
 has one of these:</p>

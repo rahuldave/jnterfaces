@@ -114,8 +114,11 @@ case.</p>
 <p><strong>The names that clash.</strong> <code>.agents/install.just</code> has the recipes <code>install</code>, <code>uninstall</code> and <code>env-lab</code>,
 and the variable <code>jn_copier</code>. When your <code>Justfile</code> has one of these names, just stops with this error:</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode text code-with-copy"><code class="sourceCode text">error: Recipe `install` first defined on line 7 is redefined on line 16</code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-<p>Then the installer takes its block out again, and it tells you to rename your recipe. Your own <code>install</code>
-recipe stays, so <code>just install</code> still runs your old recipe and not the installer.</p>
+<p>Then the installer takes its block out again, and the run fails. The installer still writes the other
+files of the install. At the end of its output, it names each name that clashes and its line in your
+<code>Justfile</code>. Your own <code>install</code> recipe stays, so <code>just install</code> still runs your old recipe and not the
+installer. Each later run fails in the same way until you rename the recipe. A run with <code>--check</code> or
+<code>--dry-run</code> fails too.</p>
 <p>To fix it, rename your recipe, for example to <code>setup</code>. Then run the <code>uv run</code> command of step 2 again.
 The block stays this time. The name of a profile, such as <code>python</code>, also clashes. So does a recipe of a role
 that is on, such as <code>review</code>, <code>worktree-new</code> or <code>ci-gate</code> of the <code>tasker</code> role, or <code>prose-check</code> of the
