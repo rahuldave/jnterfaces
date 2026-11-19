@@ -128,6 +128,11 @@ tool that is off does not need its programs.
   the project. An install with `"install_in": "home"` runs in the home folder,
   such as `cargo +stable install`. If the check fails again, the run stops
   with an error.
+- **A setup of each clone.** A program with `"each_clone": true`, such as
+  the git hooks of the tasker role, is in each clone, not on the machine. A
+  fresh clone does not have it. `just install` sets it up, and `just check`
+  fails in a clone without it. In CI, `tools-check` and `just install
+  --check` skip it.
 
 The installer runs each command without a shell, and it never downloads a
 script. It runs each check and install of a program through `jlog run`, so

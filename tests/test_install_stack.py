@@ -4815,6 +4815,86 @@ class ProgramTests(StackTests):
         self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
         self.assertIn('Missing program: gate (for the tasker role)', run.stdout)
 
+    def tools_check(self, ci):
+        """Run .agents/tools_check.py of the target, as the step tools-check runs it, with CI set or not."""
+        env = {k: v for k, v in os.environ.items() if k != 'CI'}
+        return subprocess.run([sys.executable, '.agents/tools_check.py'], cwd=self.target, capture_output=True,
+                              text=True, env=dict(env, CI='true' if ci else '', FAKE_PROGRAMS=str(self.programs),
+                                                  PATH=f'{self.bin}:{os.environ["PATH"]}', TOOL_LOG=str(self.log)))
+
+    def test_a_program_of_each_clone_is_recorded_and_checked_outside_ci(self):
+        # The git hooks of a role: just install sets them up, and a fresh clone has none.
+        self.have('cargo', 'cargo-llvm-cov')
+        self.role_programs([dict(self.HOOKS[1], each_clone=True)])
+        self.assertEqual(self.run_rust().returncode, 0)
+        self.assertEqual(self.saved()['programs']['hooks'], {'check': 'fakeprog check hooks', 'each_clone': True,
+                                                             'owners': {'the tasker role': None}})
+        # A second run finds the hooks, so it installs nothing.
+        before = self.tools_run()
+        self.assertEqual(self.run_rust().returncode, 0)
+        self.assertNotIn('fakeprog install hooks toolchain=False', self.tools_run()[len(before):])
+        self.assertEqual(self.tools_check(ci=False).returncode, 0)
+        (self.programs / 'hooks').unlink()
+        done = self.tools_check(ci=False)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn('hooks (for the tasker role) needs its check to pass', done.stderr)
+        self.assertIn('Run just install, which sets it up in this clone.', done.stderr)
+        done = self.tools_check(ci=True)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn('CI is set, so hooks is not checked', done.stdout)
+        run = self.stack('--check', env={'FAKE_PROGRAMS': str(self.programs), 'CI': 'false'})
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertIn('Missing program: hooks (for the tasker role)', run.stdout)
+        run = self.stack('--check', env={'FAKE_PROGRAMS': str(self.programs), 'CI': 'true'})
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertNotIn('hooks', run.stdout)
+        # The next just install sets the hooks up again.
+        self.assertEqual(self.run_rust().returncode, 0)
+        self.assertEqual(self.tools_check(ci=False).returncode, 0)
+
+    def test_a_program_of_each_clone_is_checked_from_the_record_without_a_clone(self):
+        self.have('cargo', 'cargo-llvm-cov')
+        self.role_programs([dict(self.HOOKS[1], each_clone=True)])
+        self.assertEqual(self.run_rust().returncode, 0)
+        (self.programs / 'hooks').unlink()
+        # A clone of the project has no clone of agent_gest_git_skills, so only the record says what to check.
+        shutil.rmtree(self.packages / 'agent_gest_git_skills')
+        run = self.stack('--check', env={'FAKE_PROGRAMS': str(self.programs), 'CI': 'false'})
+        self.assertEqual(run.returncode, 1, run.stdout + run.stderr)
+        self.assertIn('Missing program: hooks (for the tasker role)', run.stdout)
+        run = self.stack('--check', env={'FAKE_PROGRAMS': str(self.programs), 'CI': 'true'})
+        self.assertNotIn('Missing program', run.stdout)
+
+    def test_ci_skips_a_program_that_the_record_marks_also_with_an_older_clone(self):
+        self.have('cargo', 'cargo-llvm-cov')
+        self.role_programs([dict(self.HOOKS[1], each_clone=True)])
+        self.assertEqual(self.run_rust().returncode, 0)
+        (self.programs / 'hooks').unlink()
+        # The clone of the role is from before each_clone, but the record marks the program.
+        self.role_programs([self.HOOKS[1]])
+        run = self.stack('--check', env={'FAKE_PROGRAMS': str(self.programs), 'CI': 'true'})
+        self.assertNotIn('Missing program', run.stdout)
+
+    def test_each_clone_of_any_owner_keeps_the_program_in_the_record(self):
+        programs = []
+        install_stack.merge_programs(programs, [dict(self.HOOKS[1], owner='the python profile')])
+        install_stack.merge_programs(programs, [dict(self.HOOKS[1], each_clone=True, owner='the tasker role')])
+        self.assertIs(install_stack.recorded_programs(programs)['hooks']['each_clone'], True)
+        programs = []
+        install_stack.merge_programs(programs, [dict(self.HOOKS[1], each_clone=True, owner='the tasker role')])
+        install_stack.merge_programs(programs, [dict(self.HOOKS[1], owner='the python profile')])
+        self.assertIs(install_stack.recorded_programs(programs)['hooks']['each_clone'], True)
+
+    def test_each_clone_is_true_and_only_with_an_install(self):
+        self.have('cargo', 'cargo-llvm-cov')
+        for program in (dict(self.HOOKS[1], each_clone=False), dict(self.HOOKS[1], each_clone='yes'),
+                        {'name': 'hooks', 'check': 'fakeprog check hooks', 'description': 'd', 'each_clone': True}):
+            self.role_programs([program])
+            run = self.run_rust()
+            self.assertNotEqual(run.returncode, 0, program)
+            self.assertIn('each_clone of the program hooks must be true, and only with an install', run.stderr)
+            self.assertEqual(sorted(p.name for p in self.target.iterdir()), ['.git'])
+
     def role_before_remove(self, step):
         root = self.packages / 'agent_gest_git_skills'
         manifest = json.loads((root / 'skill-package.json').read_text())
@@ -5053,6 +5133,23 @@ class FloorUnitTests(unittest.TestCase):
         self.assertEqual(programs['git']['version'], '>=2.40')
         self.assertEqual(programs['git']['owners'], {'jnterfaces': '>=2.40', 'the project': '>=2.0'})
         self.assertNotIn('gone', programs)
+
+    def test_each_clone_comes_through_the_record(self):
+        record = {'programs': {'hooks': {'check': 'git --version', 'each_clone': True, 'owners': {'a': None, 'b': None}},
+                               'git': {'check': 'git --version', 'owners': {'a': None}}}}
+        programs = tools_check.recorded(record)
+        self.assertIs(programs['hooks']['each_clone'], True)
+        self.assertNotIn('each_clone', programs['git'])
+
+    def test_a_failed_check_of_each_clone_says_why(self):
+        program = {'check': 'gate --check-hooks', 'each_clone': True, 'owners': {'the tasker role': None}}
+        line = tools_check.problem('hooks', program, lambda argv: (1, '', 'a\nb\nc\nthe config lacks the hooks\n'),
+                                   lambda name: '/bin/gate')
+        self.assertIn('It said: b / c / the config lacks the hooks', line)
+        del program['each_clone']
+        line = tools_check.problem('hooks', program, lambda argv: (1, '', 'the config lacks the hooks'),
+                                   lambda name: '/bin/gate')
+        self.assertNotIn('It said', line)
 
     def test_a_check_that_runs_tools_check_through_an_interpolation_counts(self):
         line = ['just --justfile ', [['quote', ['call', 'justfile']]], ' tools-check']
