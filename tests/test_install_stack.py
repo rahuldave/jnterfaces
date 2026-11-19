@@ -1305,21 +1305,23 @@ class StackTests(unittest.TestCase):
         justfile = self.target / 'Justfile'
         justfile.write_text(own)
         run = self.stack('prose')
-        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.returncode, 1, run.stderr)
         self.assertEqual(justfile.read_text(), own)
         self.assertIn('does not parse with the block of the installer', run.stderr)
-        self.assertRegex(run.stderr, r'(?i)just said: error: recipe `install` first defined')
-        self.assertIn("put this line in it: import? '.agents/install.just'", run.stderr)
+        self.assertIn('the recipe install, on line 1 of Justfile', run.stderr)
+        # The message of the clash is the fix: no note asks for the line that does not parse.
+        self.assertNotIn('put this line in it', run.stderr)
         self.assertNotIn('also with an index with no module', run.stderr)
         self.assertNotIn('Justfile', self.saved()['parts'])
         self.assertEqual(self.just_in_target('install').stdout.strip(), 'mine')
-        # The next run does not try again while the Justfile stays as it is, and --check names the clash.
+        # The next run does not try again while the Justfile stays as it is, and it fails, as --check does.
         run = self.stack()
-        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.returncode, 1, run.stderr)
         self.assertNotIn('Changed Justfile', run.stderr)
-        self.assertIn('put this line in it', run.stderr)
+        self.assertIn('the recipe install, on line 1 of Justfile', run.stderr)
         run = self.stack('--check')
-        self.assertRegex(run.stdout, r'(?i)did not parse with it\. just said: error: recipe `install`')
+        self.assertEqual(run.returncode, 1, run.stdout)
+        self.assertIn('the recipe install, on line 1 of Justfile', run.stdout)
         # After the fix, the next run adds the block.
         justfile.write_text('mine:\n    @echo mine\n')
         run = self.stack()
@@ -1440,7 +1442,8 @@ class StackTests(unittest.TestCase):
         justfile = self.target / 'Justfile'
         justfile.write_bytes(b'install:\n    @echo mine')
         run = self.stack('prose')
-        self.assertIn('took the block out again', run.stderr)
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertIn('the recipe install, on line 1 of Justfile', run.stderr)
         self.assertEqual(justfile.read_bytes(), b'install:\n    @echo mine')
         justfile.write_text('x:\n  @echo x\n y\n')
         run = self.stack()
@@ -1448,7 +1451,7 @@ class StackTests(unittest.TestCase):
         self.assertEqual(justfile.read_text(), 'x:\n  @echo x\n y\n')
         self.assertIn('does not parse, so the installer adds no import to it', run.stderr)
         self.assertNotIn('Changed Justfile', run.stderr)
-        self.assertNotIn('took the block out again', run.stderr)
+        self.assertNotIn('has no block of the installer', run.stderr)
 
     @unittest.skipUnless(shutil.which('just'), 'needs just')
     def test_a_typo_elsewhere_keeps_the_block(self):
@@ -1497,15 +1500,162 @@ class StackTests(unittest.TestCase):
         justfile.write_text('install:\n    @echo mine\n')
         run = self.stack('prose', '--dry-run')
         self.assertNotIn('adds import', run.stdout)
-        self.assertIn('so the real run would add it only if Justfile still parses with it', run.stdout)
-        self.assertIn('only if Justfile still parses with it, and now it does not', self.stack('--check').stdout)
+        self.assertEqual(run.returncode, 1, run.stdout)
+        self.assertIn('Dry run: the real run would fail: Justfile has no block of the installer', run.stdout)
+        self.assertIn('the recipe install, on line 1 of Justfile', run.stdout)
+        self.assertNotIn('--dry-run', run.stdout.split('run the same command again:')[1])
+        check = self.stack('--check')
+        self.assertEqual(check.returncode, 1, check.stdout)
+        self.assertIn('The next just install fails: Justfile has no block of the installer', check.stdout)
+        self.assertIn('the recipe install, on line 1 of Justfile', check.stdout)
         self.assertFalse((self.target / '.agents').exists())
 
     @unittest.skipUnless(shutil.which('just'), 'needs just')
-    def test_a_clash_error_says_that_its_line_numbers_count_the_block(self):
-        (self.target / 'Justfile').write_text('install:\n    @echo mine\n')
+    def test_a_clash_on_the_first_install_fails_and_names_each_name_and_its_line(self):
+        justfile = self.target / 'Justfile'
+        text = ('# mine\nset shell := ["bash", "-c"]\n\njn_copier := "copier"\n\ninstall:\n    @echo mine\n\n'
+                'env-lab *a:\n    @echo lab\n')
+        justfile.write_text(text)
         run = self.stack('prose')
-        self.assertIn('(The line numbers count the 5 lines of the block at the start of Justfile.)', run.stderr)
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertEqual(justfile.read_text(), text)
+        # One message, at the end of the output, with each name, its line and the fix.
+        tail = run.stderr[run.stderr.index('The install failed:'):]
+        self.assertEqual(run.stderr.count('The install failed:'), 1)
+        # The block never went in, so no note talks of it or of the lines that it would have.
+        self.assertNotIn('Changed Justfile', run.stderr)
+        self.assertNotIn('does not parse with the new index', run.stderr)
+        self.assertNotIn('put this line in it', run.stderr)
+        for line in ('the recipe env-lab, on line 9 of Justfile', 'the recipe install, on line 6 of Justfile',
+                     'the variable jn_copier, on line 4 of Justfile'):
+            self.assertIn(line, tail)
+        self.assertIn('Rename each one, for example the recipe install to setup, then run the same command again:',
+                      tail)
+        self.assertIn('--target', tail)
+        self.assertTrue(tail.rstrip().endswith('The other files of the install are written.'), tail)
+        # The other files are written, and the record keeps the clash.
+        self.assertTrue(self.saved()['choices']['prose'])
+        self.assertTrue((self.target / '.agents/just/roles/nossaifd.just').is_file())
+        self.assertTrue((self.target / '.agents/install.just').is_file())
+        self.assertIn('justfile_clash', self.saved())
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_clash_fails_each_later_run_until_the_rename_fixes_it(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('x:\n    @echo x\n\nuninstall:\n    @echo mine\n')
+        self.assertEqual(self.stack('prose').returncode, 1)
+        clash = self.saved()['justfile_clash']
+        # The Justfile is as it was: the record skips the block, and the run still fails, with the same message.
+        run = self.stack()
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertIn('the recipe uninstall, on line 4 of Justfile', run.stderr)
+        self.assertEqual(self.saved()['justfile_clash'], clash)
+        self.assertEqual(self.stack('--check').returncode, 1)
+        dry = self.stack('--dry-run')
+        self.assertEqual(dry.returncode, 1, dry.stdout)
+        self.assertIn('the recipe uninstall, on line 4 of Justfile', dry.stdout)
+        # The rename fixes it: the block goes in, and the run, --check and --dry-run pass.
+        justfile.write_text(justfile.read_text().replace('uninstall:', 'remove:'))
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('has no block of the installer', run.stderr)
+        self.assertNotIn('justfile_clash', self.saved())
+        self.assertIn("import? '.agents/install.just'", justfile.read_text())
+        self.assertIn('install', self.just_in_target('--summary').stdout.split())
+        self.assertEqual(self.stack('--dry-run').returncode, 0)
+        self.assertNotIn('has no block of the installer', self.stack('--check').stdout)
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_clash_names_the_uv_command_and_not_just_install_which_cannot_reach_the_installer(self):
+        (self.target / 'Justfile').write_text('install:\n    @echo mine\n')
+        run = self.stack('prose', env={'JNTERFACES_COMMAND': 'just install prose'})
+        self.assertEqual(run.returncode, 1, run.stderr)
+        command = run.stderr.split('run the same command again: ')[1].split(' The other files')[0]
+        self.assertTrue(command.startswith('uv run --script '), command)
+        self.assertIn('install_stack.py --target', command)
+        self.assertTrue(command.endswith(' prose'), command)
+        dry = self.stack('--dr', 'prose', env={'JNTERFACES_COMMAND': 'just install --dry-run prose'})
+        self.assertEqual(dry.returncode, 1, dry.stdout)
+        command = dry.stdout.split('run the same command again: ')[1].strip()
+        self.assertTrue(command.startswith('uv run --script '), command)
+        self.assertNotIn('--dr', command)
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_jnterfaces_path_with_a_letter_outside_ascii_is_no_clash(self):
+        # just takes \u{e9} and not the \u00e9 of JSON, so the test line of the recipe file must keep the letter.
+        root = self.base / "José's"
+        (root / '.agents').mkdir(parents=True)
+        shutil.copy(self.packages / 'jnterfaces/.agents/install.just', root / '.agents/install.just')
+        with mock.patch.object(install_stack, 'ROOT', root):
+            self.assertIsNone(install_stack.recipe_file_error(self.target, 'x:\n    @echo x\n'))
+            self.assertIn('install', install_stack.recipe_file_error(self.target, 'install:\n    @echo x\n'))
+            for text in ('/Users/José/a', "it's", 'a"b\\c'):
+                probe = self.base / 'probe.just'
+                probe.write_text(f'x := {install_stack.just_string(text)}\n')
+                run = subprocess.run(['just', '--justfile', probe, '--evaluate', 'x'], capture_output=True, text=True)
+                self.assertEqual(run.stdout, text, run.stderr)
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_an_update_that_brings_a_clash_takes_the_block_out_before_the_recipes_are_written(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('foo:\n    @echo mine\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        recipe_file = self.packages / 'jnterfaces/.agents/install.just'
+        recipe_file.write_text(recipe_file.read_text() + '\nfoo:\n    @echo theirs\n')
+        run = self.stack()
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertNotIn('does not parse with the new index', run.stderr)
+        self.assertNotIn('put this line in it', run.stderr)
+        self.assertIn('the recipe foo, on line 1 of Justfile', run.stderr)
+        self.assertEqual(justfile.read_text(), 'foo:\n    @echo mine\n')
+        self.assertIn('justfile_clash', self.saved())
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_declined_block_gets_no_clash_from_the_run_the_dry_run_or_check(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        justfile.write_text('x:\n    @echo x\n')
+        self.assertEqual(self.stack().returncode, 0)
+        justfile.write_text('x:\n    @echo x\ninstall:\n    @echo mine\n')
+        for args in ((), ('--dry-run',), ('--check',)):
+            run = self.stack(*args)
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+            self.assertNotIn('has no block of the installer', run.stdout + run.stderr)
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_dry_run_sees_a_clash_that_a_new_recipe_file_brings_while_the_block_is_there(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('foo:\n    @echo mine\n')
+        self.assertEqual(self.stack('prose').returncode, 0)
+        self.assertIn('# begin lines of jnterfaces', justfile.read_text())
+        recipe_file = self.packages / 'jnterfaces/.agents/install.just'
+        recipe_file.write_text(recipe_file.read_text() + '\nfoo:\n    @echo theirs\n')
+        dry = self.stack('--dry-run')
+        self.assertEqual(dry.returncode, 1, dry.stdout)
+        self.assertIn('the recipe foo, on line 7 of Justfile', dry.stdout)
+        self.assertNotIn('does not parse with the new index', dry.stdout + dry.stderr)
+        run = self.stack()
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertIn('the recipe foo, on line 1 of Justfile', run.stderr)
+        # A dry run with the clash held asks for no line that does not parse.
+        dry = self.stack('--dry-run')
+        self.assertEqual(dry.returncode, 1, dry.stdout)
+        self.assertNotIn('put this line in it', dry.stdout + dry.stderr)
+
+    @unittest.skipUnless(shutil.which('just'), 'needs just')
+    def test_a_clash_that_a_new_recipe_file_ends_lets_the_block_in_with_the_same_justfile(self):
+        justfile = self.target / 'Justfile'
+        justfile.write_text('install:\n    @echo mine\n')
+        self.assertEqual(self.stack('prose').returncode, 1)
+        # The record keeps the hash of the Justfile. A recipe file without install, as a later jnterfaces could have,
+        # ends the clash, so the run tries the block again.
+        recipe_file = self.packages / 'jnterfaces/.agents/install.just'
+        recipe_file.write_text(recipe_file.read_text().replace('\ninstall *args:', '\njn-install *args:'))
+        run = self.stack()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('justfile_clash', self.saved())
+        self.assertIn("import? '.agents/install.just'", justfile.read_text())
 
     @unittest.skipUnless(shutil.which('just'), 'needs just')
     def test_a_dry_run_and_check_promise_no_block_that_the_run_would_not_add(self):
@@ -1526,21 +1676,30 @@ class StackTests(unittest.TestCase):
         (self.target / '.agents/stack.json').write_text(json.dumps(record))
         justfile.write_text('install:\n    @echo mine\n')
         run = self.stack('prose', '--dry-run')
+        self.assertEqual(run.returncode, 1, run.stdout)
         self.assertNotIn('adds import', run.stdout)
-        self.assertIn('so the real run would add it only if Justfile still parses with it', run.stdout)
+        self.assertIn('the recipe install, on line 1 of Justfile', run.stdout)
         run = self.stack('--check')
-        self.assertIn('only if Justfile still parses with it, and now it does not', run.stdout)
+        self.assertEqual(run.returncode, 1, run.stdout)
+        self.assertIn('The next just install fails: Justfile has no block of the installer', run.stdout)
         self.assertEqual(list(self.target.glob('.jnterfaces-probe-*')), [])
         self.assertEqual(justfile.read_text(), 'install:\n    @echo mine\n')
 
     @unittest.skipUnless(shutil.which('just'), 'needs just')
     def test_a_rollback_keeps_a_change_that_you_saved_during_the_run(self):
         # A just on the path that saves a change of the user the first time the Justfile fails to parse, which is
-        # after the installer wrote the block and before it takes the block out.
+        # after the installer wrote the block and before it takes the block out. A clash with the recipe file stops
+        # the block before it goes in, so this just says that the probe of the recipe file parses: the clash is then
+        # one that only the block in the real Justfile shows.
         real = shutil.which('just')
         (self.bin / 'just').write_text(f'''#!{sys.executable}
 import os, subprocess, sys
 from pathlib import Path
+words = sys.argv[1:]
+probe = words[words.index('--justfile') + 1] if '--justfile' in words else ''
+if ('--summary' in words and '.jnterfaces-probe-' in probe
+        and 'jnterfaces/.agents/install.just' in Path(probe).read_text()):
+    sys.exit(0)
 run = subprocess.run([{real!r}, *sys.argv[1:]], capture_output=True, text=True)
 sys.stdout.write(run.stdout)
 sys.stderr.write(run.stderr)
@@ -1556,9 +1715,9 @@ sys.exit(run.returncode)
         justfile.write_text('install:\n    @echo mine\n')
         run = self.stack('prose', env={'SAVED_MARKER': str(self.base / 'saved'),
                                        'SAVED_JUSTFILE': str(justfile)})
-        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.returncode, 1, run.stderr)
         self.assertTrue((self.base / 'saved').exists())
-        self.assertIn('took the block out again', run.stderr)
+        self.assertIn('The install failed: Justfile has no block of the installer', run.stderr)
         self.assertEqual(justfile.read_text(), 'install:\n    @echo mine\n# saved by you\n')
 
     def test_check_names_a_started_justfile_without_the_import(self):
