@@ -321,7 +321,7 @@ of a dependency group goes, the installer takes out the empty group.
 - **`--ask`** asks again, even when the project has saved choices.
 - **`--update`** first fast-forwards each package clone that the run uses.
   It does not change a clone with uncommitted changes, or a clone on another
-  branch. [The stack guide](docs/stack-guide.md) gives the rules.
+  branch. [The stack guide](https://rahuldave.github.io/jnterfaces/stack-guide.html) gives the rules.
 - **`--clone NAME=DIR`** uses one clone in another folder.
 - **`--clean`** installs the last commit of each clone, without uncommitted
   changes. **`--dry-run`** checks everything and writes nothing in the
