@@ -813,8 +813,9 @@ class StackTests(unittest.TestCase):
         for path in ('smalldocs.yml', 'atelier.css', 'atelier-dark.css', 'fonts/dmsans-OFL.txt'):
             self.assertEqual((self.target / 'docs/_extensions/atelier' / path).read_bytes(),
                              (install_stack.DOCS_SKILL / 'assets/_extensions/atelier' / path).read_bytes(), path)
-        attributes = self.target / '.gitattributes'
-        self.assertIn('docs/_extensions/** -whitespace', attributes.read_text().splitlines())
+        attributes = self.target / 'docs/.gitattributes'
+        self.assertIn('_extensions/** -whitespace', attributes.read_text().splitlines())
+        self.assertFalse((self.target / '.gitattributes').exists())
         index = (self.target / '.agents/just/index.just').read_text()
         self.assertIn("import? '../skills/docs/docs.just'", index)
         self.assertIn('docs-check', next(line for line in index.splitlines() if line.startswith('check:')).split())
@@ -834,9 +835,10 @@ class StackTests(unittest.TestCase):
         self.assertIn('jlog skip docs-check', index)
         self.assertEqual((self.target / 'docs/index.md').read_text(), '# My site\n')
         self.assertFalse((self.target / '.github/workflows/docs-publish.yml').exists())
-        # The theme is yours, like the config, so it stays, and so does its line in .gitattributes.
+        # The theme is yours, like the config, so it stays, and so does its line in docs/.gitattributes.
         self.assertTrue((self.target / 'docs/_extensions/atelier/atelier.css').is_file())
-        self.assertIn('docs/_extensions/** -whitespace', attributes.read_text().splitlines())
+        self.assertIn('_extensions/** -whitespace', attributes.read_text().splitlines())
+        self.assertFalse((self.target / '.gitattributes').exists())
 
     def test_the_files_of_the_docs_role_pass_git_diff_check(self):
         # The theme files and the copy in the skill end some lines with a carriage return. The lines of the role in
@@ -856,16 +858,18 @@ class StackTests(unittest.TestCase):
         return subprocess.run(['git', 'diff', '--cached', '--check'], cwd=self.target, capture_output=True, text=True)
 
     def test_the_theme_files_that_stay_after_the_docs_role_goes_pass_git_diff_check(self):
-        # The theme stays when the role goes, so its line in .gitattributes stays too, in the block of the
-        # installer. The line for the copy in the skill goes with the skill.
+        # The theme stays when the role goes, so its line in docs/.gitattributes stays too, in the block of the
+        # installer. The .gitattributes of the copy in the skill goes with the skill.
         self.assertEqual(self.stack('--defaults', 'docs').returncode, 0)
         self.assertEqual(self.diff_check().returncode, 0)
         gone = self.stack('--without', 'docs')
         self.assertEqual(gone.returncode, 0, gone.stderr)
         self.assertTrue((self.target / 'docs/_extensions/atelier/fonts/dmsans-OFL.txt').is_file())
-        lines = (self.target / '.gitattributes').read_text().splitlines()
-        self.assertIn('docs/_extensions/** -whitespace', lines)
-        self.assertNotIn('.agents/skills/docs/assets/_extensions/** -whitespace', lines)
+        attributes = self.target / 'docs/.gitattributes'
+        lines = attributes.read_text().splitlines()
+        self.assertIn('_extensions/** -whitespace', lines)
+        self.assertFalse((self.target / '.agents/skills/docs/assets/.gitattributes').exists())
+        self.assertFalse((self.target / '.gitattributes').exists())
         # The block of the installer says when the line goes, because its footer says its lines stay.
         self.assertIn('# The theme Atelier of the site stayed when the docs role went. The installer removes the '
                       'next line when the theme files go.', lines)
@@ -875,20 +879,142 @@ class StackTests(unittest.TestCase):
         for args in ((), ('docs',), ('--without', 'docs')):
             run = self.stack('--defaults', *args)
             self.assertEqual(run.returncode, 0, run.stderr)
-            self.assertEqual(
-                (self.target / '.gitattributes').read_text().splitlines().count('docs/_extensions/** -whitespace'), 1)
+            self.assertEqual(attributes.read_text().splitlines().count('_extensions/** -whitespace'), 1)
             # The comment of the installer comes and goes with its line, and is never left behind.
-            self.assertEqual((self.target / '.gitattributes').read_text().count('The theme Atelier of the site'),
+            self.assertEqual(attributes.read_text().count('The theme Atelier of the site'),
                              0 if args == ('docs',) else 1)
             checked = self.diff_check()
             self.assertEqual(checked.returncode, 0, checked.stdout)
-        # With the theme gone, the line goes on the next run.
+        # With the theme gone, the file goes on the next run.
         shutil.rmtree(self.target / 'docs/_extensions')
         self.assertEqual(self.stack('--defaults').returncode, 0)
-        attributes = self.target / '.gitattributes'
-        left = attributes.read_text() if attributes.exists() else ''
-        self.assertNotIn('docs/_extensions/** -whitespace', left.splitlines())
-        self.assertNotIn('The theme Atelier', left)
+        self.assertFalse(attributes.exists())
+        self.assertFalse((self.target / '.gitattributes').exists())
+
+    def whitespace_attribute(self, *paths):
+        """The whitespace attribute of each path, as git check-attr gives it: set, unset, unspecified or a value."""
+        out = subprocess.run(['git', 'check-attr', 'whitespace', '--', *paths], cwd=self.target, capture_output=True,
+                             text=True, check=True).stdout
+        return [line.rpartition(': ')[2] for line in out.splitlines()]
+
+    THEME_FILES = ('docs/_extensions/atelier/atelier.css', '.agents/skills/docs/assets/_extensions/atelier/atelier.css')
+
+    def test_the_docs_role_writes_its_attributes_in_nested_files_and_leaves_the_root_file_alone(self):
+        # A vendored manifest can pin the bytes of the root .gitattributes, so the role never writes it.
+        root = self.target / '.gitattributes'
+        mine = b'# mine\n*.png binary'
+        root.write_bytes(mine)
+        run = self.stack('--defaults', 'docs')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(root.read_bytes(), mine)
+        for folder in ('docs', '.agents/skills/docs/assets'):
+            rules = [line for line in (self.target / folder / '.gitattributes').read_text().splitlines()
+                     if line and not line.startswith('#')]
+            self.assertEqual(rules, ['_extensions/** -whitespace'], folder)
+        # git reads the nested files: the theme files lose the whitespace check, and other files keep it.
+        self.assertEqual(self.whitespace_attribute(*self.THEME_FILES, 'docs/index.md', 'docs/_smalldocs.yml'),
+                         ['unset', 'unset', 'unspecified', 'unspecified'])
+        checked = self.diff_check()
+        self.assertEqual(checked.returncode, 0, checked.stdout)
+        # Uninstall takes the nested file of the skill with the skill. The theme stays, and so does its file, until
+        # the theme goes.
+        self.assertEqual(self.stack('--without', 'docs').returncode, 0)
+        self.assertFalse((self.target / '.agents/skills/docs/assets/.gitattributes').exists())
+        self.assertEqual(self.whitespace_attribute(self.THEME_FILES[0]), ['unset'])
+        shutil.rmtree(self.target / 'docs/_extensions')
+        self.assertEqual(self.stack('--defaults').returncode, 0)
+        self.assertFalse((self.target / 'docs/.gitattributes').exists())
+        self.assertEqual(root.read_bytes(), mine)
+
+    def test_uninstall_with_no_theme_removes_both_nested_files(self):
+        (self.target / 'docs').mkdir()
+        (self.target / 'docs/_smalldocs.yml').write_text('theme: folio\n')
+        self.assertEqual(self.stack('--defaults', 'docs').returncode, 0)
+        self.assertTrue((self.target / 'docs/.gitattributes').is_file())
+        self.assertTrue((self.target / '.agents/skills/docs/assets/.gitattributes').is_file())
+        run = self.stack('--without', 'docs')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertFalse((self.target / 'docs/.gitattributes').exists())
+        self.assertFalse((self.target / '.agents/skills/docs/assets/.gitattributes').exists())
+        self.assertFalse((self.target / '.gitattributes').exists())
+
+    # The last commit of main whose installer wrote the lines of the docs role in the root .gitattributes.
+    OLD_LAYOUT = '82e471e421694dc22987337c57835ef6fdea5234'
+
+    def old_layout(self, *args):
+        """Run the installer of OLD_LAYOUT with these arguments, then put the scripts of now back. Skip the test when
+        the clone has no such commit, as a shallow clone has not."""
+        scripts = self.packages / 'jnterfaces/scripts'
+        found = subprocess.run(['git', '-C', str(REPO), 'cat-file', '-e', f'{self.OLD_LAYOUT}^{{commit}}'],
+                               capture_output=True)
+        if found.returncode:
+            self.skipTest(f'the clone has no commit {self.OLD_LAYOUT}')
+        now = Path(tempfile.mkdtemp(dir=self.base)) / 'scripts'
+        shutil.copytree(scripts, now)
+        archive = subprocess.run(['git', '-C', str(REPO), 'archive', self.OLD_LAYOUT, 'scripts'], capture_output=True,
+                                 check=True).stdout
+        subprocess.run(['tar', '-x', '-C', str(self.packages / 'jnterfaces')], input=archive, check=True)
+        try:
+            return self.stack(*args)
+        finally:
+            shutil.rmtree(scripts)
+            shutil.copytree(now, scripts)
+
+    def test_an_update_from_the_old_layout_gives_the_root_file_back_byte_for_byte(self):
+        # The old installer wrote a blank row after its block only when the file did not start with one, and it gave
+        # the last row a line ending. Nothing records either change, so a file that starts with a blank row or ends
+        # with no line ending cannot come back whole from the old layout; this file does neither.
+        root = self.target / '.gitattributes'
+        mine = b'# mine\n*.png binary\n'
+        root.write_bytes(mine)
+        run = self.old_layout('--defaults', 'docs')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('docs/_extensions/** -whitespace', root.read_text().splitlines())
+        self.assertFalse((self.target / 'docs/.gitattributes').exists())
+        run = self.stack('--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(root.read_bytes(), mine)
+        self.assertEqual(self.whitespace_attribute(*self.THEME_FILES, 'docs/index.md'), ['unset', 'unset', 'unspecified'])
+        self.assertNotIn('docs/_extensions/** -whitespace', json.dumps(self.saved()['parts'].get('.gitattributes', {})))
+        checked = self.diff_check()
+        self.assertEqual(checked.returncode, 0, checked.stdout)
+
+    def test_an_update_from_the_old_layout_removes_a_root_file_that_the_installer_made(self):
+        root = self.target / '.gitattributes'
+        self.assertEqual(self.old_layout('--defaults', 'docs').returncode, 0)
+        self.assertTrue(root.is_file())
+        run = self.stack('--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertFalse(root.exists())
+        self.assertEqual(self.whitespace_attribute(*self.THEME_FILES), ['unset', 'unset'])
+
+    def test_an_update_from_the_old_layout_moves_the_line_of_a_theme_that_stayed(self):
+        # The old installer kept the line of the theme in its own block of the root file after the role went.
+        root = self.target / '.gitattributes'
+        root.write_text('*.png binary\n')
+        self.assertEqual(self.old_layout('--defaults', 'docs').returncode, 0)
+        self.assertEqual(self.old_layout('--without', 'docs').returncode, 0)
+        self.assertIn('The theme Atelier', root.read_text())
+        run = self.stack('--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(root.read_text(), '*.png binary\n')
+        self.assertEqual(self.whitespace_attribute(self.THEME_FILES[0]), ['unset'])
+        self.assertIn('The theme Atelier', (self.target / 'docs/.gitattributes').read_text())
+
+    def test_an_update_from_the_old_layout_keeps_lines_that_the_record_does_not_name_and_warns(self):
+        root = self.target / '.gitattributes'
+        root.write_text('*.png binary\n')
+        self.assertEqual(self.old_layout('--defaults', 'docs').returncode, 0)
+        record = self.saved()
+        del record['parts']['.gitattributes']
+        (self.target / '.agents/stack.json').write_text(json.dumps(record))
+        run = self.stack('--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('.gitattributes: docs/_extensions/** -whitespace is in the block of docs, and the record does '
+                      'not say that docs added it, so it stays as yours', run.stderr)
+        lines = root.read_text().splitlines()
+        self.assertIn('docs/_extensions/** -whitespace', lines)
+        self.assertIn('*.png binary', lines)
 
     def test_a_site_with_its_own_config_and_theme_gets_no_atelier(self):
         (self.target / 'docs').mkdir()
@@ -1641,7 +1767,8 @@ class StackTests(unittest.TestCase):
         self.assertEqual(justfile.read_text(), text)
         self.assertRegex(run.stderr, r'(?i)just said: error: recipe `install` first defined')
         self.assertRegex(run.stderr, r'(?i)without the block, just says: error: variable `jn_copier` not defined')
-        self.assertIn('(These line numbers do not count the 5 lines of the block.)', run.stderr)
+        # The block has five rows, and the blank row after it parts it from the rows of the Justfile.
+        self.assertIn('(These line numbers do not count the 6 lines of the block.)', run.stderr)
         # A second recipe x: the error of the real file has the line numbers of the real file.
         justfile.write_text(justfile.read_text().replace('y:\n    @echo {{jn_copier}}\ninstall:\n    @echo mine\n',
                                                          'x:\n    @echo again\n'))
@@ -2938,10 +3065,11 @@ sys.exit(run.returncode)
         self.assertFalse((self.target / '.agents/skills/nossaifd/LATER.md').exists())
         record = json.loads((self.target / '.agents/nossaifd-install.json').read_text())
         self.assertEqual(record['source_version'], 'v0.10.0')
-        # A second run finds the clone at its release and leaves it there.
+        # A second run finds the clone at its release, leaves it there and says so in one line.
         run = self.stack('--defaults', '--update')
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertNotIn('Updated the nossaifd clone', run.stderr)
+        self.assertIn(f'Not moved: the nossaifd clone {clone} is at the release v0.10.0\n', run.stderr)
         self.assertEqual(git(clone, 'rev-parse', 'HEAD'), release)
 
     def test_update_moves_an_older_checkout_forward_to_a_newer_release(self):
@@ -2962,7 +3090,8 @@ sys.exit(run.returncode)
         record = json.loads((self.target / '.agents/nossaifd-install.json').read_text())
         self.assertEqual(record['source_version'], 'v0.11.0')
 
-    def test_update_moves_a_clone_with_unreleased_commits_back_to_the_release(self):
+    def test_update_leaves_a_clone_ahead_of_its_release_as_it_is(self):
+        # The checkout of an owner holds the latest release and newer commits. --update never moves it back.
         self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
         origin = self.cloned_package('nossaifd')
         (origin / '.agents/skills/nossaifd/NEW.md').write_text('new\n')
@@ -2972,17 +3101,21 @@ sys.exit(run.returncode)
         commit(origin)
         clone = (self.packages / 'nossaifd').resolve()
         git(clone, 'pull', '-q', '--ff-only')
+        ahead = git(clone, 'rev-parse', 'HEAD')
+        branch = git(clone, 'symbolic-ref', '--short', 'HEAD')
         # The tag comes after the clone has its commit, as a release of an older commit does.
         git(origin, 'tag', 'v0.2.0', release)
         run = self.stack('--defaults', '--update')
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn(f'Updated the nossaifd clone {clone} to the release v0.2.0, an older commit than it had',
+        self.assertIn(f'Not moved: the nossaifd clone {clone} holds the release v0.2.0 already, with newer commits',
                       run.stderr)
-        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), release)
-        self.assertFalse((clone / '.agents/skills/nossaifd/LATER.md').exists())
-        self.assertFalse((self.target / '.agents/skills/nossaifd/LATER.md').exists())
-        record = json.loads((self.target / '.agents/nossaifd-install.json').read_text())
-        self.assertEqual(record['source_version'], 'v0.2.0')
+        self.assertNotIn('Updated the nossaifd clone', run.stderr)
+        self.assertNotIn('older commit', run.stderr)
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), ahead)
+        self.assertEqual(git(clone, 'symbolic-ref', '--short', 'HEAD'), branch)
+        self.assertEqual(git(clone, 'rev-parse', branch), ahead)
+        self.assertTrue((clone / '.agents/skills/nossaifd/LATER.md').is_file())
+        self.assertTrue((self.target / '.agents/skills/nossaifd/LATER.md').is_file())
 
     def test_update_gets_the_tags_of_a_no_tags_clone_and_a_tag_that_moved(self):
         self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
@@ -3023,25 +3156,28 @@ sys.exit(run.returncode)
         self.assertIn('cannot list the release tags of its remote', str(caught.exception))
         self.assertEqual(git(clone, 'rev-parse', 'HEAD'), before)
 
-    def test_update_to_a_release_on_another_line_of_the_history_says_so(self):
+    def test_update_stops_on_a_clone_that_diverged_from_its_release(self):
+        # The release is on another line of the history: each of HEAD and the tag has a commit that the other lacks.
         self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
+        index = (self.target / '.agents/just/index.just').read_bytes()
         origin = self.cloned_package('nossaifd')
         main = git(origin, 'symbolic-ref', '--short', 'HEAD')
         git(origin, 'checkout', '-q', '-b', 'side')
         (origin / 'side.txt').write_text('side\n')
         commit(origin)
         git(origin, 'tag', 'v0.3.0')
-        side = git(origin, 'rev-parse', 'HEAD')
         git(origin, 'checkout', '-q', main)
         (origin / 'main.txt').write_text('main\n')
         commit(origin)
         clone = (self.packages / 'nossaifd').resolve()
         git(clone, 'pull', '-q', '--ff-only', '--no-tags')
+        before = git(clone, 'rev-parse', 'HEAD')
         git(origin, 'merge', '-q', '--no-edit', 'side')
         run = self.stack('--defaults', '--update')
-        self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn('to the release v0.3.0, on another line of the history', run.stderr)
-        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), side)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn(f'the nossaifd clone {clone} has diverged from the release v0.3.0', run.stderr)
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), before)
+        self.assertEqual((self.target / '.agents/just/index.just').read_bytes(), index)
 
     def test_update_of_a_tagged_package_stops_on_a_dirty_clone(self):
         self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
@@ -3064,10 +3200,11 @@ sys.exit(run.returncode)
         mine = git(clone, 'rev-parse', 'HEAD')
         run = self.stack('--defaults', '--update')
         self.assertNotEqual(run.returncode, 0)
-        self.assertIn(f'the nossaifd clone {clone} cannot fast-forward', run.stderr)
+        self.assertRegex(run.stderr, re.escape(f'the nossaifd clone {clone} has commits on ') + r'\w+ that origin '
+                         r'does not have, and origin/\w+ has commits that \w+ does not have')
         self.assertEqual(git(clone, 'rev-parse', 'HEAD'), mine)
 
-    def test_update_keeps_a_clone_with_its_own_commits_on_top_of_the_remote_branch(self):
+    def test_update_stops_on_a_clone_with_commits_that_its_remote_does_not_have(self):
         self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
         origin, _ = self.released_package('nossaifd')
         clone = (self.packages / 'nossaifd').resolve()
@@ -3076,33 +3213,49 @@ sys.exit(run.returncode)
         commit(clone)
         mine = git(clone, 'rev-parse', 'HEAD')
         run = self.stack('--defaults', '--update')
-        self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn('of the nossaifd clone', run.stderr)
-        self.assertIn('The installer keeps them.', run.stderr)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertRegex(run.stderr, re.escape(f'the nossaifd clone {clone} has commits on ') + r'\w+ that origin '
+                         r'does not have\. Push them')
         self.assertEqual(git(clone, 'rev-parse', 'HEAD'), mine)
 
-    def test_update_keeps_a_clone_pinned_to_a_tag_or_a_commit(self):
+    def test_update_moves_a_clone_at_a_tag_forward_on_no_branch(self):
         self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
         origin, release = self.released_package('nossaifd')
         clone = (self.packages / 'nossaifd').resolve()
         git(clone, 'fetch', '-q', '--tags')
         git(clone, 'checkout', '-q', 'v0.1.0')
-        pinned = git(clone, 'rev-parse', 'HEAD')
         run = self.stack('--defaults', '--update')
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn(f'Not updated: the nossaifd clone {clone} is on no branch', run.stderr)
-        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), pinned)
-        self.assertFalse((self.target / '.agents/skills/nossaifd/NEW.md').exists())
-        record = json.loads((self.target / '.agents/nossaifd-install.json').read_text())
-        self.assertEqual(record['source_version'], 'v0.1.0')
-        # A clone named with --clone at a commit is pinned the same way.
+        self.assertIn(f'Updated the nossaifd clone {clone} to the release v0.10.0', run.stderr)
+        self.assertEqual(git(clone, 'rev-parse', 'HEAD'), release)
+        # The clone stays on no branch, and the branch of the clone does not move.
+        self.assertNotEqual(subprocess.run(['git', '-C', str(clone), 'symbolic-ref', '-q', 'HEAD']).returncode, 0)
+        self.assertEqual(git(clone, 'rev-parse', git(origin, 'symbolic-ref', '--short', 'HEAD')),
+                         git(clone, 'rev-parse', 'v0.1.0'))
+        self.assertTrue((self.target / '.agents/skills/nossaifd/NEW.md').is_file())
+        run = self.stack('--defaults', '--update')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(f'Not moved: the nossaifd clone {clone} is at the release v0.10.0', run.stderr)
+        # A clone on no branch at a commit that is no release stops the run.
         work = self.base / 'nossaifd-pinned'
         git(self.base, 'clone', '-q', str(origin), str(work))
-        git(work, 'checkout', '-q', release)
+        later = git(work, 'rev-parse', 'HEAD')
+        git(work, 'checkout', '-q', later)
         run = self.stack('--defaults', '--update', '--clone', f'nossaifd={work}')
-        self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn('is on no branch', run.stderr)
-        self.assertEqual(git(work, 'rev-parse', 'HEAD'), release)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn(f'the nossaifd clone {work.resolve()} is on no branch, at a commit with no release tag', run.stderr)
+        self.assertEqual(git(work, 'rev-parse', 'HEAD'), later)
+        # So does a clone at a tag that only the clone has.
+        git(work, 'checkout', '-q', '--detach', 'v0.1.0')
+        (work / 'mine.txt').write_text('mine\n')
+        commit(work)
+        git(work, 'tag', 'v0.1.1')
+        mine = git(work, 'rev-parse', 'HEAD')
+        run = self.stack('--defaults', '--update', '--clone', f'nossaifd={work}')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn(f'the nossaifd clone {work.resolve()} is at the tag v0.1.1, which its remote origin does not '
+                      'have', run.stderr)
+        self.assertEqual(git(work, 'rev-parse', 'HEAD'), mine)
 
     def test_update_reads_the_new_profile(self):
         self.assertEqual(self.stack('--defaults', '--profile', 'python').returncode, 0)
@@ -3162,7 +3315,7 @@ sys.exit(run.returncode)
                       run.stderr)
         self.assertEqual((clone / 'notes').read_text(), 'precious\n')
 
-    def test_update_reports_a_clone_that_does_not_know_its_default_branch(self):
+    def test_update_stops_on_a_clone_that_does_not_know_its_default_branch(self):
         self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
         origin = self.cloned_package('nossaifd')
         (origin / 'a.txt').write_text('origin\n')
@@ -3170,9 +3323,8 @@ sys.exit(run.returncode)
         clone = (self.packages / 'nossaifd').resolve()
         git(clone, 'remote', 'set-head', 'origin', '-d')
         run = self.stack('--defaults', '--update')
-        self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn(f'Not updated: the nossaifd clone {clone} does not know the default branch of its remote '
-                      'origin', run.stderr)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn(f'the nossaifd clone {clone} does not know the default branch of its remote origin', run.stderr)
         self.assertFalse((clone / 'a.txt').exists())
 
     def test_update_keeps_an_ignored_file_in_a_folder_where_the_new_commits_add_a_file(self):
@@ -3222,11 +3374,11 @@ sys.exit(run.returncode)
         mine = git(clone, 'rev-parse', 'HEAD')
         run = self.stack('--defaults', '--update')
         self.assertNotEqual(run.returncode, 0)
-        self.assertIn(f'the nossaifd clone {clone} cannot fast-forward', run.stderr)
+        self.assertIn(f'the nossaifd clone {clone} has commits on ', run.stderr)
         self.assertEqual(git(clone, 'rev-parse', 'HEAD'), mine)
         self.assertEqual((self.target / '.agents/just/index.just').read_bytes(), index)
 
-    def test_update_reports_a_clone_on_another_branch_and_keeps_it(self):
+    def test_update_stops_on_a_clone_on_another_branch_and_keeps_it(self):
         self.assertEqual(self.stack('--defaults', 'prose').returncode, 0)
         origin = self.cloned_package('nossaifd')
         git(origin, 'branch', 'work')
@@ -3236,10 +3388,23 @@ sys.exit(run.returncode)
         git(clone, 'fetch', '-q')
         git(clone, 'checkout', '-q', '-b', 'work', '--track', 'origin/work')
         run = self.stack('--defaults', '--update')
-        self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn(f'Not updated: the nossaifd clone {clone} is on the branch work', run.stderr)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn(f'the nossaifd clone {clone} is on the branch work, not on the default branch', run.stderr)
         self.assertEqual(git(clone, 'symbolic-ref', '--short', 'HEAD'), 'work')
         self.assertFalse((clone / 'a.txt').exists())
+        # So does another branch that follows the default branch of the remote.
+        git(clone, 'checkout', '-q', '-b', 'feat', '--track', f'origin/{git(origin, "symbolic-ref", "--short", "HEAD")}')
+        feat = git(clone, 'rev-parse', 'HEAD')
+        run = self.stack('--defaults', '--update')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn(f'the nossaifd clone {clone} is on the branch feat, not on the default branch', run.stderr)
+        self.assertEqual(git(clone, 'rev-parse', 'feat'), feat)
+        # A branch that follows no remote branch stops the run too.
+        git(clone, 'checkout', '-q', '-b', 'local')
+        run = self.stack('--defaults', '--update')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn(f'the nossaifd clone {clone} is on the branch local, which follows no branch of a remote',
+                      run.stderr)
 
     def test_dry_run_writes_nothing(self):
         (self.target / 'pyproject.toml').write_text('')
@@ -5801,28 +5966,28 @@ class InstallRecipeUpdateTests(unittest.TestCase):
         self.assertIn('has no release tag', run.stderr)
         self.assertEqual(git(self.clone, 'rev-parse', 'HEAD'), newest)
 
-    def test_update_keeps_the_own_commits_of_the_clone(self):
+    def test_update_stops_on_the_own_commits_of_the_clone(self):
         git(self.origin, 'tag', 'v0.1.0')
         git(self.base, 'clone', '-q', str(self.origin), str(self.clone))
         (self.clone / 'mine.txt').write_text('mine\n')
         commit(self.clone)
         mine = git(self.clone, 'rev-parse', 'HEAD')
         run = self.install('--update')
-        self.updated(run)
-        self.assertIn('Not updated', run.stderr)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('that origin does not have', run.stderr)
+        self.assertNotIn('--stop-here', run.stderr)
         self.assertEqual(git(self.clone, 'rev-parse', 'HEAD'), mine)
 
-    def test_update_keeps_a_clone_pinned_to_a_tag(self):
+    def test_update_moves_a_clone_at_a_tag_to_the_newer_tag(self):
         git(self.origin, 'tag', 'v0.1.0')
-        pinned = git(self.origin, 'rev-parse', 'HEAD')
-        self.later('a')
+        newer = self.later('a')
         git(self.origin, 'tag', 'v0.2.0')
         git(self.base, 'clone', '-q', str(self.origin), str(self.clone))
         git(self.clone, 'checkout', '-q', 'v0.1.0')
         run = self.install('--update')
         self.updated(run)
-        self.assertIn('is on no branch', run.stderr)
-        self.assertEqual(git(self.clone, 'rev-parse', 'HEAD'), pinned)
+        self.assertIn('to the release v0.2.0', run.stderr)
+        self.assertEqual(git(self.clone, 'rev-parse', 'HEAD'), newer)
 
     def test_update_stops_on_a_dirty_clone_and_keeps_its_change(self):
         git(self.base, 'clone', '-q', str(self.origin), str(self.clone))
@@ -5837,33 +6002,33 @@ class InstallRecipeUpdateTests(unittest.TestCase):
         self.assertEqual(git(self.clone, 'rev-parse', 'HEAD'), before)
         self.assertEqual((self.clone / '.gitignore').read_text(), 'mine\n')
 
-    def test_update_keeps_an_ignored_file_that_a_move_back_would_overwrite(self):
+    def test_update_never_moves_the_clone_back_to_an_older_release(self):
         (self.origin / 'notes.txt').write_text('old\n')
         commit(self.origin)
         git(self.origin, 'tag', 'v0.1.0')
         git(self.origin, 'rm', '-q', 'notes.txt')
         commit(self.origin)
         git(self.base, 'clone', '-q', str(self.origin), str(self.clone))
+        newest = git(self.clone, 'rev-parse', 'HEAD')
         (self.clone / '.git/info/exclude').write_text('notes.txt\n')
         (self.clone / 'notes.txt').write_text('precious\n')
         run = self.install('--update')
-        self.assertNotEqual(run.returncode, 0)
-        self.assertIn('has ignored files where the new commits add files: notes.txt', run.stderr)
+        self.updated(run)
+        self.assertIn('holds the release v0.1.0 already, with newer commits', run.stderr)
+        self.assertEqual(git(self.clone, 'rev-parse', 'HEAD'), newest)
         self.assertEqual((self.clone / 'notes.txt').read_text(), 'precious\n')
 
-    def test_update_stays_off_a_release_older_than_update_self(self):
+    def test_update_stays_off_a_release_without_update_self(self):
+        git(self.base, 'clone', '-q', str(self.origin), str(self.clone))
+        start = git(self.clone, 'rev-parse', 'HEAD')
         (self.origin / 'scripts/install_stack.py').write_text('print("old")\n')
         commit(self.origin)
         git(self.origin, 'tag', 'v0.1.0')
-        git(self.origin, 'checkout', '-q', 'HEAD~1', '--', 'scripts/install_stack.py')
-        commit(self.origin)
-        git(self.base, 'clone', '-q', str(self.origin), str(self.clone))
-        newest = git(self.clone, 'rev-parse', 'HEAD')
         for _ in range(2):
             run = self.install('--update')
             self.updated(run)
             self.assertIn('because the release v0.1.0 is older than the move to releases', run.stderr)
-            self.assertEqual(git(self.clone, 'rev-parse', 'HEAD'), newest)
+            self.assertEqual(git(self.clone, 'rev-parse', 'HEAD'), start)
 
     def test_an_older_clone_without_update_self_gets_the_newest_commit(self):
         (self.origin / 'scripts/install_stack.py').write_text('print("old")\n')

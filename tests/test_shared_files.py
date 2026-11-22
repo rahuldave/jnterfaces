@@ -124,6 +124,46 @@ class LineFileTests(Base):
         self.sync([], [py])
         self.assertEqual(self.text(), '# mine\ndist\n!keep.log\n')
 
+    def test_a_file_of_yours_comes_back_byte_for_byte_when_the_last_block_goes(self):
+        # A blank row of your own at the start, a carriage return, and no line ending at the end all stay.
+        py = owner('python', PY)
+        for mine in (b'\n# mine\r\ndist', b'\n\n*.log\n\n', b'*.log', b'\n'):
+            (self.target / '.gitignore').write_bytes(mine)
+            self.parts = {}
+            self.sync([py])
+            self.assertIn(b'begin lines of python', (self.target / '.gitignore').read_bytes())
+            before = (self.target / '.gitignore').read_bytes()
+            # A run with no change keeps the file, and the blank row after the block is not counted twice.
+            self.sync([py])
+            self.assertEqual((self.target / '.gitignore').read_bytes(), before)
+            self.sync([py, owner('typescript', TS)], [py, owner('typescript', TS)])
+            self.sync([], [py, owner('typescript', TS)])
+            self.assertEqual((self.target / '.gitignore').read_bytes(), mine, mine)
+
+    def test_a_blank_looking_row_of_yours_after_the_block_stays_as_you_wrote_it(self):
+        # Only a row that is the line ending of the file parts the block from your rows. Spaces, or a carriage
+        # return in a file of newlines, are yours.
+        py = owner('python', PY)
+        for mine in (b'   \n*.log\n', b'\r\n*.log\n'):
+            (self.target / '.gitignore').write_bytes(mine)
+            self.parts = {}
+            self.sync([py])
+            self.sync([py, owner('typescript', TS)], [py, owner('typescript', TS)])
+            self.assertTrue((self.target / '.gitignore').read_bytes().endswith(b'\n\n' + mine), mine)
+            self.sync([], [py, owner('typescript', TS)])
+            self.assertEqual((self.target / '.gitignore').read_bytes(), mine, mine)
+
+    def test_the_blank_row_after_the_block_goes_also_when_your_rows_change_the_line_ending(self):
+        py, ts = owner('python', PY), owner('typescript', TS)
+        (self.target / '.gitignore').write_bytes(b'a\n')
+        self.sync([py])
+        mine = b'a\n' + b'x\r\n' * 10
+        data = (self.target / '.gitignore').read_bytes()
+        (self.target / '.gitignore').write_bytes(data + b'x\r\n' * 10)
+        self.sync([py, ts], [py, ts])
+        self.sync([], [py, ts])
+        self.assertEqual((self.target / '.gitignore').read_bytes(), mine)
+
     def test_a_line_that_you_deleted_stays_out(self):
         py = owner('python', PY)
         self.sync([py])
@@ -218,7 +258,10 @@ class LineFileTests(Base):
         self.sync([owner('python', PY)])
         data = (self.target / '.gitignore').read_bytes()
         self.assertNotIn(b'\n', data.replace(b'\r\n', b''))
-        self.assertTrue(data.endswith(b'mine/\r\nlogs/\r\n'))
+        # The last row of yours keeps its lack of a line ending, so the file comes back whole when the block goes.
+        self.assertTrue(data.endswith(b'\r\n\r\nmine/\r\nlogs/'))
+        self.sync([], [owner('python', PY)])
+        self.assertEqual((self.target / '.gitignore').read_bytes(), before)
 
     def test_a_line_file_that_is_a_link_is_left_alone(self):
         (self.target / 'real').write_text('mine/\n')
