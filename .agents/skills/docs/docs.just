@@ -1,6 +1,6 @@
 # The recipes of the docs role of jnterfaces. The index of .agents/just imports this file while the role is on.
 # The site is in docs/, and smalldocs builds it. The version is pinned, so each machine builds the same site.
-jn_smalldocs := "uvx --quiet smalldocs@0.5.12"
+jn_smalldocs := "uvx --quiet smalldocs@0.5.13"
 
 # Check the site: broken links, and options that smalldocs ignores. Then the api-check of each language that has one
 docs-check:
