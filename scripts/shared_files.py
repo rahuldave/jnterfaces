@@ -378,6 +378,12 @@ def history(target, command, sources, changes):
 
 # Line files.
 
+def newline_of(rows):
+    """The line ending that most rows have: a carriage return and a newline, else a newline."""
+    crlf = sum(row.endswith('\r\n') for row in rows)
+    return '\r\n' if crlf > sum(row.endswith('\n') for row in rows) - crlf else '\n'
+
+
 def parse(text, owners, style=HASH):
     """Split a line file into its blocks {owner: [row, ...]}, the rows of the user in order, and the owners whose
     block lacks its begin or end comment. Only the comments of the owners in owners mark a block, so a comment of
@@ -410,6 +416,12 @@ def parse(text, owners, style=HASH):
                 continue
             blocks.setdefault(owner, []).extend(rows[first:close])
             index = close + 1
+            # The blank row after a block parts it from the rows of the user. render writes it with the line ending
+            # of the end row of the block, so only such a row is not yours; a row with spaces or another ending
+            # stays yours.
+            ending = rows[close][len(bare(rows[close])):]
+            if index < len(rows) and ending and rows[index] == ending:
+                index += 1
             continue
         if mark(style.end, rows[index]) and style.own_end.match(bare(rows[index])):
             broken.append(mark(style.end, rows[index]))
@@ -467,6 +479,10 @@ def plan_line_file(path, text, active, known, claims, unsure, style=HASH):
                 kept.append(row)
             else:
                 moved_out.append(row)
+                if style.is_rule(line):
+                    notes.append(f'{path}: {line.strip()} is in the block of {owner_key}, and the record does not '
+                                 f'say that {owner_key} added it, so it stays as yours. Remove it by hand if no one '
+                                 f'needs it.')
         blocks[owner_key] = kept
     user = moved_out + user
     user_rules = {}
@@ -557,9 +573,7 @@ def render(path, out, rest, old_text, command, owners, took, style=HASH):
             and all(same for _, _, same in out)):
         return old_text
     old_rows = rows_of(old_text or '')
-    crlf = sum(row.endswith('\r\n') for row in old_rows)
-    lf = sum(row.endswith('\n') for row in old_rows) - crlf
-    newline = '\r\n' if crlf > lf else '\n'
+    newline = newline_of(old_rows)
     rows = []
     for owner, body, same in out:
         start = next((index for index, row in enumerate(old_rows)
@@ -572,16 +586,17 @@ def render(path, out, rest, old_text, command, owners, took, style=HASH):
             rows += [line + newline for line in header(owner, path, command, style)]
         rows += [line + newline for line in body] + [footer(owner, style) + newline]
     if rows:
-        if rest and bare(rest[0]).strip():
+        # One blank row always parts the blocks from the rows of the user, and parse takes it out again, so the
+        # rows of the user come back as they were when the last block goes, also a blank row of their own.
+        if rest:
             rows.append(newline)
-    elif old_blocks or took:
-        # The last block or line of an owner went: drop the blank rows that separated it from the rows of the user.
+    elif took and not old_blocks:
+        # The last line of an owner went: drop the blank rows that separated it from the rows of the user.
         while rest and not bare(rest[0]).strip():
             rest = rest[1:]
+    # The last row of the user keeps its line ending, or the lack of one, so that the file comes back as it was.
     rows += rest
-    if rows and not rows[-1].endswith('\n'):
-        rows[-1] += newline
-    if not any(bare(row).strip() for row in rows) and (old_text is None or old_blocks or took):
+    if not rows and (old_text is None or old_blocks or took):
         return None
     return ''.join(rows)
 

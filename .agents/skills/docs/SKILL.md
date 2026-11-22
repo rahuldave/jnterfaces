@@ -23,12 +23,15 @@ smalldocs builds the site. `just install docs` turns the role on, and
   with its own config and another theme gets no theme files. To change the
   theme, see [Themes](https://docs.smallish.dev/guide/themes.html) of
   smalldocs.
-- **Two lines in `.gitattributes`**, for the theme files of the site and for
-  the copy in this skill. Some theme files end their lines with a carriage
-  return, and the lines tell `git diff --check` to accept them.
-  `just uninstall docs` keeps the theme files. While a theme file stays,
-  the installer keeps the line for the folder `_extensions` of `docs`. The
-  line for the copy in the skill goes with the skill.
+- **A `.gitattributes` in `docs` and in `assets` of this skill**, each with
+  the line `_extensions/** -whitespace`. Some theme files end their lines
+  with a carriage return, and the line tells `git diff --check` to accept
+  them. The role does not change the `.gitattributes` at the root of the
+  project. A run takes out the lines that older installers wrote there, and
+  leaves the rest of the file as it was. `just uninstall docs` keeps the
+  theme files. While a theme file stays, the installer keeps the line in
+  the `.gitattributes` of the folder `docs`. The file in the skill goes with
+  the skill.
 - **`.github/workflows/docs-publish.yml`**, once. After a push to `main`, it
   runs `just docs-publish`. `just uninstall docs` removes it while you have
   not changed it.

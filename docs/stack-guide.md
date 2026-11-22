@@ -181,37 +181,45 @@ removes.
 
 The latest release of a package is the highest release tag `vX.Y.Z` by
 semantic version on the default branch of its remote. A tag such as
-`v1.0.0-rc1` or a date is not a release. A commit after the last release is
-not released, so `--update` does not install it. The clone keeps its branch,
-and the branch moves to the commit of the tag. A clone with commits after the
-latest release moves back to the release, when the remote branch has each of
-these commits. The record of the package, such as
+`v1.0.0-rc1` or a date is not a release. The record of the package, such as
 `.agents/nossaifd-install.json`, gives the tag in `source_version`.
 
-**A package with no release tag** gets the newest commit of the remote branch,
-as a fast-forward. The run prints that the clone has no release tag.
+`--update` moves a clone forward only. It never moves a clone to an older
+commit, and it never resets a branch:
 
-The clones are in `SKILL_PACKAGES_DIR`, else next to the jnterfaces clone. A
-`--clone NAME=DIR` clone is updated too. The installer never discards a local
-change:
+- **A clone that holds the latest release already** stays as it is. Its HEAD
+  is the tag, or a later commit that has the tag in its history. The run
+  prints one line that starts with "Not moved". So the checkout of an owner,
+  with commits after the release, keeps its commits.
+- **A clone on the default branch, behind the release,** moves forward with
+  `git merge --ff-only`. The branch keeps its name.
+- **A clone on no branch, at a release tag,** moves to the newer tag with
+  `git checkout --detach`. It stays on no branch.
+- **A package with no release tag** gets the newest commit of the default
+  branch, by the same rules. The run prints that the clone has no release
+  tag.
 
-- **A clone with uncommitted changes** stops the run. The message names the
-  clone, and the installer writes nothing in the project. An untracked or ignored file
-  where the new commits add a file or a folder stops the run too.
-- **A clone that cannot fast-forward** stops the run in the same way. A clone
-  cannot fast-forward when its branch and the remote branch each have commits
-  that the other does not have.
-- **A clone on a branch that is not the default branch** of its remote stays on
-  its branch. The installer prints "Not updated" and the name of the branch,
-  and it does not switch the branch.
-- **A clone with its own commits on top of the remote branch** stays as it is.
-  The installer prints "Not updated" and keeps the commits.
-- **A clone on no branch, or on a branch with no upstream branch**, stays as it
-  is. The installer prints "Not updated". So, to pin a package to a tag or a
-  commit, check out that tag or commit in its clone, for example `git -C
-  CLONE checkout v0.4.3`. A clone that does not know the default
-  branch of its remote stays as it is too. The message gives the command that
-  sets the default branch.
+The clones are in `SKILL_PACKAGES_DIR`, else next to the jnterfaces clone.
+That folder can hold your own working copies, for example `~/Projects`.
+The rules keep them safe. A `--clone NAME=DIR` clone is updated too.
+
+Each other clone stops the run. The message names the package and the
+reason, and the installer writes nothing in the project. The run stops on:
+
+- A clone with uncommitted changes, or an untracked or ignored file where the
+  new commits add a file or a folder.
+- A clone with commits that its remote does not have. Push the commits, or
+  move them to another branch.
+- A clone that has diverged from the release. Each one has commits that the
+  other does not have.
+- A clone on a branch that is not the default branch, or on a branch that
+  follows no branch of a remote. The installer does not switch the branch.
+- A clone on no branch, at a commit that is not a release tag of its remote.
+- A clone that does not know the default branch of its remote. The message
+  gives the command that sets the default branch.
+
+To keep a package at an older release, check out that tag in its clone, and
+run `just install` without `--update`.
 
 The installer updates the profile clones first, and then the role clones. A
 role clone that stops the run does not undo the update of the profile clones.

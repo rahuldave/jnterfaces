@@ -1045,8 +1045,14 @@ def docs_wants_theme(target):
         return False
 
 
-# The line in .gitattributes for the theme files of the site, which end some lines with a carriage return.
-DOCS_THEME_ATTRIBUTES = ['docs/_extensions/** -whitespace']
+# The theme files of the site, and the copy in the skill, end some lines with a carriage return. A .gitattributes in
+# each folder keeps git diff --check quiet about them. The root .gitattributes is the project's, and the installer
+# leaves it alone: a project can pin its bytes, as a vendored manifest does.
+DOCS_THEME_FOLDER = 'docs/.gitattributes'
+DOCS_SKILL_FOLDER = '.agents/skills/docs/assets/.gitattributes'
+DOCS_THEME_ATTRIBUTES = ['_extensions/** -whitespace']
+# Older installers wrote the lines in the root .gitattributes, in blocks that the record names. A run takes those
+# blocks out, and the rows of the project stay as they were.
 DOCS_THEME_COMMENT = ('# The theme Atelier of the site stayed when the docs role went. The installer removes the next '
                       'line when the theme files go.')
 
@@ -1054,7 +1060,7 @@ DOCS_THEME_COMMENT = ('# The theme Atelier of the site stayed when the docs role
 def docs_theme_stayed(target, parts):
     """True when a theme file that the docs role wrote is still in the project: the record holds its starter, and the
     file is there. The theme is yours, so it stays when the role goes, and the installer keeps the line of
-    DOCS_THEME_ATTRIBUTES for it, so that git diff --check still accepts its line ends."""
+    DOCS_THEME_ATTRIBUTES in docs/.gitattributes for it, so that git diff --check still accepts its line ends."""
     if not isinstance(parts, dict):
         return False
     return any(isinstance(parts.get(path), dict) and shared_files.STARTER in parts[path]
@@ -1063,7 +1069,8 @@ def docs_theme_stayed(target, parts):
 
 def docs_owner(target=None):
     """The owner of the shared files of the docs role: the line of the built site in .gitignore, the lines in
-    .gitattributes that keep the line ends of the theme files, and the starter files of the site, of its theme and of
+    docs/.gitattributes and in the .gitattributes of the skill's assets that keep the line ends of the theme files,
+    and the starter files of the site, of its theme and of
     its CI workflow. With a target, the theme files are there only when docs_wants_theme says so. Without one, the
     owner knows every file, for a role that goes."""
     theme = docs_theme_files() if target is None or docs_wants_theme(target) else {}
@@ -1071,8 +1078,8 @@ def docs_owner(target=None):
         'docs', 'the docs role', 'jnterfaces', commit_of(ROOT), '`just uninstall docs` removes them.',
         # The theme files of the site, and the copy in the skill, have files with a carriage return at each line end.
         lines={'.gitignore': ['docs/_site/'],
-               '.gitattributes': [*DOCS_THEME_ATTRIBUTES,
-                                  '.agents/skills/docs/assets/_extensions/** -whitespace']},
+               DOCS_THEME_FOLDER: list(DOCS_THEME_ATTRIBUTES),
+               DOCS_SKILL_FOLDER: list(DOCS_THEME_ATTRIBUTES)},
         starter={'docs/_smalldocs.yml': DOCS_SKILL / 'assets/_smalldocs.yml',
                  'docs/index.md': DOCS_SKILL / 'assets/index.md',
                  '.github/workflows/docs-publish.yml': DOCS_SKILL / 'assets/docs-publish.yml',
@@ -1123,9 +1130,12 @@ def sync_files(target, profiles, kept, kept_tools, every, dry_run, parts, roles=
     # the theme goes. The comment is always among the lines, so that a run without the line knows it and takes it out
     # with the block. A block with no line is not written.
     lines = dict(copy.deepcopy(shared_files.JNTERFACES_LINES), **(justfile or {}))
+    # The comment stays known in the root .gitattributes, so that a run takes the block of an older installer out
+    # whole. A block with no line is not written there.
     lines['.gitattributes'] = [DOCS_THEME_COMMENT]
+    lines[DOCS_THEME_FOLDER] = [DOCS_THEME_COMMENT]
     if not any(owner.key == 'docs' for owner in roles) and docs_theme_stayed(target, parts):
-        lines['.gitattributes'] += DOCS_THEME_ATTRIBUTES
+        lines[DOCS_THEME_FOLDER] += DOCS_THEME_ATTRIBUTES
     installer = shared_files.Owner('jnterfaces', 'the installer', 'jnterfaces', commit_of(ROOT),
                                    'They stay while the project keeps .agents/stack.json.', lines,
                                    starter=dict(INSTALLER_STARTERS) if started else None)
@@ -1779,19 +1789,32 @@ def ignored_in_the_way(clone, goal='@{upstream}'):
     return kept
 
 
-def latest_release(clone, branch, remote=None):
+def release_key(tag):
+    return tuple(int(part) for part in tag[1:].split('.'))
+
+
+def remote_tags(clone, remote):
+    """The names of the tags of a remote. A failed git ls-remote raises StackError."""
+    listed = git_out(clone, 'ls-remote', '--tags', '--refs', remote)
+    if listed is None:
+        raise StackError(f'git ls-remote --tags {remote} failed in {clone}')
+    return {line.rpartition('refs/tags/')[2] for line in listed.splitlines()}
+
+
+def latest_release(clone, branch, names=None):
     """The highest release tag vX.Y.Z by semver that the commit branch contains, else None. A tag with another sign,
-    such as v1.0.0-rc1, is not a release. With a remote, a tag counts only when the remote has it too, so a tag that
-    exists only in the clone cannot win. A failed git ls-remote raises StackError."""
-    names = None
-    if remote and remote != '.':
-        listed = git_out(clone, 'ls-remote', '--tags', '--refs', remote)
-        if listed is None:
-            raise StackError(f'git ls-remote --tags {remote} failed in {clone}')
-        names = {line.rpartition('refs/tags/')[2] for line in (listed or '').splitlines()}
+    such as v1.0.0-rc1, is not a release. With names, the tags of the remote, a tag counts only when the remote has
+    it too, so a tag that exists only in the clone cannot win."""
     tags = [tag for tag in (git_out(clone, 'tag', '--merged', branch) or '').split()
             if install_package.RELEASE_TAG.fullmatch(tag) and (names is None or tag in names)]
-    return max(tags, key=lambda tag: tuple(int(part) for part in tag[1:].split('.'))) if tags else None
+    return max(tags, key=release_key) if tags else None
+
+
+def release_at(clone, commit='HEAD'):
+    """The highest release tag vX.Y.Z at a commit, else None."""
+    tags = [tag for tag in (git_out(clone, 'tag', '--points-at', commit) or '').split()
+            if install_package.RELEASE_TAG.fullmatch(tag)]
+    return max(tags, key=release_key) if tags else None
 
 
 def lacks_update_self(clone, goal):
@@ -1804,107 +1827,132 @@ def lacks_update_self(clone, goal):
 
 
 def update_clones(clones, refuse=None):
-    """Move each clone of a package to its latest release, for just install --update. The latest release is the
-    highest release tag vX.Y.Z that the remote default branch contains. The clone keeps its branch, and the branch
-    moves to the commit of the tag, forward or back. A clone whose remote branch has no release tag fast-forwards to
-    the remote branch, and the run says so.
-    A clone that is on no branch, such as a clone at a tag or a commit that you checked out, has no upstream branch, or
-    is on a branch other than the default branch of its remote, stays as it is, and the run names it. So does a clone
-    with commits that the remote branch does not have, when the remote branch has all its own commits too. A clone
-    with changes that are not committed, or one whose branch and remote branch both have their own commits, stops the
-    run before a clone of this call changes, and nothing is written. refuse, when given, takes a clone and the commit
-    of its release, and returns why the clone must not move there, or None. Return the names of the clones that were
-    checked."""
+    """Move each clone of a package forward to its latest release, for just install --update. The latest release is
+    the highest release tag vX.Y.Z that the default branch of the remote contains. A package with no release tag
+    moves forward to the default branch of the remote, and the run says so.
+    The move goes forward only, and it never resets or rewrites a branch. A clone whose HEAD holds the latest
+    release already, such as the checkout of an owner with newer commits, stays as it is, and the run says so in one
+    line, and so does a repository with no remote. A clone on the default branch moves with git merge
+    --ff-only. A clone on no branch must be at a release tag
+    of its remote, and it moves to the newer tag with git checkout --detach. Each other clone stops the run before a
+    clone of this call changes, and nothing is written: a clone with changes that are not committed, with commits
+    that the remote does not have, on another branch or on a branch that follows no remote branch, on no branch at a
+    commit that is no release, or whose HEAD and latest release each have commits that the other does not have.
+    refuse, when given, takes a clone and the commit of its release, and returns why the clone must not move there,
+    or None. Return the names of the clones that were checked."""
     problems, moves = [], []
     for name, clone in clones.items():
+        what = f'the {name} clone {clone}'
         if git_out(clone, 'rev-parse', '--git-dir') is None:
-            print(f'Not updated: the {name} clone {clone} is not a Git clone', file=sys.stderr)
+            print(f'Not updated: {what} is not a Git clone', file=sys.stderr)
+            continue
+        remotes = (git_out(clone, 'remote') or '').split()
+        if not remotes:
+            # A repository with no remote has nothing to update from, so it stays as it is.
+            print(f'Not updated: {what} has no remote', file=sys.stderr)
             continue
         branch = git_out(clone, 'symbolic-ref', '--quiet', '--short', 'HEAD')
-        upstream = git_out(clone, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}')
-        if branch is None or not upstream:
-            where = ('is on no branch, so it stays at the commit that you checked out' if branch is None
-                     else f'has the branch {branch}, which follows no upstream branch')
-            print(f'Not updated: the {name} clone {clone} {where}', file=sys.stderr)
+        pinned = release_at(clone) if branch is None else None
+        if branch is None:
+            remote = 'origin' if 'origin' in remotes else remotes[0] if len(remotes) == 1 else None
+            if pinned is None:
+                problems.append(f'{what} is on no branch, at a commit with no release tag vX.Y.Z. Check out the '
+                                f'default branch or a release tag')
+                continue
+            if remote is None:
+                problems.append(f'{what} is at the tag {pinned}, and has several remotes and none named origin')
+                continue
+        else:
+            upstream = git_out(clone, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}')
+            remote = git_out(clone, 'config', f'branch.{branch}.remote')
+            if not upstream or not remote or remote == '.':
+                problems.append(f'{what} is on the branch {branch}, which follows no branch of a remote. Check out '
+                                f'the default branch or a release tag')
+                continue
+        default = git_out(clone, 'symbolic-ref', '--quiet', '--short', f'refs/remotes/{remote}/HEAD')
+        if not default:
+            problems.append(f'{what} does not know the default branch of its remote {remote}. Run git -C '
+                            f'{shlex.quote(str(clone))} remote set-head {remote} --auto')
             continue
-        remote = git_out(clone, 'config', f'branch.{branch}.remote')
-        default = git_out(clone, 'symbolic-ref', '--quiet', '--short', f'refs/remotes/{remote}/HEAD') if remote else None
-        if remote != '.' and not default:
-            print(f'Not updated: the {name} clone {clone} does not know the default branch of its remote {remote}. '
-                  f'Run git -C {shlex.quote(str(clone))} remote set-head {remote} --auto, then run just install '
-                  f'--update again', file=sys.stderr)
-            continue
-        if default and upstream != default:
-            print(f'Not updated: the {name} clone {clone} is on the branch {branch}, not on the default branch '
-                  f'{default.partition("/")[2]}. The installer does not switch it.', file=sys.stderr)
+        if branch is not None and (upstream != default or branch != default.partition('/')[2]):
+            problems.append(f'{what} is on the branch {branch}, not on the default branch '
+                            f'{default.partition("/")[2]}. The installer does not switch it. Check out the default '
+                            f'branch or a release tag')
             continue
         if git_out(clone, 'status', '--porcelain', '--untracked-files=no'):
-            problems.append(f'the {name} clone {clone} has changes that are not committed. Commit them or put '
-                            f'them away')
+            problems.append(f'{what} has changes that are not committed. Commit them or put them away')
             continue
         # --tags gets the tags of a clone made with --no-tags too, and --force gets a tag that moved on the remote.
-        fetch = subprocess.run(['git', '-C', str(clone), 'fetch', '--quiet', '--tags', '--force'], capture_output=True,
-                               text=True)
+        fetch = subprocess.run(['git', '-C', str(clone), 'fetch', '--quiet', '--tags', '--force', remote],
+                               capture_output=True, text=True)
         if fetch.returncode:
-            problems.append(f'git fetch failed in the {name} clone {clone}: {fetch.stderr.strip()}')
-            continue
-        if git_out(clone, 'merge-base', '--is-ancestor', 'HEAD', '@{upstream}') is None:
-            if git_out(clone, 'merge-base', '--is-ancestor', '@{upstream}', 'HEAD') is not None:
-                print(f'Not updated: the branch {branch} of the {name} clone {clone} has commits that {upstream} '
-                      f'does not have. The installer keeps them.', file=sys.stderr)
-                continue
-            problems.append(f'the {name} clone {clone} cannot fast-forward to {upstream}: the branch {branch} has '
-                            f'commits that {upstream} does not have. Merge or rebase it by hand')
+            problems.append(f'git fetch failed in {what}: {fetch.stderr.strip()}')
             continue
         try:
-            tag = latest_release(clone, '@{upstream}', remote)
+            names = remote_tags(clone, remote)
         except StackError as exc:
-            problems.append(f'the {name} clone {clone} cannot list the release tags of its remote: {exc}')
+            problems.append(f'{what} cannot list the release tags of its remote: {exc}')
             continue
+        head = git_out(clone, 'rev-parse', 'HEAD')
+        # A clone on no branch is on the remote when the remote has its tag. A clone on a branch is on the remote
+        # when a branch of the remote holds each of its commits.
+        if pinned is not None and pinned not in names:
+            problems.append(f'{what} is at the tag {pinned}, which its remote {remote} does not have')
+            continue
+        if branch is not None and git_out(clone, 'rev-list', '-n', '1', 'HEAD', '--not', f'--remotes={remote}'):
+            ahead = git_out(clone, 'merge-base', '--is-ancestor', default, 'HEAD') is not None
+            problems.append(f'{what} has commits on {branch} that {remote} does not have'
+                            + ('' if ahead else f', and {default} has commits that {branch} does not have')
+                            + '. Push them or move them to another branch')
+            continue
+        tag = latest_release(clone, default, names)
         if tag is None:
-            print(f'The {name} clone {clone} has no release tag on {upstream}, so it gets the newest commit of '
-                  f'{upstream}.', file=sys.stderr)
-        goal = git_out(clone, 'rev-parse', '--verify', f'{tag or "@{upstream}"}^{{commit}}')
+            print(f'The {name} clone {clone} has no release tag on {default}, so it gets the newest commit of '
+                  f'{default}.', file=sys.stderr)
+        goal = git_out(clone, 'rev-parse', '--verify', '--quiet', f'{tag or default}^{{commit}}')
         if goal is None:
-            problems.append(f'the {name} clone {clone} cannot find the commit of {tag or upstream}')
+            problems.append(f'{what} cannot find the commit of {tag or default}')
             continue
-        if goal == git_out(clone, 'rev-parse', 'HEAD'):
+        where = f'the release {tag}' if tag else default
+        if git_out(clone, 'merge-base', '--is-ancestor', goal, 'HEAD') is not None:
+            # HEAD holds the release already, so the clone stays. A move back would undo newer commits.
+            print(f'Not moved: {what} is at {where}' if goal == head
+                  else f'Not moved: {what} holds {where} already, with newer commits', file=sys.stderr)
+            continue
+        if git_out(clone, 'merge-base', '--is-ancestor', 'HEAD', goal) is None:
+            problems.append(f'{what} has diverged from {where}: each one has commits that the other does not have, '
+                            f'so it cannot move forward. Check out {tag or default} by hand')
             continue
         reason = refuse(clone, goal) if refuse and tag else None
         if reason:
-            print(f'Not updated: the {name} clone {clone} stays where it is, because the release {tag} {reason}',
-                  file=sys.stderr)
+            print(f'Not updated: {what} stays where it is, because the release {tag} {reason}', file=sys.stderr)
             continue
-        where = f'the release {tag}' if tag else upstream
         # git checks the files that are not tracked, as the move would, and changes nothing.
         trial = subprocess.run(['git', '-C', str(clone), 'read-tree', '-n', '-m', '-u', 'HEAD', goal],
                                capture_output=True, text=True)
         if trial.returncode:
-            problems.append(f'the {name} clone {clone} cannot move to {where}, because of local files: '
+            problems.append(f'{what} cannot move to {where}, because of local files: '
                             f'{" ".join(trial.stderr.split())}')
             continue
         # The move would overwrite or delete an ignored file where the goal adds a file or a folder.
         kept = ignored_in_the_way(clone, goal)
         if kept:
-            problems.append(f'the {name} clone {clone} has ignored files where the new commits add files: '
-                            f'{", ".join(kept)}. Move them away')
+            problems.append(f'{what} has ignored files where the new commits add files: {", ".join(kept)}. Move '
+                            f'them away')
             continue
-        moves.append((name, clone, goal, where))
+        moves.append((name, clone, goal, where, branch))
     if problems:
         raise StackError('just install --update stops, and nothing was written in the project. Fix each clone, then '
                          'run just install --update again:\n  ' + '\n  '.join(problems))
-    for name, clone, goal, where in moves:
-        forward = git_out(clone, 'merge-base', '--is-ancestor', 'HEAD', goal) is not None
-        back = git_out(clone, 'merge-base', '--is-ancestor', goal, 'HEAD') is not None
-        # Every commit of the branch is on the remote branch, so a move back to an older release loses no commit.
-        command = ['merge', '--ff-only', '--quiet', goal] if forward else ['reset', '--keep', '--quiet', goal]
+    for name, clone, goal, where, branch in moves:
+        # Each move goes forward. git merge --ff-only moves the branch on to a newer commit, and git checkout
+        # --detach moves a clone on no branch. Neither one resets or rewrites a branch.
+        command = ['merge', '--ff-only', '--quiet', goal] if branch else ['checkout', '--quiet', '--detach', goal]
         run = subprocess.run(['git', '-C', str(clone), *command], capture_output=True, text=True)
         if run.returncode:
             raise StackError(f'Cannot move the {name} clone {clone} to {where}: {run.stderr.strip()}. Nothing was '
                              f'written.')
-        print(f'Updated the {name} clone {clone} to {where}' + (', an older commit than it had' if back else
-                                                                 '' if forward else ', on another line of the history'),
-              file=sys.stderr)
+        print(f'Updated the {name} clone {clone} to {where}', file=sys.stderr)
     return set(clones)
 
 
@@ -3568,7 +3616,9 @@ def install_run(argv=None):
     parser.add_argument('--clone', action='append', default=[], metavar='NAME=DIR',
                         help='use this clone of a package; default: a folder in SKILL_PACKAGES_DIR, else next to '
                              'the jnterfaces clone')
-    parser.add_argument('--update', action='store_true', help='move each clone of a package that the run uses to its latest release tag first')
+    parser.add_argument('--update', action='store_true',
+                        help='move each clone of a package that the run uses forward to its latest release tag first; '
+                             'never back')
     parser.add_argument('--update-self', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--clean', action='store_true', help='install the committed HEAD of each clone')
     parser.add_argument('--dry-run', action='store_true', help='check everything and write nothing in the target')

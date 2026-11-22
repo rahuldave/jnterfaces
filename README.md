@@ -101,9 +101,11 @@ any language:
   `.gitignore`.
 - **The theme is Atelier**, with a light mode and a dark mode. The role
   writes the theme into `docs/_extensions/atelier/`, and the config sets
-  `theme: atelier`. It adds two lines to `.gitattributes`, so that
-  `git diff --check` accepts the line ends of the theme files and of their
-  copy in the docs skill.
+  `theme: atelier`. It writes `docs/.gitattributes` and
+  `.agents/skills/docs/assets/.gitattributes`, so that `git diff --check`
+  accepts the line ends of the theme files and of their copy in the docs
+  skill. The role does not change the `.gitattributes` at the root of the
+  project.
 - **`just docs-check`** is a step of `just check`. It runs
   `smalldocs check docs`, then the `api-check` of each language that has one.
   `just docs` previews the site, and `just docs-build` builds it.
@@ -328,12 +330,13 @@ of a dependency group goes, the installer takes out the empty group.
 - **`--answer KEY=VALUE`** answers a setup question and saves the answer.
   The next section lists the questions.
 - **`--ask`** asks again, even when the project has saved choices.
-- **`--update`** first moves each package clone that the run uses to its
-  latest release. The latest release is the highest release tag `vX.Y.Z` on
-  the default branch of the remote. A package with no release tag gets the
-  newest commit, and the run says so. `--update` does not change a clone with
-  uncommitted changes, a clone on another branch, or a clone that you checked
-  out at a tag or a commit. [The stack guide](https://rahuldave.github.io/jnterfaces/stack-guide.html) gives the rules.
+- **`--update`** first moves each package clone that the run uses forward to
+  its latest release. The latest release is the highest release tag `vX.Y.Z`
+  on the default branch of the remote. A package with no release tag gets the
+  newest commit, and the run says so. `--update` never moves a clone back and
+  never resets a branch. A clone that holds the release already stays as it
+  is. A clone with uncommitted changes, with commits that the remote does not
+  have, or on another branch stops the run. [The stack guide](https://rahuldave.github.io/jnterfaces/stack-guide.html) gives the rules.
 - **`--clone NAME=DIR`** uses one clone in another folder.
 - **`--clean`** installs the last commit of each clone, without uncommitted
   changes. **`--dry-run`** checks everything and writes nothing in the
