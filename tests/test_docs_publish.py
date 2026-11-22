@@ -125,6 +125,9 @@ class PinTests(unittest.TestCase):
         import re
         pins = {path: re.findall(r'smalldocs@([0-9.]+)', (REPO / path).read_text())
                 for path in ('Justfile', '.agents/skills/docs/docs.just', '.agents/skills/docs/docs_publish.py')}
+        # Each file names the pin once, so a file that loses its pin fails here and not in the docs role.
+        for path, found in pins.items():
+            self.assertEqual(len(found), 1, (path, found))
         versions = {version for found in pins.values() for version in found}
         self.assertEqual(len(versions), 1, pins)
         self.assertGreaterEqual(tuple(map(int, versions.pop().split('.'))), (0, 5, 10))

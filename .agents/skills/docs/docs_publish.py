@@ -2,7 +2,7 @@
 """Publish the docs site to the gh-pages branch, only for a public repository.
 
 Usage: docs_publish.py SMALLDOCS. SMALLDOCS is the command that runs smalldocs, for example
-"uvx --quiet smalldocs@0.5.12". The script asks gh for the visibility of the remote origin, where smalldocs pushes.
+"uvx --quiet smalldocs@0.5.13". The script asks gh for the visibility of the remote origin, where smalldocs pushes.
 It publishes only on PUBLIC.
 On PRIVATE and INTERNAL, and with the answer docs-publish=no in .agents/stack.json, it skips. An error of gh skips on
 the machine of a person, so a failure never publishes. In CI, where CI is set, an error of gh fails, so a missing
