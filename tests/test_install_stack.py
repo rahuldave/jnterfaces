@@ -365,6 +365,10 @@ elif tool == 'uvx':
 '''
 
 
+# The recipe that check runs first, to warn when jlog pass cannot record a pass.
+WARNING = install_stack.WORKTREE_WARNING
+
+
 def git(path, *args):
     return subprocess.run(['git', '-C', str(path), '-c', 'user.name=T', '-c', 'user.email=t@example.invalid', *args],
                           check=True, capture_output=True, text=True).stdout.strip()
@@ -698,6 +702,23 @@ class StackTests(unittest.TestCase):
         self.assertEqual(self.stack('--defaults', '--profile', 'python').returncode, 0)
         index = (self.target / '.agents/just/index.just').read_text()
         self.assertNotIn('}} integration', index[index.index('\nverify:'):].split('\n\n')[0])
+
+    def test_check_runs_the_warning_first_unless_the_project_has_a_recipe_of_its_name(self):
+        index = install_stack.index_text({}, {})
+        self.assertIn(f'\n[private]\n{WARNING}:\n    {install_stack.WORKTREE_WARNING_LINE}\n', index)
+        self.assertIn(f'\ncheck: {WARNING} tools-check ', index)
+        # A recipe of the project with its name takes its place, and check runs it.
+        index = install_stack.index_text({}, {}, taken={WARNING}, runnable={WARNING})
+        self.assertNotIn(f'{WARNING}:', index)
+        self.assertIn(f'\ncheck: {WARNING} tools-check ', index)
+        # A name of the project that is no recipe, such as an alias, cannot be a dependency, so check leaves it out.
+        index = install_stack.index_text({}, {}, taken={WARNING}, runnable=set())
+        self.assertNotIn(f'{WARNING}', index)
+        self.assertIn('\ncheck: tools-check ', index)
+        # A check of the project can depend on the warning of the index.
+        index = install_stack.index_text({}, {}, taken={'check'}, runnable={'check'})
+        self.assertIn(f'\n{WARNING}:\n', index)
+        self.assertNotIn('\ncheck:', index)
 
     def test_verify_runs_integration_once_when_a_module_provides_it(self):
         late = install_stack.check_steps({'integration': 'verify'})
@@ -4129,7 +4150,7 @@ class StepTests(StackTests):
         for step in STEPS[1:]:
             self.assertIn(f'\n{step}:\n    jlog skip {step} "', index)
         self.assertIn('\ntools-check:\n    ' + install_stack.TOOLS_CHECK_LINE, index)
-        self.assertIn(f'\ncheck: {" ".join(STEPS)}\n    jlog pass\n', index)
+        self.assertIn(f'\ncheck: {WARNING} {" ".join(STEPS)}\n    jlog pass\n', index)
         self.assertEqual((self.saved()['steps'], self.saved()['provided_steps']), (list(STEPS), ['tools-check']))
         commit(self.target)
         run = self.just_in(self.target, 'check')
@@ -4140,6 +4161,169 @@ class StepTests(StackTests):
         # Each line of the run shares the run ID of the root Justfile.
         self.assertEqual(len({record['run'] for record in self.records(kind='line')}), 1)
         self.assertEqual(git(self.target, 'status', '--porcelain'), '')
+
+    def checked(self):
+        """Install with no language, commit, and give the function that runs just check."""
+        self.assertEqual(self.stack('--defaults', '--without', 'tasker').returncode, 0)
+        commit(self.target)
+
+        def check():
+            log = self.target / '.agents/log/just.jsonl'
+            if log.exists():
+                log.unlink()
+            return self.just_in(self.target, 'check')
+        return check
+
+    def warnings(self, run):
+        return [line for line in run.stderr.splitlines() if line.startswith('check: warning:')]
+
+    def test_check_warns_before_the_first_step_when_the_worktree_has_an_unstaged_change(self):
+        check = self.checked()
+        with (self.target / 'AGENTS.md').open('a') as stream:
+            stream.write('more\n')
+        run = check()
+        self.assertNotEqual(run.returncode, 0, run.stdout + run.stderr)
+        warnings = self.warnings(run)
+        self.assertEqual(len(warnings), 1, run.stderr)
+        self.assertIn('this run cannot record a pass', warnings[0])
+        self.assertIn('1 unstaged change or untracked file: AGENTS.md.', warnings[0])
+        # The warning comes before the first step, and each step still runs.
+        self.assertLess(run.stderr.index('check: warning:'), run.stderr.index('jlog: no pass'))
+        lines = self.records(kind='line')
+        self.assertIn('git status', json.dumps(lines[0]))
+        self.assertEqual([record['step'] for record in self.records(kind='step')], ['tools-check'])
+        self.assertEqual(sorted(record['step'] for record in self.records(kind='skip')), sorted(STEPS[1:]))
+        self.assertFalse(self.records(kind='pass'))
+        # The warning is no step: .agents/stack.json does not list it.
+        self.assertNotIn(WARNING, self.saved()['steps'] + self.saved()['provided_steps'])
+
+    def test_check_does_not_warn_for_a_clean_worktree_or_an_ignored_file(self):
+        check = self.checked()
+        run = check()
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(self.warnings(run), [])
+        self.assertEqual(len(self.records(kind='pass')), 1)
+        (self.target / '.agents/log/other.txt').write_text('ignored\n')
+        run = check()
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(self.warnings(run), [])
+
+    def test_check_warns_for_an_untracked_file(self):
+        check = self.checked()
+        (self.target / 'deep/er').mkdir(parents=True)
+        (self.target / 'deep/er/new file.txt').write_text('new\n')
+        run = check()
+        self.assertNotEqual(run.returncode, 0)
+        warnings = self.warnings(run)
+        self.assertEqual(len(warnings), 1, run.stderr)
+        # git status names each file of a new folder, as jlog does.
+        self.assertIn('1 unstaged change or untracked file: deep/er/new file.txt.', warnings[0])
+
+    def test_check_does_not_warn_for_staged_changes_and_jlog_records_the_pass(self):
+        check = self.checked()
+        with (self.target / 'AGENTS.md').open('a') as stream:
+            stream.write('more\n')
+        (self.target / 'new.txt').write_text('new\n')
+        git(self.target, 'mv', 'README.md' if (self.target / 'README.md').exists() else '.gitignore', 'moved')
+        git(self.target, 'add', '-A')
+        run = check()
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(self.warnings(run), [])
+        self.assertEqual(len(self.records(kind='pass')), 1)
+
+    def test_the_warning_names_the_same_paths_as_jlog(self):
+        check = self.checked()
+        paths = ['staged', 'unstaged', 'both', 'gone', 'renamed', 'a b', 'per%cent', 'line\nbreak']
+        for path in paths:
+            (self.target / path).write_text('one\n')
+        commit(self.target)
+        (self.target / 'staged').write_text('two\n')
+        git(self.target, 'add', 'staged')
+        (self.target / 'unstaged').write_text('two\n')
+        (self.target / 'both').write_text('two\n')
+        git(self.target, 'add', 'both')
+        (self.target / 'both').write_text('three\n')
+        (self.target / 'gone').unlink()
+        git(self.target, 'mv', 'renamed', 'to name')
+        (self.target / 'to name').write_text('two\n')
+        (self.target / 'per%cent').write_text('two\n')
+        (self.target / 'line\nbreak').write_text('two\n')
+        (self.target / 'untracked').write_text('new\n')
+        run = check()
+        warnings = self.warnings(run)
+        self.assertEqual(len(warnings), 1, run.stderr)
+        [no_pass] = self.records(kind='no-pass')
+        [reason] = [r for r in no_pass['reasons'] if r.startswith('the worktree has unstaged')]
+        jlog = reason.split(': ', 1)[1].split(', ')
+        shown = warnings[0].split('files: ', 1)[1].rsplit('. The steps still run.', 1)[0].split(', ')
+        self.assertEqual(len(jlog), 7, reason)
+        self.assertEqual(shown, [path.replace('\n', '?') for path in jlog])
+        self.assertIn(f'has {len(jlog)} unstaged', warnings[0])
+
+    def test_a_check_of_the_project_can_depend_on_the_warning(self):
+        self.assertEqual(self.stack('--defaults', '--without', 'tasker').returncode, 0)
+        justfile = self.target / 'Justfile'
+        justfile.write_text(justfile.read_text() + f'\ncheck: {WARNING} {" ".join(STEPS)}\n    jlog pass\n')
+        run = self.stack('--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertNotIn('does not parse', run.stdout + run.stderr)
+        self.assertIn(f'\n{WARNING}:\n', self.index())
+        self.assertNotIn('\ncheck:', self.index())
+        check = self.stack('--check')
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        self.assertNotIn('does not parse', check.stdout + check.stderr)
+        commit(self.target)
+        run = self.just_in(self.target, 'check')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertEqual(self.warnings(run), [])
+        (self.target / 'new.txt').write_text('new\n')
+        run = self.just_in(self.target, 'check')
+        self.assertEqual(len(self.warnings(run)), 1, run.stderr)
+
+    def test_a_recipe_of_the_project_with_the_name_of_the_warning_runs_first(self):
+        self.assertEqual(self.stack('--defaults', '--without', 'tasker').returncode, 0)
+        justfile = self.target / 'Justfile'
+        justfile.write_text(justfile.read_text() + f'\n{WARNING}:\n    @echo own warning >&2\n')
+        run = self.stack('--defaults', '--without', 'tasker')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn(f'\ncheck: {WARNING} tools-check ', self.index())
+        commit(self.target)
+        run = self.just_in(self.target, 'check')
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn('own warning', run.stderr)
+
+    def test_a_recipe_of_the_project_with_the_name_of_the_warning_has_the_limits_of_a_step(self):
+        self.assertEqual(self.stack('--defaults', '--without', 'tasker').returncode, 0)
+        justfile = self.target / 'Justfile'
+        justfile.write_text(justfile.read_text() + f'\n{WARNING}:\n    #!/bin/sh\n    echo own >&2\n')
+        self.stack('--defaults', '--without', 'tasker')
+        check = self.stack('--check')
+        self.assertNotEqual(check.returncode, 0)
+        self.assertIn(f'{WARNING}: it has a shebang line', check.stdout + check.stderr)
+
+    def test_the_warning_does_not_fail_with_no_stderr_or_no_git(self):
+        line = install_stack.WORKTREE_WARNING_LINE.lstrip('@')
+        self.checked()
+        (self.target / 'new.txt').write_text('new\n')
+        closed = subprocess.run(['sh', '-cu', '{ ' + line + '; } 2>&-'], cwd=self.target, capture_output=True, text=True)
+        self.assertEqual(closed.returncode, 0, closed.stderr)
+        empty = self.base / 'no-git-bin'
+        empty.mkdir()
+        for tool in ('tr', 'awk'):
+            (empty / tool).symlink_to(shutil.which(tool))
+        none = subprocess.run(['/bin/sh', '-cu', line], cwd=self.target, capture_output=True, text=True,
+                              env={'PATH': str(empty)})
+        self.assertEqual((none.returncode, none.stderr), (0, ''))
+
+    def test_the_warning_shows_ten_paths_and_counts_them_all(self):
+        check = self.checked()
+        for number in range(12):
+            (self.target / f'new{number:02}').write_text('new\n')
+        warnings = self.warnings(check())
+        self.assertEqual(len(warnings), 1)
+        self.assertIn('has 12 unstaged', warnings[0])
+        self.assertIn('new09, and more.', warnings[0])
+        self.assertNotIn('new10', warnings[0])
 
     def test_check_in_a_fresh_clone_leaves_no_file_that_git_does_not_ignore(self):
         self.assertEqual(self.stack('--profile', 'python', '--defaults', '--without', 'tasker').returncode, 0)
@@ -4350,7 +4534,7 @@ class StepTests(StackTests):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn('lint in the project is an alias, a module, or a recipe that needs an argument', run.stderr)
         self.assertNotIn('does not parse', run.stderr)
-        self.assertIn('\ncheck: tools-check release-check ci-gate fmt-check typecheck ', self.index())
+        self.assertIn(f'\ncheck: {WARNING} tools-check release-check ci-gate fmt-check typecheck ', self.index())
         self.assertEqual(self.just_in(self.target, '--summary').returncode, 0)
 
     def test_the_installer_stops_with_the_install_line_when_jlog_is_missing(self):
@@ -4697,7 +4881,7 @@ class StepTests(StackTests):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertNotIn('jlog skip release-check', self.index())
         self.assertEqual(self.saved()['provided_steps'], ['tools-check', 'release-check'])
-        self.assertIn('\ncheck: tools-check release-check ci-gate fmt-check', self.index())
+        self.assertIn(f'\ncheck: {WARNING} tools-check release-check ci-gate fmt-check', self.index())
         commit(self.target)
         run = self.just_in(self.target, 'check')
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
@@ -4712,7 +4896,7 @@ class StepTests(StackTests):
         self.assertNotIn('jlog skip ci-gate', self.index())
         self.assertIn('ci-gate', self.saved()['provided_steps'])
         self.assertIn('ci-gate', self.saved()['steps'])
-        self.assertIn('\ncheck: tools-check release-check ci-gate fmt-check', self.index())
+        self.assertIn(f'\ncheck: {WARNING} tools-check release-check ci-gate fmt-check', self.index())
         self.assertIn('\nci: ci-gate\n', self.index())
         commit(self.target)
         run = self.just_in(self.target, 'check')
@@ -4730,7 +4914,7 @@ class StepTests(StackTests):
         run = self.stack('prose', '--defaults', '--without', 'tasker')
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn('does not end with jlog step ci-gate, so just check leaves out the step ci-gate', run.stderr)
-        self.assertIn('\ncheck: tools-check release-check fmt-check', self.index())
+        self.assertIn(f'\ncheck: {WARNING} tools-check release-check fmt-check', self.index())
         self.assertNotIn('ci-gate', self.saved()['steps'])
         self.assertIn('\nci: ci-gate lint\n', self.index())
         commit(self.target)
@@ -6085,7 +6269,7 @@ class VersionTests(StackTests):
         self.assertEqual(self.install().returncode, 0)
         index = (self.target / '.agents/just/index.just').read_text()
         self.assertIn('tools-check:\n    ' + install_stack.TOOLS_CHECK_LINE + '\n    jlog step tools-check', index)
-        self.assertIn('\ncheck: tools-check release-check ci-gate fmt-check', index)
+        self.assertIn(f'\ncheck: {WARNING} tools-check release-check ci-gate fmt-check', index)
         self.assertEqual(self.saved()['steps'][0], 'tools-check')
         self.assertIn('tools-check', self.saved()['provided_steps'])
 

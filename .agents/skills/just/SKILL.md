@@ -145,7 +145,10 @@ for steps are these:
   has, for example `jlog skip typecheck "no type checker in this
   repository"`.
 - **`check` ends with `jlog pass`.** `jlog pass` records a pass for the
-  worktree when each step passed or logged a skip.
+  worktree when each step passed or logged a skip. It records no pass when
+  the worktree has unstaged changes or untracked files. So `check` first runs
+  `worktree-warning`, which prints a warning before the first step. The
+  warning is not a step, and the steps still run.
 - **A step of your own replaces the step of the index.** Give it the name of
   the step, and end it with `jlog step NAME`. Then run `just install`.
 - **A step never hides its lines.** A step has no shebang line and no line

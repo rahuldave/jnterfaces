@@ -300,6 +300,10 @@ tools-check release-check ci-gate fmt-check lint typecheck test integration cove
 - **`diff-check`** runs `git diff --check` against the last commit, when the
   project has a profile.
 - **`check`** depends on each step, and its last line is `jlog pass`.
+  Its first dependency is `worktree-warning`, which is not a step. It prints
+  one warning line when the worktree has unstaged changes or untracked files
+  that git does not ignore, because then `jlog pass` cannot record a pass. A
+  staged change gets no warning. The warning does not stop the steps.
 - **`.agents/stack.json`** lists the steps under `steps`, and the steps that
   a profile or a role provides under `provided_steps`. jlog counts a skip only
   for a step that is not in `provided_steps`.

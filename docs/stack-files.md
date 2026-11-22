@@ -615,6 +615,9 @@ not, at each run and in `just install --check`. To check the programs in CI,
 add `tools-check` to the list `ci`. The CI then needs each program of the key
 `programs`.
 
+The `check` of the index also runs `worktree-warning` first. It is not a
+step, so `steps` does not list it.
+
 `just install --check` compares `parts` in `.agents/stack.json` with the
 shared files, and changes nothing. It prints each difference, for example:
 

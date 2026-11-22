@@ -108,12 +108,14 @@ recipes still run. After the rename, run the `uv run` command of step 2 again.
 
 **The names that you can keep.** `.agents/just/index.just` leaves out each name that your `Justfile`
 has, so your recipe takes its place. These names are the recipes of the profiles, such as `setup`,
-`fmt`, `lint` and `test`, the steps of `just check` that no role gives, and `verify`, `check` and `ci`. For example, your
+`fmt`, `lint` and `test`, the steps of `just check` that no role gives, and `verify`, `check`, `ci` and `worktree-warning`. For example, your
 `setup` then takes the place of the `setup` of the profile, which runs `uv sync`.
 
 A recipe of yours with the name of a step must end with the line `jlog step NAME`, for example
 `jlog step test`. Without that line, `jlog pass` fails at the end of `just check`. A `check` of yours must end with the
-line `jlog pass`.
+line `jlog pass`. To get the early warning for unstaged changes and untracked files, make `worktree-warning` the first
+dependency of your `check`. A `worktree-warning` of yours runs first in `just check`, so it has the same limits as a
+step. It has no shebang line and no line with the prefix `-`.
 
 ## Step 5: map your names in AGENTS.md
 

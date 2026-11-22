@@ -88,7 +88,10 @@ does not ignore.
   ```
 
 - **`check`** depends on each step, and its last line is `jlog pass`. jlog
-  then records a pass for the worktree.
+  then records a pass for the worktree. Its first dependency is
+  `worktree-warning`, which is not a step. It prints a warning when the
+  worktree has unstaged changes or untracked files, because then jlog records
+  no pass. The steps still run.
 
 `.agents/stack.json` lists the steps under `steps`, and the steps that an
 installed profile or role provides under `provided_steps`. A skip counts for

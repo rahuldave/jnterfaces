@@ -2787,10 +2787,17 @@ def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runn
                       f'    jlog skip {step} {json.dumps(REASONS[step])}']
             real.add(step)
     runnable = taken if runnable is None else set(runnable)
+    # The warning runs first in check, but it is not a step: .agents/stack.json does not list it, and jlog pass does
+    # not read it. A check of the project can depend on it too. A recipe of the project with its name takes its place,
+    # and check runs that recipe. A name of the project that is no recipe, such as an alias, leaves it out.
+    warning = [WORKTREE_WARNING] if WORKTREE_WARNING not in taken or WORKTREE_WARNING in runnable else []
+    if WORKTREE_WARNING not in taken:
+        lines += ['', '# Warn at once when jlog pass cannot record a pass: the worktree has unstaged changes or '
+                  'untracked files', '[private]', f'{WORKTREE_WARNING}:', f'    {WORKTREE_WARNING_LINE}']
     if 'check' not in taken:
         steps = [step for step in STEPS if step in check and (step in real or step in runnable)]
         lines += ['', '# Everything a commit must pass: each step, then the pass of jlog for the worktree',
-                  f'check: {" ".join(steps)}', '    jlog pass']
+                  f'check: {" ".join(warning + steps)}', '    jlog pass']
     if 'ci' not in taken:
         listed = [step for step in ci if step != 'ci-gate' and (step in real or step in runnable)]
         lines += ['', '# What CI checks: the trailers of the commit gate, then the steps of the list ci of '
@@ -2800,6 +2807,22 @@ def index_text(modules, recipes, roles=(), full=True, taken=(), shell=True, runn
 
 # The line of a stub of the index, in the form with which the installer reads the names of the project.
 STUB = 'jnterfaces-stub-of-the-index'
+# The first dependency of check. jlog pass refuses a pass for each path that git status shows outside the index:
+# an unstaged change, or an untracked file that git does not ignore. A staged change is no problem. The line finds
+# the same paths as jlog, before the first step, and prints one warning line. It never fails, also with no git or no
+# stderr: a run with changes still shows what the steps find. tr makes each NUL a newline and each newline of a path
+# a ?, so each line of awk is one field of git. A field of a rename or a copy is followed by the field of the old path, which awk skips.
+WORKTREE_WARNING = 'worktree-warning'
+WORKTREE_WARNING_LINE = (
+    "@git status --porcelain=v1 -z --untracked-files=all 2>/dev/null | tr '\\n\\000' '?\\n' | awk '"
+    '$0 == "" { next } skip { skip = 0; next } length($0) < 4 { next } '
+    '{ x = substr($0, 1, 1); y = substr($0, 2, 1) } x ~ /[RC]/ || y ~ /[RC]/ { skip = 1 } '
+    'y != " " { n++; if (n <= 10) shown = shown (n > 1 ? ", " : "") substr($0, 4) } '
+    'END { if (n) printf "check: warning: this run cannot record a pass, because the worktree has %d %s: %s%s. '
+    'The steps still run. Stage or commit the changes to get a pass.\\n", n, '
+    '(n == 1 ? "unstaged change or untracked file" : "unstaged changes or untracked files"), shown, '
+    '(n > 10 ? ", and more" : "") }'
+    "' >&2 || true")
 # The line of the step tools-check. uv finds a Python 3.9 or later and downloads none. The check reads the record only.
 TOOLS_CHECK_LINE = "uv run --no-project --quiet --no-python-downloads --python '>=3.9' python .agents/tools_check.py"
 
@@ -3148,7 +3171,7 @@ def check_conflicts(target, record, registry_profiles, packages=()):
         return []
     try:
         role_recipes = {role: just_dump(target, stage / 'just' / role) or {} for role in roles}
-        stubs = sorted(set(STEPS) | {'check', 'verify', 'ci', 'ci-gate'}
+        stubs = sorted(set(STEPS) | {'check', 'verify', 'ci', 'ci-gate', WORKTREE_WARNING}
                        | {name for dump in role_recipes.values() for name in names_of(dump)})
         root = None
         for with_stubs, setting in ((True, True), (True, False), (False, False)):
@@ -3343,7 +3366,7 @@ def staged_recipes(target, profiles, modules, verifies, dry_run, generated, star
     # can write. A recipe of the Justfile takes the place of a stub, so the stubs that stay show which names are not
     # the Justfile's own. The forms with no module come first, so that a module of the project with the name of a
     # profile is a name of the project. A form with the modules is for a Justfile that names a recipe of a module.
-    stubs = sorted(set(STEPS) | {'check', 'verify', 'ci', 'ci-gate'} | role_names
+    stubs = sorted(set(STEPS) | {'check', 'verify', 'ci', 'ci-gate', WORKTREE_WARNING} | role_names
                    | {recipe for module in kept for recipe in recipes.get(module, {})})
     forms = [(mods, with_stubs, setting) for mods in ({}, kept)
              for with_stubs, setting in ((True, True), (True, False), (False, False))]
