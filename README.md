@@ -230,7 +230,10 @@ In a project that jnterfaces started, with its starter Justfile:
 - **`just check`** runs the steps of every project, from `fmt-check` to
   `diff-check`, and ends with `jlog pass`. A step that no profile, role or
   recipe of the Justfile has is a no-op step that logs the skip. So in a new
-  project with no language, `just check` passes.
+  project with no language, `just check` passes. Before the first step,
+  `just check` prints a warning when the worktree has unstaged changes or
+  untracked files. Then `jlog pass` cannot record a pass, but the steps still
+  run.
 - **`just ci`** is what CI checks. It runs `ci-gate`, then the steps in the
   list `ci` of `.agents/stack.json`. A role with a commit gate gives
   `ci-gate`, which checks the trailer of the gate on each commit. `ci-gate` is
