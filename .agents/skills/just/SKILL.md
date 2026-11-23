@@ -88,11 +88,11 @@ in `.agents/install.just`, and the Justfile imports it with the line
 run this line. It puts jlog in `~/.local/bin`, so put that folder on PATH.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.3.0/scripts/install.sh | sh -s -- --tag v0.3.0
+curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.4.0/scripts/install.sh | sh -s -- --tag v0.4.0
 ```
 
 To build jlog from source instead, clone https://github.com/rahuldave/jlog,
-run `git checkout v0.3.0` in the clone, then run `just install`.
+run `git checkout v0.4.0` in the clone, then run `just install`.
 
 - **`just install lint`** adds a tool. A tool is a set of packages for the
   project, and the profile of the project names them. For Python, the recipe

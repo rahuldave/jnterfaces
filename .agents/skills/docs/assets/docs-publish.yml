@@ -29,11 +29,11 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - uses: extractions/setup-just@v3
       - name: Install jlog, the shell of the recipes
-        # The tag v0.3.0 of jlog is the commit d4b712b. install.sh comes from the tag. It downloads the release binary,
+        # The tag v0.4.0 of jlog is the commit 6078806. install.sh comes from the tag. It downloads the release binary,
         # checks its SHA-256 and puts it in ~/.local/bin. The step shell bash has pipefail, so a failed download fails.
         shell: bash
         run: |
-          curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.3.0/scripts/install.sh | sh -s -- --tag v0.3.0
+          curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.4.0/scripts/install.sh | sh -s -- --tag v0.4.0
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Set the git user for the push to gh-pages
         run: |

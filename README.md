@@ -132,11 +132,11 @@ file stays.
    on PATH.
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.3.0/scripts/install.sh | sh -s -- --tag v0.3.0
+   curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.4.0/scripts/install.sh | sh -s -- --tag v0.4.0
    ```
 
    To build jlog from source instead, clone
-   https://github.com/rahuldave/jlog, run `git checkout v0.3.0` in the
+   https://github.com/rahuldave/jlog, run `git checkout v0.4.0` in the
    clone, then run `just install`.
 2. Choose the folder of the package clones. The default is
    `~/.local/share/skill-packages`. To use another folder, export
