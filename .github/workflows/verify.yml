@@ -27,11 +27,11 @@ jobs:
       # Each install.sh downloads a release binary and checks its SHA-256. It puts the binary in ~/.local/bin.
       # The step shell bash has pipefail, so a failed download of install.sh fails the step.
       - name: Install jlog, the shell of the recipes that the installer writes
-        # The tag v0.3.0 of jlog is the commit d4b712b. install.sh comes from the tag. The installer runs the checks
+        # The tag v0.4.0 of jlog is the commit 6078806. install.sh comes from the tag. The installer runs the checks
         # of the programs through its jlog run. setup-uv comes first, so install.sh makes the environments of the plugins.
         shell: bash
         run: |
-          curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.3.0/scripts/install.sh | sh -s -- --tag v0.3.0
+          curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.4.0/scripts/install.sh | sh -s -- --tag v0.4.0
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Install jagt for the protocol demo test
         # install.sh comes from the tag v0.6.4 of jagt.
