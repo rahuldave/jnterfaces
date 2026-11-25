@@ -124,7 +124,8 @@ class PinTests(unittest.TestCase):
         # Before 0.5.10, smalldocs read each api section as Python, so a TypeScript section stopped docs-check.
         import re
         pins = {path: re.findall(r'smalldocs@([0-9.]+)', (REPO / path).read_text())
-                for path in ('Justfile', '.agents/skills/docs/docs.just', '.agents/skills/docs/docs_publish.py')}
+                for path in ('Justfile', '.agents/skills/docs/docs.just', '.agents/skills/docs/docs_publish.py',
+                             '.agents/skills/docs/assets/docs-publish.yml')}
         # Each file names the pin once, so a file that loses its pin fails here and not in the docs role.
         for path, found in pins.items():
             self.assertEqual(len(found), 1, (path, found))
