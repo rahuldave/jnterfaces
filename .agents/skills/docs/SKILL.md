@@ -34,8 +34,8 @@ smalldocs builds the site. `just install docs` turns the role on, and
   the skill.
 - **`.github/workflows/docs-publish.yml`**, once. After a push to `main`, it
   runs `just docs-publish`. `just uninstall docs` removes it while you have
-  not changed it. The section "The Rust steps of the workflow" below gives
-  its steps for a Rust project.
+  not changed it. The section "The Rust step of the workflow" below gives
+  its step for the API pages of a Rust crate.
 - **A line in `.gitignore`** for the folder of the built site, `_site` in
   the folder `docs`.
 - **The recipes** of `.agents/skills/docs/docs.just`, which the index of
@@ -74,32 +74,30 @@ settings of the repository.
 Run `just docs-publish` only from the workflow, or when the person asks. It
 pushes to GitHub.
 
-## The Rust steps of the workflow
+## The Rust step of the workflow
 
-A project with a `rust-toolchain.toml` or a `rust-toolchain` file gets
-three more steps in `docs-publish.yml`. A project without such a file skips
-them, so the workflow works for each language.
+`just docs-publish` runs smalldocs. smalldocs runs cargo only with the
+toolchain of its `api` section, never with the toolchain file of the project,
+and it builds in a temporary folder. So the workflow keeps no cache of Rust,
+and it does not install the toolchain of the project.
 
-- **The toolchain comes from the file.** The step runs
-  `rustup toolchain install`, which reads the file. The workflow names no
-  channel and sets no `RUSTUP_TOOLCHAIN`, so CI runs the compiler of the
-  project. A channel that moves, such as `stable` or `1.95`, gets a
-  warning. A file with no channel fails the step.
-- **A cache keeps what cargo writes.** The cache holds
-  `~/.cargo/registry/index`, `~/.cargo/registry/cache`, `~/.cargo/git/db`
-  and `target/`, with `target/llvm-cov-target`. `just docs-publish` of the
-  role runs no cargo, so the cache holds files only when you add a step that
-  runs cargo, such as a build of the API pages. Until then, the save step
-  warns that the folders do not exist, and the job still passes.
-- **The key changes with the build.** The key is the system, the
-  architecture, `rust`, the channel of the toolchain file, the name of the
-  job and the hash of each `Cargo.lock`. A restore can also take an older
-  cache with the same key up to the hash.
-- **Only a push to `main` saves the cache.** A manual run on another branch
-  reads the caches of its branch and of `main`, and saves none. A key that
-  the restore found exactly is not saved again.
+smalldocs runs rustdoc only for a section `api` with `language: rust` in the
+config of the site. It then runs `cargo +TOOLCHAIN`, with the `toolchain` of
+that section, which is `nightly` by default. It does not install a missing
+toolchain. Its build goes into a temporary folder, not into `target/`.
 
-The cache stays useful only when no `CARGO` or `RUST` variable changes from
-one run to the next. A variable with the run number, for example, makes
-cargo build everything again. Do not set `RUSTUP_TOOLCHAIN` either, because it
-takes the place of the toolchain file.
+So the step "Install the Rust toolchain of the API pages" reads the config
+with the load of smalldocs. It runs `rustup toolchain install --profile
+minimal` for the toolchain of each such section. A site with no such section
+installs nothing. A config that smalldocs cannot read installs nothing, and
+the publish then reports the error. A toolchain name gets no install when it
+has a character other than a letter, a digit, `.`, `_` or `-`, or when it
+starts with no letter or digit. smalldocs then says that the toolchain is
+missing.
+
+The step and the recipes use the same version of smalldocs. When you change
+the version in `docs.just`, change it in the workflow too.
+
+A `pre-render` script of the config that runs cargo uses the toolchain file
+of the project. The workflow does not install that toolchain, so add a step
+`rustup toolchain install` before the step "Publish".

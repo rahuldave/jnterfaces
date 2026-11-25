@@ -35,66 +35,35 @@ jobs:
         run: |
           curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.4.0/scripts/install.sh | sh -s -- --tag v0.4.0
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      # The Rust steps run only in a project with a toolchain file, so the workflow works for any language. rustup
-      # reads the file, so the workflow names no channel, and CI runs the compiler of each machine of the project.
-      - name: Install the Rust toolchain of rust-toolchain.toml
-        id: rust
-        if: hashFiles('rust-toolchain.toml', 'rust-toolchain') != ''
+      # smalldocs runs rustdoc only for a section api with language: rust in the config of the site. It runs
+      # cargo +TOOLCHAIN with the toolchain of that section, nightly by default, not the toolchain file of the project,
+      # and with RUSTUP_AUTO_INSTALL=0. So this step installs each such toolchain first. A site with no such section
+      # installs nothing. rustdoc builds in a temporary folder, not in target/, so a cache of target/ cannot help it.
+      # A config that smalldocs cannot read installs nothing here, and the publish then reports the error.
+      # A pre-render script that runs cargo with the toolchain file of the project needs its own install step.
+      # The version of smalldocs is the one of the recipes of the role, in .agents/skills/docs/docs.just.
+      - name: Install the Rust toolchain of the API pages
         shell: bash
         run: |
-          rustup toolchain install
-          # The channel of the file, for the key of the cache. rustup reads rust-toolchain first when both are there.
-          channel="$(python3 -I -c '
-          import pathlib, tomllib
-          names = [pathlib.Path(name) for name in ("rust-toolchain", "rust-toolchain.toml")]
-          text = next(path for path in names if path.is_file()).read_text()
+          toolchains="$(uvx --quiet --from smalldocs@0.5.13 python -I -c '
+          import re
+          from smalldocs.config import load
           try:
-              print(tomllib.loads(text)["toolchain"]["channel"])
-          except (tomllib.TOMLDecodeError, KeyError, TypeError):
-              print(text.strip())
+              conf = load("docs").smalldocs.get("api") or []
+          except Exception:
+              conf = []
+          for section in conf if isinstance(conf, list) else [conf]:
+              if isinstance(section, dict) and section.get("language") == "rust":
+                  name = section.get("toolchain", "nightly")
+                  if isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
+                      print(name)
           ')"
-          if [[ ! "$channel" =~ ^[A-Za-z0-9._-]+$ ]]; then
-            echo "::error::The toolchain file names no channel that a cache key can hold. Write an exact version, such as channel = \"1.95.0\"."
-            exit 1
-          fi
-          # An exact version, or a nightly or beta of one day, stays the same compiler. Any other channel moves.
-          if [[ ! "$channel" =~ ^([0-9]+\.[0-9]+\.[0-9]+|(nightly|beta)-[0-9]{4}-[0-9]{2}-[0-9]{2})$ ]]; then
-            echo "::warning::The toolchain file names the channel $channel, which moves. Pin an exact version, such as 1.95.0, so that CI and each machine run the same compiler."
-          fi
-          echo "toolchain=$channel" >> "$GITHUB_OUTPUT"
-      # The cache keeps the crates that cargo downloads and the build folder, target/ with target/llvm-cov-target,
-      # when a step of the job runs cargo. A new toolchain or a new Cargo.lock makes a new key. A run reads the
-      # caches of its own branch and of the default branch only.
-      - name: Restore the Rust cache
-        id: rust-cache
-        if: steps.rust.outputs.toolchain != ''
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target/
-          key: ${{ runner.os }}-${{ runner.arch }}-rust-${{ steps.rust.outputs.toolchain }}-${{ github.job }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-rust-${{ steps.rust.outputs.toolchain }}-${{ github.job }}-
+          for toolchain in $toolchains; do
+            rustup toolchain install --profile minimal "$toolchain"
+          done
       - name: Set the git user for the push to gh-pages
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
       - name: Publish
         run: just docs-publish
-      # Only a push to main saves the cache, so a manual run on another branch saves none. A key that the restore
-      # found exactly is already saved.
-      - name: Save the Rust cache
-        if: >-
-          steps.rust.outputs.toolchain != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'
-          && steps.rust-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target/
-          key: ${{ steps.rust-cache.outputs.cache-primary-key }}

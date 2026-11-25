@@ -396,9 +396,15 @@ fails. Then run `rustup default stable`, and run `just install` again.
 A `RUSTUP_TOOLCHAIN` variable in your shell takes the place of the file. So
 unset it, else your machine runs another compiler than CI.
 
-The workflow `docs-publish.yml` of the docs role reads the same file.
+This file is the one source of the version. No template gives a
+`rust-toolchain.toml`, because a version in a template goes stale. The CI
+starters of agent_gest_git_skills read the file, and they fail a project
+that has a `Cargo.toml` and no toolchain file. The message says to run
+`just install`. The workflow `docs-publish.yml` of the docs role does not
+install the toolchain of the file, because smalldocs runs cargo only with the
+toolchain of its `api` section.
 [The docs skill](https://github.com/rahuldave/jnterfaces/blob/main/.agents/skills/docs/SKILL.md)
-gives its Rust steps.
+gives its Rust step.
 
 ### The formats: `scripts/formats.json`
 
