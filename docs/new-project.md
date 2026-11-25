@@ -436,7 +436,8 @@ comment line, which starts with `#`, above it.
 
 The profile writes no config file. cargo reads your own `rustfmt.toml`,
 `clippy.toml` and the table `[lints]` of `Cargo.toml`. The profile keeps the
-toolchain that your `rust-toolchain.toml` pins.
+toolchain that your `rust-toolchain.toml` pins. A project without that file
+gets one from `just install`, with the version of your stable toolchain.
 [The tools of jnprofile-rust](https://github.com/rahuldave/jnprofile-rust/blob/main/docs/tools.md)
 gives each recipe and each rule of the steps.
 

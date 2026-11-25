@@ -241,6 +241,40 @@ PROFILES['rust'] = {
               'test': {'packages': [], 'recipes': 'test.just', 'verify': ['test', 'coverage-check']}},
     'default_tools': ['lint', 'test'],
     'base': {'recipes': 'base.just', 'lines': {'.gitignore': ['/target/'], '.worktreedisposable': ['/target/']}}}
+# A stand-in for rustup. The file stable in FAKE_RUST holds the version of the stable toolchain; without it, rustup has
+# no stable toolchain. Each toolchain that rustup has is a file installed-NAME there. Each call goes to the file log
+# there, with the folder and RUSTUP_AUTO_INSTALL. Without FAKE_RUST, rustup has nothing.
+FAKE_RUSTUP = r'''
+import os, sys, tomllib
+from pathlib import Path
+
+if not os.environ.get('FAKE_RUST'):
+    sys.exit(1)
+home, args = Path(os.environ['FAKE_RUST']), sys.argv[1:]
+with open(home / 'log', 'a') as log:
+    log.write(' '.join(args) + f' | {os.getcwd()} | {os.environ.get("RUSTUP_AUTO_INSTALL", "")}\n')
+pin = Path('rust-toolchain.toml')
+channel = tomllib.loads(pin.read_text())['toolchain']['channel'] if pin.is_file() else None
+if args == ['--version']:
+    print('rustup 1.28.2')
+elif args == ['run', 'stable', 'rustc', '--version']:
+    if not (home / 'stable').is_file():
+        print("error: toolchain 'stable' is not installed", file=sys.stderr)
+        sys.exit(1)
+    print(f'rustc {(home / "stable").read_text().strip()} (17067e9ac 2026-01-01)')
+elif args == ['toolchain', 'install', 'stable']:
+    (home / 'stable').write_text(os.environ.get('FAKE_STABLE_AFTER', '1.95.0'))
+elif args == ['toolchain', 'install']:
+    (home / f'installed-{channel}').write_text('')
+elif args == ['show', 'active-toolchain']:
+    # Without a pin, the default toolchain counts: the file default holds its name.
+    channel = channel or ((home / 'default').read_text().strip() if (home / 'default').is_file() else None)
+    if channel is None or not (home / f'installed-{channel}').is_file():
+        sys.exit(1)
+    print(f'{channel}-aarch64-apple-darwin')
+else:
+    sys.exit(9)
+'''
 # The recipes of each recipe file of a test profile
 RECIPES = {"rust": {"lint": ["fmt-check", "lint"], "test": ["test", "coverage-check"]}, "python": {"lint": ["fmt", "lint", "hook"], "test": ["test", "cov"], "typecheck": ["typecheck"]}, "typescript": {"lint": ["fmt", "lint"], "typecheck": ["typecheck"], "test": ["build", "test"]}}
 
@@ -413,6 +447,11 @@ class StackTests(unittest.TestCase):
         for tool in ('uv', 'uvx', 'cargo', 'cx'):
             (self.bin / tool).write_text(f'#!{sys.executable}\n' + FAKE_TOOL)
             (self.bin / tool).chmod(0o755)
+        # rustup is a fake, so that the rustup of the machine never decides the pin of the rust profile.
+        (self.bin / 'rustup').write_text(f'#!{sys.executable}\n' + FAKE_RUSTUP)
+        (self.bin / 'rustup').chmod(0o755)
+        self.rust = self.base / 'rust'
+        self.rust.mkdir()
         self.log = self.base / 'tools.log'
 
     def make_packages(self):
@@ -489,14 +528,14 @@ class StackTests(unittest.TestCase):
     def stack(self, *args, env=None, target=None, asks=False):
         """Run the installer. The setup questions are not the point of most tests, so CI is set and each open
         question takes its default. With asks True, CI is not set, and env can set it."""
-        base = {k: v for k, v in os.environ.items() if k not in ('SKILL_PACKAGES_DIR', 'CI')}
+        base = {k: v for k, v in os.environ.items() if k not in ('SKILL_PACKAGES_DIR', 'CI', 'JN_RUST_TOOLCHAIN')}
         if not asks:
             base['CI'] = 'true'
         return subprocess.run([sys.executable, self.packages / 'jnterfaces/scripts/install_stack.py',
                                '--target', target or self.target, *args],
                               capture_output=True, text=True, stdin=subprocess.DEVNULL,
                               env=dict(base, PATH=f'{self.bin}:{os.environ["PATH"]}', TOOL_LOG=str(self.log),
-                                       **(env or {})))
+                                       FAKE_RUST=str(self.rust), **(env or {})))
 
     def saved(self):
         return json.loads((self.target / '.agents/stack.json').read_text())
@@ -6557,7 +6596,176 @@ class VersionTests(StackTests):
 
 
 # PartsTests, StepTests, ProgramTests and VersionTests use the fixtures of StackTests, and run only their own tests.
-for _class in (PartsTests, StepTests, ProgramTests, VersionTests):
+# The programs of the real rust profile that pin and install the toolchain, with the fake rustup.
+RUST_PIN_PROGRAMS = [
+    {'name': 'toolchain', 'check': 'rustup show active-toolchain', 'install': 'rustup toolchain install'},
+    {'name': 'stable', 'check': 'rustup run stable rustc --version', 'install': 'rustup toolchain install stable',
+     'install_in': 'home'}]
+
+
+class RustPinTests(StackTests):
+    """The installer pins the toolchain of a rust project in rust-toolchain.toml, when the project has none."""
+
+    def pin(self):
+        path = self.target / 'rust-toolchain.toml'
+        return tomllib.loads(path.read_text())['toolchain'] if path.is_file() else None
+
+    def rustup_calls(self):
+        log = self.rust / 'log'
+        return [line.split(' | ') for line in log.read_text().splitlines()] if log.exists() else []
+
+    def test_the_pin_is_the_version_of_the_local_stable_toolchain(self):
+        (self.rust / 'stable').write_text('1.95.0')
+        run = self.stack('--profile', 'rust', '--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.pin(), {'channel': '1.95.0', 'components': ['clippy', 'rustfmt', 'llvm-tools-preview']})
+        self.assertIn('Wrote rust-toolchain.toml with the channel 1.95.0, the version of the stable toolchain', run.stderr)
+        # The version is read outside the project, so no toolchain file counts, and rustup may download nothing.
+        reads = [call for call in self.rustup_calls() if call[0] == 'run stable rustc --version']
+        self.assertEqual(len(reads), 1)
+        self.assertNotEqual(Path(reads[0][1]).resolve(), self.target.resolve())
+        self.assertEqual(reads[0][2], '0')
+
+    def test_a_toolchain_file_of_the_project_is_never_changed(self):
+        (self.rust / 'stable').write_text('1.95.0')
+        for name, text in (('rust-toolchain.toml', '[toolchain]\nchannel = "nightly-2026-01-01"\n'),
+                           ('rust-toolchain', 'nightly-2026-01-01\n')):
+            with self.subTest(name=name):
+                (self.target / name).write_text(text)
+                run = self.stack('--profile', 'rust', '--defaults')
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual((self.target / name).read_text(), text)
+                if name == 'rust-toolchain':
+                    self.assertFalse((self.target / 'rust-toolchain.toml').exists())
+                self.assertNotIn('Wrote rust-toolchain.toml', run.stderr)
+                (self.target / name).unlink()
+
+    def test_a_dangling_symlink_counts_as_a_toolchain_file(self):
+        (self.rust / 'stable').write_text('1.95.0')
+        (self.target / 'rust-toolchain.toml').symlink_to(self.base / 'nowhere.toml')
+        run = self.stack('--profile', 'rust', '--defaults', env={'JN_RUST_TOOLCHAIN': '1.100.0'})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertTrue((self.target / 'rust-toolchain.toml').is_symlink())
+        self.assertFalse((self.base / 'nowhere.toml').exists())
+        self.assertNotIn('Wrote rust-toolchain.toml', run.stderr)
+        self.assertIn('JN_RUST_TOOLCHAIN is set, but the project has rust-toolchain.toml', run.stderr)
+
+    def test_a_second_run_keeps_the_pin_that_you_changed(self):
+        (self.rust / 'stable').write_text('1.95.0')
+        self.assertEqual(self.stack('--profile', 'rust', '--defaults').returncode, 0)
+        path = self.target / 'rust-toolchain.toml'
+        path.write_text(path.read_text().replace('1.95.0', '1.90.0'))
+        (self.rust / 'stable').write_text('1.100.0')
+        run = self.stack('--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.pin()['channel'], '1.90.0')
+
+    def test_the_variable_sets_the_version(self):
+        (self.rust / 'stable').write_text('1.95.0')
+        run = self.stack('--profile', 'rust', '--defaults', env={'JN_RUST_TOOLCHAIN': '1.100.0'})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.pin()['channel'], '1.100.0')
+        self.assertIn('the value of JN_RUST_TOOLCHAIN', run.stderr)
+
+    def test_a_variable_that_is_not_an_exact_version_stops_before_anything_is_written(self):
+        for value in ('stable', '1.95', 'nightly-2026-01-01', '1.95.0"\nchannel = "x'):
+            with self.subTest(value=value):
+                run = self.stack('--profile', 'rust', '--defaults', env={'JN_RUST_TOOLCHAIN': value})
+                self.assertNotEqual(run.returncode, 0)
+                self.assertIn('JN_RUST_TOOLCHAIN must be an exact version of Rust', run.stderr)
+                self.assertEqual(sorted(p.name for p in self.target.iterdir()), ['.git'])
+
+    def test_without_a_stable_toolchain_it_writes_no_pin_and_says_how_to_get_one(self):
+        run = self.stack('--profile', 'rust', '--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIsNone(self.pin())
+        self.assertIn('rustup has no stable toolchain here, so the installer wrote none', run.stderr)
+        self.assertIn('JN_RUST_TOOLCHAIN=1.95.0 just install', run.stderr)
+
+    def test_a_stable_toolchain_that_the_install_brings_gives_the_pin_and_its_install(self):
+        # rustup has a default toolchain, nightly, and no stable one. The program stable installs it.
+        (self.rust / 'default').write_text('nightly')
+        (self.rust / 'installed-nightly').write_text('')
+        self.edit_profile('rust', lambda p: (p.update(programs=json.loads(json.dumps(RUST_PIN_PROGRAMS))),
+                                             p['base'].update(programs=['toolchain', 'stable'])))
+        run = self.stack('--profile', 'rust', '--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual((self.pin() or {}).get('channel'), '1.95.0', run.stderr + (self.rust / 'log').read_text())
+        self.assertNotIn('rustup has no stable toolchain here', run.stderr)
+        # The programs ran again after the pin, so rustup installed the pinned toolchain in the project.
+        self.assertTrue((self.rust / 'installed-1.95.0').is_file())
+        self.assertEqual(self.stack('--defaults').returncode, 0)
+
+    def test_a_dry_run_says_what_it_would_write_and_writes_nothing(self):
+        (self.rust / 'stable').write_text('1.95.0')
+        run = self.stack('--profile', 'rust', '--defaults', '--dry-run')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('Would write rust-toolchain.toml with the channel 1.95.0', run.stdout)
+        self.assertFalse((self.target / 'rust-toolchain.toml').exists())
+
+    def test_a_project_without_the_rust_profile_gets_no_pin(self):
+        (self.rust / 'stable').write_text('1.95.0')
+        run = self.stack('--profile', 'python', '--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertFalse((self.target / 'rust-toolchain.toml').exists())
+        self.assertEqual(self.rustup_calls(), [])
+
+    def test_the_variable_with_a_toolchain_file_says_the_file_stays(self):
+        (self.target / 'rust-toolchain.toml').write_text('[toolchain]\nchannel = "1.90.0"\n')
+        run = self.stack('--profile', 'rust', '--defaults', env={'JN_RUST_TOOLCHAIN': '1.100.0'})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(self.pin()['channel'], '1.90.0')
+        self.assertIn('JN_RUST_TOOLCHAIN is set, but the project has rust-toolchain.toml', run.stderr)
+
+    def test_a_failed_install_with_no_stable_toolchain_says_there_is_no_pin(self):
+        # No stable and no default toolchain: the install of the program toolchain fails before stable comes.
+        self.edit_profile('rust', lambda p: (p.update(programs=json.loads(json.dumps(RUST_PIN_PROGRAMS))),
+                                             p['base'].update(programs=['toolchain', 'stable'])))
+        run = self.stack('--profile', 'rust', '--defaults')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('Install failed: rustup toolchain install', run.stderr)
+        self.assertIn('The project has no rust-toolchain.toml yet', run.stderr)
+        self.assertIsNone(self.pin())
+
+    def test_a_stable_toolchain_that_comes_before_a_failed_install_still_gives_the_pin(self):
+        # rustup has a default toolchain and no stable one. The program stable installs it, and a later one fails.
+        (self.rust / 'default').write_text('nightly')
+        (self.rust / 'installed-nightly').write_text('')
+        failing = {'name': 'broken', 'check': 'rustup broken', 'install': 'rustup broken', 'install_in': 'home'}
+        self.edit_profile('rust', lambda p: (p.update(programs=json.loads(json.dumps(RUST_PIN_PROGRAMS)) + [failing]),
+                                             p['base'].update(programs=['toolchain', 'stable', 'broken'])))
+        run = self.stack('--profile', 'rust', '--defaults')
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('The install of the program broken failed', run.stderr)
+        self.assertEqual(self.pin()['channel'], '1.95.0')
+        self.assertNotIn('no rust-toolchain.toml yet', run.stderr)
+
+    def test_a_dry_run_with_no_stable_toolchain_says_the_programs_may_bring_one(self):
+        run = self.stack('--profile', 'rust', '--defaults', '--dry-run')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn('would write none, unless the programs bring a stable toolchain', run.stderr)
+
+    def test_a_rust_profile_that_leaves_writes_no_pin(self):
+        self.assertEqual(self.stack('--profile', 'rust', '--defaults').returncode, 0)
+        (self.rust / 'stable').write_text('1.95.0')
+        run = self.stack('--profile', 'python', '--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotIn('rust', self.saved()['profiles'])
+        self.assertFalse((self.target / 'rust-toolchain.toml').exists())
+
+    def test_the_wrote_message_names_no_variable_that_a_later_run_ignores(self):
+        (self.rust / 'stable').write_text('1.95.0')
+        run = self.stack('--profile', 'rust', '--defaults')
+        self.assertNotIn('JN_RUST_TOOLCHAIN', run.stderr)
+
+    def test_the_version_of_a_prerelease_rustc_is_no_pin(self):
+        (self.rust / 'stable').write_text('1.96.0-beta.3')
+        run = self.stack('--profile', 'rust', '--defaults')
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIsNone(self.pin())
+
+
+for _class in (PartsTests, StepTests, ProgramTests, VersionTests, RustPinTests):
     for _name in [name for name in dir(StackTests) if name.startswith('test_') and name not in _class.__dict__]:
         setattr(_class, _name, None)
 # The loader would find the class under this name too, and run its tests twice.

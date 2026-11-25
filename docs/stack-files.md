@@ -339,22 +339,66 @@ not in a profile. They are in `executables.required` of the
 
 #### A toolchain file
 
-A profile could write a toolchain file with the `files` of its base. A whole
-file is written only when the project has none. The rust profile writes no
-toolchain file. It keeps the `rust-toolchain.toml` or `rust-toolchain` of
-the project, and it names the toolchain as a program:
+A pull request can fail in CI on a lint that `just check` on your machine
+does not show. The cause is two compilers. For example, CI ran clippy 1.100
+and the machine ran clippy 1.95. A toolchain file with an exact version
+gives CI and each machine the same compiler.
+
+So for the rust profile, `just install` writes `rust-toolchain.toml` when
+the project has no toolchain file:
+
+```toml
+[toolchain]
+channel = "1.95.0"
+components = ["clippy", "rustfmt", "llvm-tools-preview"]
+```
+
+- **The version is that of your stable toolchain.** The installer runs
+  `rustup run stable rustc --version` in an empty folder, with
+  `RUSTUP_AUTO_INSTALL=0`. So no toolchain file counts, and rustup
+  downloads nothing. A pre-release version, such as `1.96.0-beta.3`, gives
+  no file.
+- **The variable `JN_RUST_TOOLCHAIN` sets another version.** For example,
+  `JN_RUST_TOOLCHAIN=1.100.0 just install` pins 1.100.0. The value must be
+  an exact version, such as 1.100.0. Any other value stops the run before
+  the installer writes a file.
+- **The file is yours.** The installer never changes or removes a
+  `rust-toolchain.toml` or a `rust-toolchain`. A symlink with one of these
+  names counts as a file too. `just uninstall` keeps it. To move to a newer
+  Rust, change the channel. When the file is there, `JN_RUST_TOOLCHAIN`
+  changes nothing, and the installer says so.
+- **With no stable toolchain, no file.** The installer then tries again
+  after it installs the programs, because the program `stable` can bring
+  the stable toolchain. When it still has no version, it writes no file and
+  says how to get one. With no default toolchain either, the install of the
+  program `toolchain` fails first. The installer then says that the project
+  has no pin yet, and the next `just install` writes it.
+- **The dry run says what it would write.** `just install --dry-run` prints
+  the line `Would write rust-toolchain.toml` with the version.
+
+A pin of `1.95.0` is another toolchain for rustup than `stable`, also when
+the versions are the same. So rustup installs the pinned toolchain once.
+The rust profile names the toolchain as a program:
 
 - **`toolchain`** has the check `rustup show active-toolchain` and the
   install `rustup toolchain install`. Both run in the project, so the install
-  gets the toolchain that the project pins. rustup 1.28.0 does not install a
-  missing toolchain by itself, and later versions do.
+  gets the toolchain that the project pins, with its components. rustup
+  1.28.0 does not install a missing toolchain by itself, and later versions
+  do.
 - **Each component**, such as `clippy`, is a program with the install
   `rustup component add clippy`. It also runs in the project, so the
   component goes on that toolchain.
 
-With no pin and no default toolchain, rustup cannot choose a toolchain, and
-the install fails. Then run `rustup default stable`, or pin a toolchain in
-`rust-toolchain.toml`.
+The installer writes the file before it installs the programs. With no pin
+and no default toolchain, rustup cannot choose a toolchain, and the install
+fails. Then run `rustup default stable`, and run `just install` again.
+
+A `RUSTUP_TOOLCHAIN` variable in your shell takes the place of the file. So
+unset it, else your machine runs another compiler than CI.
+
+The workflow `docs-publish.yml` of the docs role reads the same file.
+[The docs skill](https://github.com/rahuldave/jnterfaces/blob/main/.agents/skills/docs/SKILL.md)
+gives its Rust steps.
 
 ### The formats: `scripts/formats.json`
 
