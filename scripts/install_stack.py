@@ -562,6 +562,81 @@ def install_programs(target, programs):
                              f'install again.{about}')
 
 
+# The toolchain file that the installer writes for the rust profile, when the project has no toolchain file. The
+# names are the two files that rustup reads. The variable sets the version; else it is the version of the stable
+# toolchain that rustup has on this machine.
+RUST_TOOLCHAIN_FILES = ('rust-toolchain.toml', 'rust-toolchain')
+RUST_TOOLCHAIN_VARIABLE = 'JN_RUST_TOOLCHAIN'
+RUST_VERSION = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+')
+RUST_COMPONENTS = ('clippy', 'rustfmt', 'llvm-tools-preview')
+
+
+def rust_pin_override():
+    """The version that JN_RUST_TOOLCHAIN sets, such as 1.95.0, or None when it is not set or empty. A value that is
+    not an exact version stops the run, before anything is written."""
+    value = os.environ.get(RUST_TOOLCHAIN_VARIABLE, '').strip()
+    if value and not RUST_VERSION.fullmatch(value):
+        raise StackError(f'{RUST_TOOLCHAIN_VARIABLE} must be an exact version of Rust, such as 1.95.0, not '
+                         f'{value!r}. Nothing was written.')
+    return value or None
+
+
+def local_stable_rust():
+    """The version of the stable toolchain that rustup has here, such as 1.95.0, or None. The check runs in an empty
+    folder, so no toolchain file counts, and with RUSTUP_AUTO_INSTALL=0, so rustup downloads nothing."""
+    if not shutil.which('rustup'):
+        return None
+    with tempfile.TemporaryDirectory() as empty:
+        code, out, _ = tools_check.run_check(['rustup', 'run', 'stable', 'rustc', '--version'], cwd=empty,
+                                             env=project_env())
+    found = re.match(r'rustc ([0-9]+\.[0-9]+\.[0-9]+)(\s|$)', out.strip()) if code == 0 else None
+    return found.group(1) if found else None
+
+
+def rust_toolchain_text(version):
+    return ('# Written once by the rust profile of jnterfaces. It is yours from then on: just install never changes it.\n'
+            '# CI and each machine read this file, so they run the same compiler and the same lints. To move to a\n'
+            '# newer Rust, change the channel.\n'
+            '[toolchain]\n'
+            f'channel = "{version}"\n'
+            f'components = [{", ".join(json.dumps(name) for name in RUST_COMPONENTS)}]\n')
+
+
+def pin_rust_toolchain(target, dry_run, quiet=False):
+    """For the rust profile: write rust-toolchain.toml with an exact version when the project has no toolchain file.
+    The version is that of JN_RUST_TOOLCHAIN, else that of the stable toolchain of rustup here. Never overwrite a
+    toolchain file. True when the file was written, or would be in a dry run."""
+    given = rust_pin_override()
+    kept = [name for name in RUST_TOOLCHAIN_FILES if os.path.lexists(target / name)]
+    if kept:
+        if given and not quiet:
+            say(f'{RUST_TOOLCHAIN_VARIABLE} is set, but the project has {kept[0]}, and the installer never changes a '
+                f'toolchain file. To pin another version, change the channel in {kept[0]}.')
+        return False
+    version = given or local_stable_rust()
+    if not version:
+        if not quiet:
+            say(f'The project has no rust-toolchain.toml, and rustup has no stable toolchain here, so the installer '
+                f'{"would write none, unless the programs bring a stable toolchain" if dry_run else "wrote none"}: '
+                f'CI and this machine can run different compilers. Run rustup toolchain install stable '
+                f'and just install again, or set {RUST_TOOLCHAIN_VARIABLE} to a version, such as '
+                f'{RUST_TOOLCHAIN_VARIABLE}=1.95.0 just install.')
+        return False
+    source = (f'the value of {RUST_TOOLCHAIN_VARIABLE}' if given
+              else 'the version of the stable toolchain of rustup on this machine')
+    if dry_run:
+        print(f'Would write rust-toolchain.toml with the channel {version}, {source}')
+        return True
+    try:
+        with open(target / RUST_TOOLCHAIN_FILES[0], 'x') as handle:
+            handle.write(rust_toolchain_text(version))
+    except FileExistsError:
+        return False
+    say(f'Wrote rust-toolchain.toml with the channel {version}, {source}, so that CI and this machine run the same '
+        f'compiler. It is yours now: to pin another version, change the channel. rustup installs that toolchain once.')
+    return True
+
+
 def parts_ok(part):
     """The parts of a base, a tool or a role: {shared file: source file}. scripts/formats.json must name each shared
     file, and a shared file is in lines or in parts, not in both."""
@@ -3780,6 +3855,10 @@ def install_run(argv=None):
     programs = []
     merge_programs(programs, needed_programs(profiles, [name for name in active if name not in leaving], tools)
                    + project_programs((record or {}).get('raw')))
+    # The rust profile pins the toolchain: a bad JN_RUST_TOOLCHAIN stops the run before anything is written.
+    pins_rust = 'rust' in active and 'rust' not in leaving
+    if pins_rust:
+        rust_pin_override()
     works = {}
     missing = missing_expected(target, programs, works)
     if missing and not args.dry_run:
@@ -3909,6 +3988,8 @@ def install_run(argv=None):
                 run_before_remove(target, package, befores[package['name']], True)
         if any(owner.key == 'docs' for owner in gone_roles) and docs_workflow_is_ours(target, workflow_hash):
             print('Would remove .github/workflows/docs-publish.yml, the workflow of the docs role')
+        if pins_rust:
+            pin_rust_toolchain(target, True)
         for name in active:
             init = profiles[name].get('init')
             if init and any(step[1] == name for step in commands) and not (target / init['file']).exists():
@@ -4220,7 +4301,22 @@ def install_run(argv=None):
                 'the docs role, so take it out or change it.')
     write_claude_md(target, False, after)
     # The files are in place now, so a toolchain file such as rust-toolchain.toml counts for the checks and installs.
-    install_programs(target, programs)
+    # Without a stable toolchain here, the pin waits for the install of the programs, which can bring one. Then the
+    # programs are checked again, so that rustup installs the toolchain of the pin and its components.
+    pinned = pin_rust_toolchain(target, False, quiet=True) if pins_rust else True
+    try:
+        install_programs(target, programs)
+    except StackError:
+        # The install failed after the first try of the pin. A program before the failure can have brought a
+        # stable toolchain, so the pin tries again. Else the run says why there is no pin.
+        if not pinned and not pin_rust_toolchain(target, False, quiet=True) and not any(
+                os.path.lexists(target / name) for name in RUST_TOOLCHAIN_FILES):
+            say('The project has no rust-toolchain.toml yet: rustup had no stable toolchain here when the install '
+                'failed. Fix the cause below, for example with rustup default stable, and run just install again, '
+                f'or set {RUST_TOOLCHAIN_VARIABLE} to a version, such as {RUST_TOOLCHAIN_VARIABLE}=1.95.0.')
+        raise
+    if not pinned and pin_rust_toolchain(target, False):
+        install_programs(target, programs)
     print(f'Installed in {target}:')
     for package, _ in steps:
         own = target / record_path(package)

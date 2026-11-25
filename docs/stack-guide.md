@@ -123,9 +123,9 @@ tool that is off does not need its programs.
 - **A program with an install command.** When its check fails, the installer
   runs the install command, and then the check again. It does this at the
   end of the run, after the files of the profile, in the folder of the
-  project. So rustup reads the `rust-toolchain.toml` of the project, if it
-  has one. The rust profile writes no toolchain file, and it keeps the pin of
-  the project. An install with `"install_in": "home"` runs in the home folder,
+  project. So rustup reads the `rust-toolchain.toml` of the project. A rust
+  project with no toolchain file gets one, with an exact version.
+  [A toolchain file](stack-files.md#a-toolchain-file) gives the rules. An install with `"install_in": "home"` runs in the home folder,
   such as `cargo +stable install`. If the check fails again, the run stops
   with an error.
 - **A setup of each clone.** A program with `"each_clone": true`, such as
