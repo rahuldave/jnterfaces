@@ -7,6 +7,10 @@ Other repositories install copies of the skills.
 - Run `just check` before every commit.
 - `just check` runs `just package-lint`, which clones skill-package-maker from
   GitHub, so `just check` needs the network.
+- `just check` builds the docs site with `just docs-check`, the step that the
+  docs role puts in `just check` of each project. A broken page or link
+  fails the step. The step builds the site in a temporary folder, so it
+  changes nothing in `docs/` and in `gh-pages`. The step needs `jlog`.
 - Write Markdown by the nossaifd writing guide, and check it with `just prose-check`.
 - Keep the skills free of paths from one machine. An installed copy has no
   `docs/` folder, so a skill names only files inside `.agents/skills/`.

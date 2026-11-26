@@ -77,13 +77,14 @@ release *args:
 release-check:
     {{release_tag}} --check
 
-# Everything a commit must pass, and each check that CI runs: the programs, the release version, the lint, the manifest and the tests
+# Everything a commit must pass, and each check that CI runs: the programs, the release version, the lint, the manifest, the tests and the docs site
 check:
     just tools-check
     just release-check
     just lint
     just package-lint
     just test
+    just docs-check
 
 # Run the installer on another project, with roles, tools or options: just install-into ../app --defaults lint
 install-into target *args:
@@ -94,9 +95,11 @@ install-into target *args:
 # The documentation site, from docs/, with smalldocs.
 smalldocs := "uvx --quiet smalldocs@0.5.13"
 
-# Check the site: broken links, and options that smalldocs ignores
+# Check the site with the docs-check of the docs role, the step that the role puts in just check of each project. It
+# builds the site into a scratch folder, and fails on each warning of the build, such as a broken link. It writes
+# nothing to docs/ or gh-pages. The step ends with the line jlog step, so it runs with the shell jlog of the role
 docs-check:
-    {{smalldocs}} check docs
+    just --shell jlog --shell-arg sh --shell-arg -cu --justfile .agents/skills/docs/docs.just --working-directory . docs-check
 
 # Preview the site, and build it again on each change
 docs:

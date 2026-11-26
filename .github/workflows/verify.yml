@@ -50,6 +50,9 @@ jobs:
         run: just test
       - name: Validate package manifest with skill-package-maker
         run: just package-lint
+      # The step builds the site into a scratch folder with the smalldocs of the job docs, so a broken page fails here.
+      - name: Check the docs site
+        run: just docs-check
 
   # On a push to main, after the job verify passed, tag the next release with just release. No agent runs here.
   release:
