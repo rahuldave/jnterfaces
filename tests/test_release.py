@@ -84,7 +84,15 @@ def ci_recipes(job):
     hide a recipe from the test with a prefix, an argument or a shell."""
     names = []
     for step in job['steps']:
-        for line in (step.get('run') or '').splitlines():
+        lines = (step.get('run') or '').splitlines()
+        # The step that installs the pinned tools names just in its pins and downloads, and runs no recipe.
+        if step.get('name') == 'Install the pinned tools':
+            # Only a fetch or a tar of just may name it, and a word after just on any other line is a run of just.
+            if any(re.search(r'\bjust\b["\')]*(\s+\S|\s*$)', line) and not re.match(r'\s*(fetch|tar)\s', line)
+                   for line in lines):
+                raise ValueError('the step that installs the pinned tools runs just')
+            continue
+        for line in lines:
             if not re.search(r'\bjust\b', line):
                 continue
             bare = BARE.fullmatch(line.strip())
@@ -128,6 +136,15 @@ class WorkflowTest(unittest.TestCase):
             with self.subTest(line=line), self.assertRaises(ValueError):
                 ci_recipes({'steps': [{'run': f'echo start\n{line}'}]})
         self.assertEqual(ci_recipes({'steps': [{'run': 'just lint\n  just test  '}, {'uses': 'x'}]}), ['lint', 'test'])
+        install = {'name': 'Install the pinned tools', 'run': 'fetch just-1.59.0.tar.gz https://x\n"$bin/just" lint'}
+        with self.assertRaises(ValueError):
+            ci_recipes({'steps': [install]})
+        for line in ('true && just release', 'JUST=1 just release', '( just release )', 'x=$(just --summary)',
+                     '"$bin/just"'):
+            with self.subTest(line=line), self.assertRaises(ValueError):
+                ci_recipes({'steps': [dict(install, run=f'fetch just-1.59.0.tar.gz https://x\n{line}')]})
+        install['run'] = 'fetch just-1.59.0.tar.gz https://x\ntar -xzf "$work/just.tar.gz" -C "$bin" just'
+        self.assertEqual(ci_recipes({'steps': [install]}), [])
 
     def test_check_steps_follows_the_recipes_of_the_steps(self):
         steps = check_steps()
