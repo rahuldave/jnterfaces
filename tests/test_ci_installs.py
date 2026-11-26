@@ -1,4 +1,5 @@
-"""CI and the install hints get jlog and jagt as release binaries from their pinned install.sh, not with cargo."""
+"""The install hints get jlog and jagt as release binaries from their pinned install.sh, and CI never builds them with
+cargo."""
 import json
 import os
 import re
@@ -8,22 +9,18 @@ import sys
 import unittest
 from pathlib import Path
 
-from ruamel.yaml import YAML
-
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'scripts'))
 import install_stack  # noqa: E402
 
 WORKFLOWS = [REPO / '.github/workflows/verify.yml', REPO / '.agents/skills/docs/assets/docs-publish.yml']
 # The release of each program that CI installs.
-TAGS = {'jlog': 'v0.4.0', 'jagt': 'v0.6.4'}
+TAGS = {'jlog': 'v0.5.0', 'jagt': 'v0.6.4'}
 # The release that each install hint names. CI does not install cx.
 HINT_TAGS = dict(TAGS, cx='v0.2.3')
 # The ref of install.sh for each program: the tag of its release.
-REFS = {'jlog': 'v0.4.0', 'jagt': 'v0.6.4', 'cx': 'v0.2.3', 'gest': 'v0.6.0'}
+REFS = {'jlog': 'v0.5.0', 'jagt': 'v0.6.4', 'cx': 'v0.2.3', 'gest': 'v0.6.0'}
 CARGO = re.compile(r'\bcargo\s+(b?install)\b.*\b(jlog|jagt)\b')
-INSTALLER = re.compile(r'curl -fsSL https://raw\.githubusercontent\.com/rahuldave/(jlog|jagt)/([^/\s]+)/scripts/install\.sh'
-                       r' \| sh -s -- --tag (\S+)$')
 # The line that a person runs. It takes install.sh from the pinned ref, never from main, and names the release with --tag.
 HINT = 'curl -fsSL https://raw.githubusercontent.com/rahuldave/{name}/{ref}/scripts/install.sh | sh -s -- --tag {tag}'
 # The release that each install line names.
@@ -70,7 +67,7 @@ def pin_problems(line):
             continue
         hints += 1
         after = line[start + len(hint):]
-        # The tag ends at the end of the line, a space or a mark, so v0.4.0-rc1 fails. The command has no second --tag.
+        # The tag ends at the end of the line, a space or a mark, so v0.5.0-rc1 fails. The command has no second --tag.
         if not re.match(r'(?:$|[\s`"\')]|[.,](?!\w))', after) or '--tag' in re.split(r'[`;|&]', after)[0]:
             problems.append(f'more after the tag of {name}')
     # Each curl or wget on the line is the start of a hint.
@@ -79,35 +76,18 @@ def pin_problems(line):
     return problems, programs
 
 
-def steps(path):
-    return [step for job in YAML(typ='safe').load(path.read_text())['jobs'].values() for step in job['steps']]
-
-
 class WorkflowInstallTests(unittest.TestCase):
     def test_no_workflow_builds_jlog_or_jagt_with_cargo(self):
         for path in WORKFLOWS:
             for number, line in enumerate(path.read_text().splitlines(), 1):
                 self.assertNotRegex(line, CARGO, f'{path.name}:{number}')
 
-    def test_each_install_is_pinned_fails_on_a_failed_download_and_adds_the_folder_to_the_path(self):
-        found = {}
+    def test_no_workflow_runs_an_install_sh_hint(self):
+        # The workflows install jlog and jagt in the step "Install the pinned tools", which checks each download
+        # against a SHA-256 in the file. tests/test_workflow_pins.py checks that step.
         for path in WORKFLOWS:
-            for step in steps(path):
-                lines = [line.strip() for line in str(step.get('run', '')).splitlines() if line.strip()]
-                installs = [INSTALLER.match(line) for line in lines if 'install.sh' in line]
-                if not installs:
-                    continue
-                with self.subTest(workflow=path.name, step=step.get('name')):
-                    self.assertTrue(all(installs), lines)
-                    # The default shell of a run step has no pipefail, so curl could fail and sh still pass.
-                    self.assertEqual(step.get('shell'), 'bash')
-                    self.assertIn('echo "$HOME/.local/bin" >> "$GITHUB_PATH"', lines)
-                    for match in installs:
-                        name, ref, tag = match.groups()
-                        self.assertEqual(tag, TAGS[name])
-                        self.assertEqual(ref, REFS[name])
-                        found.setdefault(path.name, set()).add(name)
-        self.assertEqual(found, {'verify.yml': {'jlog', 'jagt'}, 'docs-publish.yml': {'jlog'}})
+            for number, line in enumerate(logical_lines(path.read_text()), 1):
+                self.assertNotRegex(line, r'install\.sh\s*\|\s*sh\b', f'{path.name}:{number}')
 
     def test_each_version_on_a_line_of_jlog_or_jagt_is_its_pin(self):
         for path in WORKFLOWS:
@@ -146,7 +126,7 @@ class InstallHintTests(unittest.TestCase):
 
     def source_of(self, text, name):
         """Where the build of name from source starts in text, or -1."""
-        marks = {'jlog': 'git checkout v0.4.0'}
+        marks = {'jlog': 'git checkout v0.5.0'}
         mark = marks.get(name, f'--git https://github.com/rahuldave/{name} --tag')
         return text.find(mark) if name == 'jlog' else max(text.find(mark), text.find(mark.replace(' ', '\n', 1)))
 
@@ -198,8 +178,10 @@ class InstallHintTests(unittest.TestCase):
         files = subprocess.run(['git', 'ls-files', '-z'], cwd=REPO, capture_output=True, text=True, check=True).stdout
         found = set()
         for name in files.split('\0'):
-            # The design notes keep the history, and the tests hold sample lines.
-            if not name or name.startswith(('notes/', 'tests/')) or not (REPO / name).is_file():
+            # The design notes keep the history, and the tests hold sample lines. The workflows install from
+            # pinned downloads, which tests/test_workflow_pins.py checks.
+            if (not name or name.startswith(('notes/', 'tests/')) or not (REPO / name).is_file()
+                    or REPO / name in WORKFLOWS):
                 continue
             try:
                 text = (REPO / name).read_text()
@@ -212,33 +194,33 @@ class InstallHintTests(unittest.TestCase):
         self.assertEqual(found, set(REFS))
 
     def test_the_pin_check_catches_each_unpinned_line(self):
-        good = HINT.format(name='jlog', ref='v0.4.0', tag='v0.4.0')
+        good = HINT.format(name='jlog', ref='v0.5.0', tag='v0.5.0')
         self.assertEqual(pin_problems(f'Run `{good}`, then put ~/.local/bin on PATH.'), ([], {'jlog'}))
-        for bad in (good.replace('/v0.4.0/', '/main/'),
-                    good.replace('/v0.4.0/', '/refs/heads/main/'),
-                    'curl -fsSL https://github.com/rahuldave/jlog/raw/main/scripts/install.sh | sh -s -- --tag v0.4.0',
+        for bad in (good.replace('/v0.5.0/', '/main/'),
+                    good.replace('/v0.5.0/', '/refs/heads/main/'),
+                    'curl -fsSL https://github.com/rahuldave/jlog/raw/main/scripts/install.sh | sh -s -- --tag v0.5.0',
                     good.replace('rahuldave', 'RahulDave'),
                     good + '-rc1',
                     good + ' --tag v0.2.0',
-                    good.replace('--tag v0.4.0', '--tag v0.2.0'),
+                    good.replace('--tag v0.5.0', '--tag v0.2.0'),
                     'curl -fsSL https://raw.githubusercontent.com/rahuldave/jagt/v0.6.3/scripts/install.sh | sh -s -- --tag v0.6.3',
                     # A pinned hint on the line does not excuse a second install line beside it.
-                    good + ' && ' + good.replace('/v0.4.0/', '/main/'),
-                    good.replace('/v0.4.0/', '/main/') + '; ' + good,
+                    good + ' && ' + good.replace('/v0.5.0/', '/main/'),
+                    good.replace('/v0.5.0/', '/main/') + '; ' + good,
                     good + ' && curl -fsSL https://git.io/x | sh',
                     # A host, an owner or a name of install.sh that the check of rahuldave and install.sh does not see.
-                    'curl -fsSL https://git.io/jlog | sh -s -- --tag v0.4.0',
-                    'curl -fsSL https://raw.githubusercontent.com/$OWNER/jlog/main/scripts/install.sh | sh -s -- --tag v0.4.0',
-                    good.replace('/v0.4.0/', '/main/').replace('install.sh', 'install%2esh'),
-                    'wget -qO- https://tinyurl.com/abc | sh -s -- --tag v0.4.0',
+                    'curl -fsSL https://git.io/jlog | sh -s -- --tag v0.5.0',
+                    'curl -fsSL https://raw.githubusercontent.com/$OWNER/jlog/main/scripts/install.sh | sh -s -- --tag v0.5.0',
+                    good.replace('/v0.5.0/', '/main/').replace('install.sh', 'install%2esh'),
+                    'wget -qO- https://tinyurl.com/abc | sh -s -- --tag v0.5.0',
                     # A line that ends in a backslash continues on the next line.
-                    'curl -fsSL https://raw.githubusercontent.com/rahuldave/\\\njlog/main/scripts/install.sh | sh -s -- --tag v0.4.0',
+                    'curl -fsSL https://raw.githubusercontent.com/rahuldave/\\\njlog/main/scripts/install.sh | sh -s -- --tag v0.5.0',
                     good + ' \\\n  --tag v0.2.0',
                     good + '.1',
                     # A variable, a clone or a saved copy holds the owner or the ref on another line.
                     'curl -fsSL https://raw.githubusercontent.com/$REPO/main/scripts/install.sh | sh',
                     'curl -fsSL https://raw.githubusercontent.com/${{ env.REPO }}/main/scripts/install.sh | sh',
-                    'sh jlog/scripts/install.sh --tag v0.4.0',
+                    'sh jlog/scripts/install.sh --tag v0.5.0',
                     'sh install.sh --tag v0.2.0',
                     'cd jlog/scripts && sh install.sh',
                     'cd {{jagt_dir}}/scripts && ./install.sh',

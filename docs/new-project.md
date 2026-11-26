@@ -40,11 +40,11 @@ The install line of jlog downloads the release binary, checks its SHA-256,
 and puts jlog in `~/.local/bin`. Put that folder on PATH.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.4.0/scripts/install.sh | sh -s -- --tag v0.4.0
+curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.5.0/scripts/install.sh | sh -s -- --tag v0.5.0
 ```
 
 To build jlog from source instead, clone https://github.com/rahuldave/jlog,
-run `git checkout v0.4.0` in the clone, then run `just install` there. That
+run `git checkout v0.5.0` in the clone, then run `just install` there. That
 build needs Rust, from https://rustup.rs/.
 
 The install line of gest works the same way. It installs the fork of

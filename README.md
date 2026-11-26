@@ -133,11 +133,11 @@ file stays.
    on PATH.
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.4.0/scripts/install.sh | sh -s -- --tag v0.4.0
+   curl -fsSL https://raw.githubusercontent.com/rahuldave/jlog/v0.5.0/scripts/install.sh | sh -s -- --tag v0.5.0
    ```
 
    To build jlog from source instead, clone
-   https://github.com/rahuldave/jlog, run `git checkout v0.4.0` in the
+   https://github.com/rahuldave/jlog, run `git checkout v0.5.0` in the
    clone, then run `just install`.
 2. Choose the folder of the package clones. The default is
    `~/.local/share/skill-packages`. To use another folder, export
@@ -527,6 +527,51 @@ the repository, to push the tag. So nobody tags by hand. The script is
 `scripts/release_tag.py`, a copy of the script of the gpa skill of
 agent_gest_git_skills. The section "Release tags" of its
 `docs/integration_delivery_workflow.md` gives the rules.
+
+**The pins of the workflows.** The jobs of `.github/workflows/verify.yml`
+install tools, and so does `.agents/skills/docs/assets/docs-publish.yml`,
+which the docs role writes into a project. In each job, one step "Install the
+pinned tools" downloads each tool at an exact version. The tools are `just`
+1.59.0, `uv` 0.13.7, jlog v0.5.0, jagt v0.6.4 and the wheel of smalldocs
+0.5.13, and each job gets only the tools that it uses. Each job runs on the
+image `ubuntu-26.04`. The label `ubuntu-latest` moves to each new image, so
+no job uses it.
+
+Each download must have the SHA-256 that the step pins, for Linux on x86_64
+and on aarch64, so a changed file on a server stops the job. uv takes the
+dependencies of smalldocs from PyPI. No action installs a tool. Each action is
+pinned by the full SHA of its commit, with its version in a note after it.
+
+`tests/test_workflow_pins.py` fails on an action with no SHA and on a job
+with no exact image. It fails on a script that a download gives to a shell,
+on an install with `brew`, and on a tool with two versions or two SHA-256
+values. It also fails when the jlog of CI is not the jlog of the installer,
+the manifest and the docs. The CI starters of agent_gest_git_skills pin the
+same tools, and its tests compare their pins with these.
+
+To bump a pin:
+
+1. Pick a version that is at least two weeks old. The tools of
+   `rahuldave/*`, such as jlog, jagt and smalldocs, are part of this stack, so
+   take their new release when it is out.
+2. For an action, find the commit of its tag with `git ls-remote
+   https://github.com/OWNER/ACTION refs/tags/vX.Y.Z 'refs/tags/vX.Y.Z^{}'`.
+   The line that ends in `^{}` gives the commit of an annotated tag. Write
+   that SHA and the note `# vX.Y.Z`.
+3. For a tool, change its version in its `fetch` lines and in its pins, in
+   each job that installs it. Then change the other places of the version:
+   - For jlog, the `--tag`, the folder `release/vX.Y.Z`, the commit of the
+     tag in the note and in the URL of `install.sh`, and the hints of the
+     installer, the manifest and the docs.
+   - For smalldocs, the `Justfile`, `.agents/skills/docs/docs.just` and the
+     step "Install the Rust toolchain of the API pages" of the template.
+   - For jagt, the hints of the README and the docs.
+4. Write the SHA-256 of each new download in the list `pins`. Get it with
+   `curl -fsSL URL | sha256sum`.
+5. Run `JN_TEST_NETWORK=1 just test tests/test_workflow_pins.py`. It downloads
+   each pin and checks its SHA-256, and it checks the SHA of each action
+   against its tag. Then make the same change in the starters of
+   agent_gest_git_skills.
 
 The test of the jagt demo runs only with jagt 0.3.0 or later. If the `jagt`
 on your PATH is older, set `JAGT_BIN` to a newer binary.

@@ -68,8 +68,10 @@ def pin():
 
 class NoCacheTests(unittest.TestCase):
     def test_the_workflow_keeps_no_cache_of_rust(self):
-        # The steps, without the comments, which explain why there is no cache.
-        text = repr(steps())
+        # The steps, without the comments, which explain why there is no cache. The step that installs the pinned
+        # tools names $target/ in its downloads, and tests/test_workflow_pins.py checks it.
+        text = repr([item for item in steps() if item.get('name') != 'Install the pinned tools'])
+        self.assertNotIn('actions/cache', WORKFLOW.read_text())
         self.assertNotIn('actions/cache', text)
         for word in ('target/', 'Cargo.lock', '.cargo/registry', 'cache-primary-key', 'llvm-cov'):
             self.assertNotIn(word, text)
@@ -87,7 +89,7 @@ class NoCacheTests(unittest.TestCase):
     def test_the_toolchain_comes_before_the_publish(self):
         names = [item.get('name') or item.get('uses') for item in steps()]
         self.assertLess(names.index(NAME), names.index('Publish'))
-        self.assertLess(names.index('astral-sh/setup-uv@v6'), names.index(NAME))
+        self.assertLess(names.index('Install the pinned tools'), names.index(NAME))
         self.assertEqual(step('Publish')['run'], 'just docs-publish')
 
     def test_the_step_takes_the_smalldocs_of_the_recipes(self):
