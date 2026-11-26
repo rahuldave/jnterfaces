@@ -99,12 +99,13 @@ class WorkflowTest(unittest.TestCase):
         self.flow = workflow()
         self.jobs = self.flow['jobs']
 
-    def test_only_the_job_release_can_write(self):
+    def test_only_the_jobs_release_and_docs_can_write(self):
         self.assertEqual(self.flow['permissions'], {'contents': 'read'})
         for name, job in self.jobs.items():
-            if name != 'release':
-                self.assertNotEqual(job.get('permissions', {}).get('contents'), 'write', name)
+            if name not in ('release', 'docs'):
+                self.assertNotIn('permissions', job, name)
         self.assertEqual(self.jobs['release']['permissions'], {'contents': 'write'})
+        self.assertEqual(self.jobs['docs']['permissions'], {'contents': 'write'})
 
     def test_release_runs_after_verify_on_main(self):
         job = self.jobs['release']
@@ -137,6 +138,64 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(checkout_depth(job), 0)
         runs = [step.get('run') for step in job['steps']]
         self.assertTrue('just release-check' in runs or 'just check' in runs, 'CI does not run release-check')
+
+
+# The lines that name github-actions[bot] as the author of a commit or a tag.
+BOT_LINES = ['git config user.name "github-actions[bot]"',
+             'git config user.email "41898282+github-actions[bot]@users.noreply.github.com"']
+TEMPLATE = ROOT / '.agents' / 'skills' / 'docs' / 'assets' / 'docs-publish.yml'
+
+
+def step_lines(step):
+    return [line.strip() for line in (step.get('run') or '').splitlines() if line.strip()]
+
+
+class DocsJobTest(unittest.TestCase):
+    """The job docs publishes the site of the tip of main to gh-pages, after the job verify passed, and no agent."""
+
+    def setUp(self):
+        self.job = workflow()['jobs']['docs']
+
+    def test_docs_runs_after_verify_on_a_push_to_main(self):
+        self.assertEqual(self.job['needs'], 'verify')
+        self.assertEqual(self.job['if'], "github.event_name == 'push' && github.ref == 'refs/heads/main'")
+
+    def test_one_publish_at_a_time_and_the_newer_wins(self):
+        self.assertEqual(self.job['concurrency'], {'group': 'docs', 'cancel-in-progress': True})
+
+    def test_the_bot_is_the_author_of_the_commit_of_gh_pages(self):
+        lines = [line for step in self.job['steps'] for line in step_lines(step)]
+        for line in BOT_LINES:
+            self.assertIn(line, lines)
+
+    def test_the_bot_is_the_author_in_the_template_of_the_docs_role_too(self):
+        # The job and the workflow that the docs role writes for a project commit to gh-pages as the same author.
+        lines = [line.strip() for line in TEMPLATE.read_text().splitlines()]
+        for line in BOT_LINES:
+            self.assertIn(line, lines)
+
+    def test_docs_publishes_the_tip_of_main_and_not_its_own_commit(self):
+        # A run that publishes its own commit, after the run of a newer push, would put an older site on gh-pages.
+        last = self.job['steps'][-1]
+        self.assertEqual(last.get('shell'), 'bash', 'bash in Actions stops at the first failed line')
+        self.assertEqual(step_lines(last)[:2], ['git fetch --quiet origin main', 'git checkout --quiet --detach FETCH_HEAD'])
+        self.assertEqual(step_lines(last)[-1], 'just docs-publish')
+        for step in self.job['steps'][:-1]:
+            self.assertNotIn('docs-publish', step.get('run') or '', step.get('name'))
+
+    def test_the_author_comes_before_the_publish(self):
+        names = [step.get('name') for step in self.job['steps']]
+        self.assertLess(names.index('Name the author of the commit of gh-pages'), len(names) - 1)
+
+    def test_docs_publish_builds_the_site_in_strict_mode_first(self):
+        recipes = json.loads(run(['just', '--dump', '--dump-format', 'json'], ROOT).stdout)['recipes']
+        self.assertIn('docs-build', [dependency['recipe'] for dependency in recipes['docs-publish']['dependencies']])
+        self.assertIn('--strict', ' '.join(recipe_lines(recipes['docs-build'])))
+
+    def test_no_failure_of_docs_is_hidden(self):
+        self.assertNotIn('continue-on-error', self.job)
+        for step in self.job['steps']:
+            self.assertNotIn('continue-on-error', step, step.get('name') or step.get('uses'))
 
 
 class CopyTest(unittest.TestCase):
