@@ -12,6 +12,7 @@ agents read. The interface has three parts:
 
 The documentation site is https://rahuldave.github.io/jnterfaces/. It is built from `docs/`.
 `just docs` previews it, and `just docs-publish` publishes it to the branch `gh-pages`.
+After a push to `main` passes `verify`, the CI job `docs` runs. It publishes the site of the newest commit of `main`.
 
 | Skill | Use it when |
 |---|---|
